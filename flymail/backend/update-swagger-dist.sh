@@ -1,0 +1,1 @@
+degit swagger-api/swagger-ui/dist swagger --force

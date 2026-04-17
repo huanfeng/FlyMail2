@@ -1,0 +1,34 @@
+.dialogBody {
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.section {
+  margin-bottom: 1.25rem;
+}
+
+.section h4 {
+  margin: 0 0 0.5rem 0;
+  font-weight: var(--fw-heading);
+  font-size: 1rem;
+}
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.formLabel {
+  min-width: 140px;
+  text-align: right;
+  color: var(--text-color);
+  font-weight: 600;
+}

@@ -1,0 +1,38 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.cursor/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & logs
+*.db
+*.db-journal
+logs/
+*.log
+
+# Node
+node_modules/
+dist/
+
+# OMC
+.omc/
+.remember/
+
+# Build
+bin/

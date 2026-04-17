@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+body {
+  background: var(--p-surface-50);
+}
+
+:root {
+  --fw-heading: 550; /* 标题字重 */
+  --fw-strong: 500;
+  --fw-menu: 550; /* 菜单字重 */
+  --fw-label: 550; /* form label 字重 */
+  --fw-table: 520;
+}
+
+.app-dark body {
+  background: var(--p-surface-950);
+}
+
+.page {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-panel {
+  background: var(--p-surface-0);
+  border: 1px solid var(--p-surface-200);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  overflow: visible;
+  /* min-width: 0; */
+}
+
+.app-dark .page-panel {
+  background: var(--p-surface-900);
+  border-color: var(--p-surface-800);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* flex-wrap: wrap; */
+  padding: 0.25rem 0.75rem;
+}
+
+.page-header-title h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: var(--fw-heading);
+}
+
+.page-header-title p {
+  margin: 0.25rem 0 0;
+  color: var(--p-text-muted-color);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.page-header-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 260px;
+}
+
+.page-header-search .p-inputtext {
+  width: 100%;
+  padding-left: 2.75rem;
+  height: 2.75rem;
+}
+
+.page-header-search .pi-search {
+  left: 0.9rem;
+}
+
+.table-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  /* min-width: 0; */
+}
+
+.table-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  /* min-width: 0; */
+}
+
+.table-wrapper {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.table-fill.p-datatable {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.table-fill .p-datatable-wrapper {
+  flex: 1 1 auto;
+  max-height: 100%;
+}
+
+.table-fill .p-paginator {
+  margin: 0;
+  border-top: 1px solid var(--p-surface-200);
+  border-radius: 0 0 8px 8px;
+}
+
+.app-dark .table-fill .p-paginator {
+  border-color: var(--p-surface-700);
+}
+
+.table-fill .p-datatable-thead > tr > th,
+.table-fill .p-datatable-tbody > tr > td {
+  border-width: 0 0 1px 0;
+}
+
+.p-datatable-scrollable .p-datatable-wrapper {
+  overflow: auto !important;
+}
+
+/* Unified font weights */
+label,
+.form-label,
+.p-field-label,
+.p-float-label label {
+  font-weight: var(--fw-label) !important;
+}
+
+.p-datatable .p-datatable-thead > tr > th,
+.p-datatable .p-column-title {
+  font-weight: var(--fw-table) !important;
+}

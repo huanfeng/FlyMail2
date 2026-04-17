@@ -1,0 +1,4595 @@
+openapi: 3.0.3
+info:
+  title: FlyMail API
+  description: |
+    FlyMail 是一款自托管的单用户邮箱客户端后台，支持多邮箱账户管理。
+
+    ## 功能特性
+    - 多邮箱账户管理
+    - SMTP/IMAP 协议支持
+    - JWT 认证系统
+    - 实时通讯 (SSE)
+    - 定时任务调度
+
+    ## 认证方式
+    API 使用 Bearer Token 认证。获取 token 后，需要在请求头中添加：
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    ## 国际化支持
+    API 响应中的 `message` 字段返回消息ID而不是具体文本，支持前端国际化：
+    - 消息ID格式：`msg.category.action` (如：`msg.auth.login_success`)
+    - 前端根据消息ID和用户语言偏好显示对应文本
+    - 支持的语言：简体中文 (zh-CN)、英文 (en-US)
+  version: 1.0.0
+  contact:
+    name: FlyMail API Support
+  license:
+    name: MIT License
+
+servers:
+  - url: http://localhost:8080/api/v1
+
+security:
+  - BearerAuth: []
+
+paths:
+  # 认证相关
+  /auth/login:
+    post:
+      tags:
+        - 认证
+      summary: 用户登录
+      description: 使用用户名和密码登录，获取访问令牌
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: admin
+              password: admin123
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                code: 0
+                message: msg.auth.login_success
+                data:
+                  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  user:
+                    user_id: 1
+                    username: admin
+                    is_admin: true
+                error: null
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1008
+                message: msg.auth.invalid_credentials
+                data: null
+                error:
+                  details: 用户名或密码错误
+                  suggestion: 请检查您的凭证并重试
+
+  /auth/refresh:
+    post:
+      tags:
+        - 认证
+      summary: 刷新访问令牌
+      description: 使用刷新令牌获取新的访问令牌
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                code: 0
+                message: msg.auth.token_refreshed
+                data:
+                  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  user:
+                    user_id: 1
+                    username: admin
+                    is_admin: true
+                error: null
+        '401':
+          description: 刷新令牌无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1010
+                message: msg.auth.token_invalid
+                data: null
+                error:
+                  details: 刷新令牌已过期或无效
+
+  /auth/me:
+    get:
+      tags:
+        - 认证
+      summary: 获取当前用户信息
+      description: 获取当前登录用户的详细信息
+      responses:
+        '200':
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user_id:
+                            type: integer
+                          username:
+                            type: string
+                          email:
+                            type: string
+                          is_admin:
+                            type: boolean
+                          created_at:
+                            type: string
+                            format: date-time
+                          last_login:
+                            type: string
+                            format: date-time
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  user_id: 1
+                  username: admin
+                  email: admin@example.com
+                  is_admin: true
+                  created_at: 2024-01-01T00:00:00Z
+                  last_login: 2024-01-08T10:00:00Z
+                error: null
+
+  /auth/admin/credentials:
+    put:
+      tags:
+        - 认证
+      summary: 更新管理员凭据
+      description: 更新管理员的用户名、邮箱和密码（需要管理员权限）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: 新的用户名（可选）
+                  minLength: 3
+                  maxLength: 32
+                  example: admin
+                email:
+                  type: string
+                  description: 新的邮箱地址（可选）
+                  format: email
+                  example: admin@example.com
+                password:
+                  type: string
+                  description: 新的密码（可选）
+                  minLength: 6
+                  maxLength: 128
+                  example: newPassword123
+                old_password:
+                  type: string
+                  description: 当前密码（修改密码时必填）
+                  example: currentPassword123
+            examples:
+              update_all:
+                summary: 更新所有字段
+                value:
+                  username: newadmin
+                  email: newadmin@example.com
+                  password: newPassword123
+                  old_password: currentPassword123
+              update_username_only:
+                summary: 仅更新用户名
+                value:
+                  username: newadmin
+              update_email_only:
+                summary: 仅更新邮箱
+                value:
+                  email: newemail@example.com
+              update_password:
+                summary: 更新密码
+                value:
+                  password: newPassword123
+                  old_password: currentPassword123
+      responses:
+        '200':
+          description: 凭据更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.update_success
+                data: null
+                error: null
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                validation_error:
+                  summary: 验证失败
+                  value:
+                    code: 1007
+                    message: msg.validation.failed
+                    data: null
+                    error:
+                      field: password
+                      reason: 密码长度不符合要求
+                incorrect_password:
+                  summary: 旧密码错误
+                  value:
+                    code: 1008
+                    message: msg.auth.invalid_credentials
+                    data: null
+                    error:
+                      details: 提供的旧密码不正确
+                      suggestion: 请验证您的当前密码并重试
+        '403':
+          description: 权限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1011
+                message: 权限不足
+                data: null
+                error:
+                  details: 只有管理员可以执行此操作
+
+  # 邮箱账户管理
+  /accounts:
+    get:
+      tags:
+        - 邮箱账户
+      summary: 获取账户列表
+      description: 获取当前用户的所有邮箱账户列表
+      responses:
+        '200':
+          description: 账户列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accounts:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/EmailAccount'
+                          count:
+                            type: integer
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  accounts:
+                    - account_id: 1
+                      name: 主邮箱
+                      email: user@example.com
+                      type: personal
+                      is_active: true
+                  count: 1
+                error: null
+
+    post:
+      tags:
+        - 邮箱账户
+      summary: 创建邮箱账户
+      description: 添加新的邮箱账户
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: 账户创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          account:
+                            $ref: '#/components/schemas/EmailAccount'
+              example:
+                code: 0
+                message: msg.account.created
+                data:
+                  account:
+                    account_id: 2
+                    name: 新邮箱
+                    email: new@example.com
+                    type: work
+                    is_active: true
+                error: null
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1007
+                message: msg.validation.failed
+                data: null
+                error:
+                  field: email
+                  reason: 邮箱格式不正确
+
+  /accounts/{account_id}:
+    get:
+      tags:
+        - 邮箱账户
+      summary: 获取特定账户
+      description: 根据 ID 获取特定的邮箱账户信息
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 账户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailAccount'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  account_id: 1
+                  name: 主邮箱
+                  email: user@example.com
+                  type: personal
+                  is_active: true
+                error: null
+        '404':
+          description: 账户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 3002
+                message: 账户不存在
+                data: null
+                error:
+                  details: 找不到指定的邮箱账户
+
+    put:
+      tags:
+        - 邮箱账户
+      summary: 更新账户
+      description: 更新指定的邮箱账户信息
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.account.updated
+                data: null
+                error: null
+
+    delete:
+      tags:
+        - 邮箱账户
+      summary: 删除账户
+      description: 删除指定的邮箱账户
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.account.deleted
+                data: null
+                error: null
+
+  /accounts/{account_id}/sync-status:
+    get:
+      tags:
+        - 邮箱账户
+      summary: 获取账户同步状态
+      description: 获取指定账户的同步状态信息
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          is_syncing:
+                            type: boolean
+                            description: 是否正在同步
+                          is_full_synced:
+                            type: boolean
+                            description: 是否已完成初始全量同步
+                          sync_progress:
+                            type: integer
+                            minimum: 0
+                            maximum: 100
+                            description: 同步进度百分比
+                          sync_error:
+                            type: string
+                            description: 最后的同步错误信息
+                          last_sync:
+                            type: string
+                            format: date-time
+                            nullable: true
+                            description: 最后同步时间
+                          last_sync_error:
+                            type: string
+                            format: date-time
+                            nullable: true
+                            description: 最后同步错误时间
+                          initial_sync_option:
+                            type: string
+                            enum: [none, recent_days, recent_count, full]
+                            description: 初始同步选项
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  is_syncing: false
+                  is_full_synced: true
+                  sync_progress: 100
+                  sync_error: ""
+                  last_sync: "2024-01-15T10:30:00Z"
+                  last_sync_error: null
+                  initial_sync_option: "recent_days"
+                error: null
+        '404':
+          description: 账户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/order:
+    put:
+      tags:
+        - 邮箱账户
+      summary: 更新账户排序
+      description: 批量更新邮箱账户的显示顺序
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      account_id:
+                        type: integer
+                        description: 账户 ID
+                      sort_order:
+                        type: integer
+                        description: 排序值（值越小越靠前）
+                    required:
+                      - account_id
+                      - sort_order
+                  description: 账户ID和排序值的映射列表
+              required:
+                - account_orders
+            example:
+              account_orders:
+                - account_id: 1
+                  sort_order: 1
+                - account_id: 3
+                  sort_order: 2
+                - account_id: 2
+                  sort_order: 3
+      responses:
+        '200':
+          description: 排序更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.update_success
+                data: null
+                error: null
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1007
+                message: msg.validation.failed
+                data: null
+                error:
+                  details: 账户排序值重复
+
+  /accounts/temp_test:
+    post:
+      tags:
+        - 邮箱账户
+      summary: 测试账户配置
+      description: 测试邮件账户配置是否正确，不保存到数据库
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 账户名称
+                email:
+                  type: string
+                  format: email
+                  description: 邮箱地址
+                type:
+                  type: string
+                  enum: [smtp, imap, oauth]
+                  description: 账户类型
+                imap_server:
+                  type: string
+                  description: IMAP 服务器地址
+                imap_port:
+                  type: integer
+                  description: IMAP 端口号
+                imap_ssl:
+                  type: boolean
+                  description: IMAP 是否使用 SSL
+                smtp_server:
+                  type: string
+                  description: SMTP 服务器地址
+                smtp_port:
+                  type: integer
+                  description: SMTP 端口号
+                smtp_ssl:
+                  type: boolean
+                  description: SMTP 是否使用 SSL
+                username:
+                  type: string
+                  description: 用户名
+                password:
+                  type: string
+                  description: 密码
+                oauth_token:
+                  type: string
+                  description: OAuth 令牌
+                oauth_refresh_token:
+                  type: string
+                  description: OAuth 刷新令牌
+              required:
+                - name
+                - email
+                - type
+                - username
+                - password
+            example:
+              name: 测试账户
+              email: test@example.com
+              type: imap
+              imap_server: imap.example.com
+              imap_port: 993
+              imap_ssl: true
+              smtp_server: smtp.example.com
+              smtp_port: 465
+              smtp_ssl: true
+              username: test@example.com
+              password: your-password
+      responses:
+        '200':
+          description: 账户测试成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          test_result:
+                            type: object
+                            properties:
+                              imap:
+                                type: boolean
+                                description: IMAP 连接是否成功
+                              smtp:
+                                type: boolean
+                                description: SMTP 连接是否成功
+                              supports_idle:
+                                type: boolean
+                                description: 是否支持 IDLE 扩展
+                              capabilities:
+                                type: array
+                                items:
+                                  type: string
+                                description: 服务器支持的功能列表
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  test_result:
+                    imap: true
+                    smtp: true
+                    supports_idle: true
+                    capabilities: ["IMAP4rev1", "IDLE", "NAMESPACE", "ID"]
+                error: null
+        '400':
+          description: 账户测试失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1002
+                message: msg.account.test_failed
+                data: null
+                error:
+                  details: 无法连接到邮件服务器
+                  suggestion: 请检查服务器设置和凭据
+
+  /accounts/{account_id}/send:
+    post:
+      tags:
+        - 邮件操作
+      summary: 发送邮件
+      description: 使用指定账户发送邮件
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailRequest'
+      responses:
+        '200':
+          description: 邮件发送成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.email.sent
+                data: null
+                error: null
+        '400':
+          description: 发送失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 2003
+                message: msg.email.send_failed
+                data: null
+                error:
+                  details: SMTP连接失败
+                  suggestion: 请检查您的SMTP设置并重试
+
+  /accounts/{account_id}/sync:
+    post:
+      tags:
+        - 邮件操作
+      summary: 同步邮件账户
+      description: 触发指定账户的邮件同步操作
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  default: 100
+                  minimum: 0
+                  description: 同步邮件数量限制，0表示同步所有邮件
+                force:
+                  type: boolean
+                  default: false
+                  description: 强制全量同步
+                folders:
+                  type: array
+                  items:
+                    type: string
+                  description: 要同步的文件夹列表（原始名称），不指定则同步所有文件夹
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+                  default: normal
+                  description: 任务优先级
+      responses:
+        '200':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          task_id:
+                            type: string
+                            description: 任务ID
+                          status:
+                            type: string
+                            description: 任务状态
+                          created_at:
+                            type: string
+                            format: date-time
+              example:
+                code: 0
+                message: msg.task.created
+                data:
+                  task_id: "550e8400-e29b-41d4-a716-446655440000"
+                  status: "pending"
+                  created_at: "2024-01-08T12:00:00Z"
+
+  /accounts/{account_id}/test:
+    post:
+      tags:
+        - 邮件操作
+      summary: 测试账户连接
+      description: 测试指定账户的连接是否正常
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 连接测试成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          account_id:
+                            type: integer
+                          tested_at:
+                            type: string
+                            format: date-time
+                          imap:
+                            type: boolean
+                            description: IMAP 连接状态
+                          smtp:
+                            type: boolean
+                            description: SMTP 连接状态
+                          supports_idle:
+                            type: boolean
+                            description: 是否支持 IDLE 扩展
+                          capabilities:
+                            type: array
+                            items:
+                              type: string
+                            description: 服务器支持的功能列表
+              example:
+                code: 0
+                message: msg.account.test_success
+                data:
+                  account_id: 1
+                  tested_at: 2024-01-08T12:00:00Z
+                  imap: true
+                  smtp: true
+                  supports_idle: true
+                  capabilities: ["IMAP4rev1", "IDLE", "NAMESPACE", "ID"]
+                error: null
+        '400':
+          description: 连接测试失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 3004
+                message: msg.account.test_failed
+                data: null
+                error:
+                  details: 无法连接到IMAP服务器
+                  suggestion: 请检查服务器设置和凭据
+
+  /accounts/{account_id}/tasks/monitor:
+    post:
+      tags:
+        - 任务管理
+      summary: 创建邮件监控任务
+      description: 为指定账户创建邮件监控任务（循环执行）
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '201':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfig'
+              example:
+                code: 0
+                message: msg.task.created
+                data:
+                  id: 1
+                  task_type: loop
+                  task_name: email_monitor
+                  task_id: email_monitor_account_1
+                  name: 邮件监控 - user@example.com
+                  description: 监控邮箱 user@example.com 的新邮件
+                  is_active: true
+                  priority: normal
+                  loop_interval: 60
+                error: null
+        '400':
+          description: 请求错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{account_id}/tasks/sync:
+    post:
+      tags:
+        - 任务管理
+      summary: 创建邮件同步任务
+      description: 为指定账户创建历史邮件同步任务（单次执行）
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '201':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfig'
+              example:
+                code: 0
+                message: msg.task.created
+                data:
+                  id: 2
+                  task_type: once
+                  task_name: email_sync_history
+                  task_id: email_sync_history_account_1_1704783600
+                  name: 同步历史邮件 - user@example.com
+                  description: 同步邮箱 user@example.com 最近 30 天的历史邮件
+                  is_active: true
+                  priority: high
+                error: null
+        '400':
+          description: 请求错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 文件夹管理
+  /accounts/{account_id}/folders:
+    get:
+      tags:
+        - 文件夹管理
+      summary: 获取文件夹列表
+      description: 获取指定账户的文件夹列表
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 文件夹列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          folders:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Folder'
+              example:
+                code: 0
+                message: SUCCESS
+                data:
+                  folders:
+                    - folder_id: 1
+                      account_id: 1
+                      name: 收件箱
+                      raw_name: INBOX
+                      type: inbox
+                      delimiter: /
+                      parent_name: ""
+                      flags: "\\HasNoChildren"
+                      email_count: 100
+                      unread_count: 10
+                      last_sync_at: 2024-01-08T10:00:00Z
+                      created_at: 2024-01-01T00:00:00Z
+                      updated_at: 2024-01-08T10:00:00Z
+                    - folder_id: 2
+                      account_id: 1
+                      name: 已发送
+                      raw_name: Sent
+                      type: sent
+                      delimiter: /
+                      parent_name: ""
+                      flags: "\\HasNoChildren"
+                      email_count: 50
+                      unread_count: 0
+                      last_sync_at: 2024-01-08T10:00:00Z
+                      created_at: 2024-01-01T00:00:00Z
+                      updated_at: 2024-01-08T10:00:00Z
+                error: null
+        '404':
+          description: 账户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{account_id}/folders/sync:
+    post:
+      tags:
+        - 文件夹管理
+      summary: 同步文件夹列表
+      description: 从 IMAP 服务器同步文件夹列表
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 同步成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          folders:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Folder'
+                          count:
+                            type: integer
+                            description: 文件夹数量
+                          synced_at:
+                            type: string
+                            format: date-time
+                            description: 同步时间
+              example:
+                code: 0
+                message: SYNC_SUCCESS
+                data:
+                  folders:
+                    - folder_id: 1
+                      account_id: 1
+                      name: 收件箱
+                      raw_name: INBOX
+                      type: inbox
+                      email_count: 0
+                      unread_count: 0
+                  count: 5
+                  synced_at: 2024-01-08T12:00:00Z
+                error: null
+        '400':
+          description: 请求错误或不支持的账户类型
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 账户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{account_id}/folders/order:
+    put:
+      tags:
+        - 文件夹管理
+      summary: 更新文件夹排序
+      description: 批量更新指定账户的文件夹显示顺序
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      folder_id:
+                        type: integer
+                        description: 文件夹 ID
+                      sort_order:
+                        type: integer
+                        description: 排序值（值越小越靠前）
+                    required:
+                      - folder_id
+                      - sort_order
+                  description: 文件夹ID和排序值的映射列表
+              required:
+                - folder_orders
+            example:
+              folder_orders:
+                - folder_id: 1
+                  sort_order: 1
+                - folder_id: 5
+                  sort_order: 2
+                - folder_id: 3
+                  sort_order: 3
+      responses:
+        '200':
+          description: 排序更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.update_success
+                data: null
+                error: null
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 1007
+                message: msg.validation.failed
+                data: null
+                error:
+                  details: 文件夹排序值重复
+        '404':
+          description: 账户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 邮件管理
+  /emails:
+    get:
+      tags:
+        - 邮件管理
+      summary: 获取邮件列表
+      description: 获取邮件列表，支持分页和筛选
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: 每页数量
+        - name: account_id
+          in: query
+          schema:
+            type: integer
+          description: 账户 ID 筛选
+        - name: folder_id
+          in: query
+          schema:
+            type: integer
+          description: 文件夹 ID 筛选
+        - name: folder
+          in: query
+          schema:
+            type: string
+          description: 文件夹名称筛选（兼容旧版本）
+        - name: virtual_folder
+          in: query
+          schema:
+            type: string
+            enum: [all-inbox, all-starred, all-unread, all-sent, all-drafts, all-trash, all-junk, all-archive]
+          description: 虚拟文件夹类型
+          example: all-inbox
+        - name: is_read
+          in: query
+          schema:
+            type: boolean
+          description: 是否已读筛选
+        - name: is_starred
+          in: query
+          schema:
+            type: boolean
+          description: 是否星标筛选
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: 搜索关键词（支持主题、正文、发件人、收件人）
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [date, subject, from, size]
+            default: date
+          description: 排序字段
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: 排序方向
+      responses:
+        '200':
+          description: 邮件列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PageData'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  list:
+                    - email_id: 1
+                      subject: 测试邮件
+                      from: sender@example.com
+                      date: 2024-01-08T10:00:00Z
+                      is_read: true
+                  page: 1
+                  page_size: 50
+                  total: 100
+                  total_pages: 2
+                error: null
+
+  /emails/{email_id}:
+    get:
+      tags:
+        - 邮件管理
+      summary: 获取邮件详情
+      description: 根据 ID 获取邮件的详细信息
+      parameters:
+        - name: email_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 邮件 ID
+      responses:
+        '200':
+          description: 邮件详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailDetail'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  email_id: 1
+                  subject: 测试邮件
+                  from: sender@example.com
+                  to: receiver@example.com
+                  body: 这是一封测试邮件
+                  date: 2024-01-08T10:00:00Z
+                error: null
+        '404':
+          description: 邮件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 3005
+                message: 邮件不存在
+                data: null
+                error:
+                  details: 找不到指定的邮件
+
+    delete:
+      tags:
+        - 邮件管理
+      summary: 删除邮件
+      description: 删除指定的邮件
+      parameters:
+        - name: email_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 邮件 ID
+        - name: delete_from_server
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: 是否同时从服务器删除邮件
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.email.deleted
+                data: null
+                error: null
+
+  /emails/{email_id}/flags:
+    get:
+      tags:
+        - 邮件管理
+      summary: 获取邮件标记
+      description: 获取邮件的标记状态，不需要获取整个邮件内容
+      parameters:
+        - name: email_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 邮件 ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          is_read:
+                            type: boolean
+                            description: 是否已读
+                          is_starred:
+                            type: boolean
+                            description: 是否星标
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  is_read: true
+                  is_starred: false
+                error: null
+        '404':
+          description: 邮件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - 邮件管理
+      summary: 更新邮件标记
+      description: 统一的邮件标记更新接口，支持同时更新多个标记
+      parameters:
+        - name: email_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 邮件 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_read:
+                  type: boolean
+                  description: 是否已读
+                is_starred:
+                  type: boolean
+                  description: 是否星标
+            examples:
+              mark_read_and_star:
+                summary: 标记为已读并加星
+                value:
+                  is_read: true
+                  is_starred: true
+              mark_unread:
+                summary: 标记为未读
+                value:
+                  is_read: false
+              toggle_star:
+                summary: 切换星标状态
+                value:
+                  is_starred: true
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.email.updated
+                data: null
+                error: null
+        '400':
+          description: 请求无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /emails/batch/flags:
+    post:
+      tags:
+        - 邮件管理
+      summary: 批量更新邮件标记
+      description: 批量更新多封邮件的标记（已读/未读、星标等）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: 要更新的邮件ID列表
+                  minItems: 1
+                is_read:
+                  type: boolean
+                  description: 是否已读
+                is_starred:
+                  type: boolean
+                  description: 是否星标
+              required:
+                - email_ids
+            examples:
+              batch_mark_read:
+                summary: 批量标记为已读
+                value:
+                  email_ids: [1, 2, 3, 4, 5]
+                  is_read: true
+              batch_star:
+                summary: 批量添加星标
+                value:
+                  email_ids: [10, 20, 30]
+                  is_starred: true
+      responses:
+        '200':
+          description: 批量操作完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          successful:
+                            type: integer
+                            description: 成功更新的数量
+                          failed:
+                            type: integer
+                            description: 失败的数量
+                          failed_ids:
+                            type: array
+                            items:
+                              type: integer
+                            description: 失败的邮件ID列表
+                          errors:
+                            type: array
+                            items:
+                              type: string
+                            description: 错误信息列表
+              example:
+                code: 0
+                message: msg.email.batch_updated
+                data:
+                  successful: 4
+                  failed: 1
+                  failed_ids: [3]
+                  errors: ["email not found"]
+                error: null
+
+  /emails/batch:
+    delete:
+      tags:
+        - 邮件管理
+      summary: 批量删除邮件
+      description: 批量删除多封邮件
+      parameters:
+        - name: delete_from_server
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: 是否同时从服务器删除邮件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: 要删除的邮件ID列表
+                  minItems: 1
+              required:
+                - email_ids
+            example:
+              email_ids: [1, 2, 3, 4, 5]
+      responses:
+        '200':
+          description: 批量删除完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          successful:
+                            type: integer
+                            description: 成功删除的数量
+                          failed:
+                            type: integer
+                            description: 失败的数量
+                          failed_ids:
+                            type: array
+                            items:
+                              type: integer
+                            description: 失败的邮件ID列表
+                          errors:
+                            type: array
+                            items:
+                              type: string
+                            description: 错误信息列表
+              example:
+                code: 0
+                message: msg.email.batch_deleted
+                data:
+                  successful: 5
+                  failed: 0
+                  failed_ids: []
+                  errors: []
+                error: null
+
+  /accounts/sync-all:
+    post:
+      tags:
+        - 邮件操作
+      summary: 批量同步邮件账户
+      description: 为当前用户的所有活跃邮箱账户执行同步操作
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  default: 100
+                  minimum: 0
+                  description: 每个账户同步的邮件数量限制
+                force:
+                  type: boolean
+                  default: false
+                  description: 强制全量同步
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+                  default: normal
+                  description: 任务优先级
+      responses:
+        '200':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          task_id:
+                            type: string
+                            description: 任务ID
+                          status:
+                            type: string
+                            description: 任务状态
+                          created_at:
+                            type: string
+                            format: date-time
+              example:
+                code: 0
+                message: msg.task.created
+                data:
+                  task_id: "550e8400-e29b-41d4-a716-446655440001"
+                  status: "pending"
+                  created_at: "2024-01-08T12:00:00Z"
+
+  # 任务历史相关
+
+  /accounts/{account_id}/sync/history:
+    get:
+      tags:
+        - 任务管理
+      summary: 获取账户同步历史
+      description: 获取指定账户的同步任务历史
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskPageData'
+
+  /tasks:
+    post:
+      tags:
+        - 任务管理
+      summary: 创建任务配置
+      description: 创建新的任务配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_type
+                - task_name
+                - name
+              properties:
+                task_type:
+                  type: string
+                  enum: [loop, scheduled, once]
+                  description: 任务类型
+                task_name:
+                  type: string
+                  description: 任务名称（如 email_monitor, system_backup 等）
+                name:
+                  type: string
+                  description: 任务显示名称
+                description:
+                  type: string
+                  description: 任务描述
+                priority:
+                  type: string
+                  enum: [high, normal, low]
+                  default: normal
+                  description: 任务优先级
+                loop_interval:
+                  type: integer
+                  description: 循环间隔（秒），仅 loop 类型需要
+                cron_expression:
+                  type: string
+                  description: Cron 表达式，仅 scheduled 类型需要
+                extra_config:
+                  type: object
+                  description: 任务特定的额外配置
+            example:
+              task_type: scheduled
+              task_name: system_backup
+              name: 系统备份
+              description: 每天凌晨2点执行系统备份
+              priority: normal
+              cron_expression: "0 2 * * *"
+      responses:
+        '201':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfig'
+
+    get:
+      tags:
+        - 任务管理
+      summary: 获取任务配置列表
+      description: 获取当前用户的任务配置列表
+      parameters:
+        - name: task_type
+          in: query
+          schema:
+            type: string
+            enum: [loop, scheduled, once]
+          description: 任务类型过滤
+        - name: task_name
+          in: query
+          schema:
+            type: string
+          description: 任务名称过滤
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+          description: 是否激活过滤
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfigPageData'
+
+  /tasks/{id}:
+    get:
+      tags:
+        - 任务管理
+      summary: 获取任务配置详情
+      description: 根据 ID 获取任务配置的详细信息
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 任务配置 ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfig'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - 任务管理
+      summary: 更新任务配置
+      description: 更新指定的任务配置
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 任务配置 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 任务显示名称
+                description:
+                  type: string
+                  description: 任务描述
+                is_active:
+                  type: boolean
+                  description: 是否激活
+                priority:
+                  type: string
+                  enum: [high, normal, low]
+                  description: 任务优先级
+                loop_interval:
+                  type: integer
+                  description: 循环间隔（秒），仅 loop 类型可更新
+                cron_expression:
+                  type: string
+                  description: Cron 表达式，仅 scheduled 类型可更新
+                extra_config:
+                  type: object
+                  description: 任务特定的额外配置
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskConfig'
+
+    delete:
+      tags:
+        - 任务管理
+      summary: 删除任务配置
+      description: 删除指定的任务配置
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 任务配置 ID
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /tasks/{id}/execute:
+    post:
+      tags:
+        - 任务管理
+      summary: 执行任务
+      description: 手动执行指定的任务
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 任务配置 ID
+      responses:
+        '200':
+          description: 任务启动成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+              example:
+                code: 0
+                message: msg.task.started
+                data: null
+
+  /tasks/{id}/logs:
+    get:
+      tags:
+        - 任务管理
+      summary: 获取任务执行日志
+      description: 获取指定任务的执行日志
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 任务配置 ID
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 返回的日志条数
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TaskLog'
+
+  # 监控端点（公开访问）
+  /monitor/system:
+    get:
+      tags:
+        - 监控
+      summary: 获取系统资源状态
+      description: 返回系统资源状态信息，包括内存、GC、数据库连接等
+      responses:
+        '200':
+          description: 成功返回系统状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemStatus'
+
+  /monitor/status:
+    get:
+      tags:
+        - 监控
+      summary: 获取综合监控状态
+      description: 返回系统、健康和实时状态的综合监控信息
+      responses:
+        '200':
+          description: 成功返回监控状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MonitorSummary'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  timestamp: 2024-01-08T12:00:00Z
+                  system:
+                    uptime: 3600
+                    memory:
+                      used: 2844328
+                      total: 17783824
+                      usage_percent: 15.99
+                  health:
+                    healthy: true
+                    services:
+                      database:
+                        healthy: true
+                        message: 数据库运行正常
+                  realtime:
+                    active_connections: 10
+                    running_tasks: 2
+                error: null
+
+  /monitor/health:
+    get:
+      tags:
+        - 监控
+      summary: 健康检查
+      description: 返回各服务的健康状态
+      responses:
+        '200':
+          description: 系统健康
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HealthStatus'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  healthy: true
+                  services:
+                    database:
+                      healthy: true
+                      message: 数据库运行正常
+                    email:
+                      healthy: true
+                      message: 邮件服务运行正常
+                    sse:
+                      healthy: true
+                      message: SSE 服务运行正常
+                    task:
+                      healthy: true
+                      message: 任务服务运行正常
+                  uptime: 3600
+                error: null
+        '503':
+          description: 服务不健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /monitor/realtime:
+    get:
+      tags:
+        - 监控
+      summary: 获取实时监控数据
+      description: 返回实时监控数据，包括活跃连接、任务状态、最近错误等
+      responses:
+        '200':
+          description: 成功返回实时数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RealtimeStatus'
+        '503':
+          description: 系统不健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 2005
+                message: 服务不可用
+                data: null
+                error:
+                  details: 一个或多个服务不健康
+                  metadata:
+                    services:
+                      database: healthy
+                      email: unhealthy
+                      cron: healthy
+
+  # 设置管理（管理员权限）
+  /settings:
+    get:
+      tags:
+        - 设置管理
+      summary: 获取所有设置
+      description: 获取系统所有设置项（需要管理员权限）
+      responses:
+        '200':
+          description: 设置列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          settings:
+                            type: object
+                            additionalProperties:
+                              type: string
+                            description: 设置键值对
+                          count:
+                            type: integer
+                            description: 设置项数量
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  settings:
+                    email_sync_interval: "30"
+                    theme: "auto"
+                    language: "zh-CN"
+                  count: 3
+                error: null
+
+    put:
+      tags:
+        - 设置管理
+      summary: 批量更新设置
+      description: 批量更新多个设置项（需要管理员权限）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                settings:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: 要更新的设置键值对
+              required:
+                - settings
+            example:
+              settings:
+                email_sync_interval: "60"
+                theme: "dark"
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          updated:
+                            type: integer
+                            description: 更新的设置项数量
+              example:
+                code: 0
+                message: msg.update_success
+                data:
+                  updated: 2
+                error: null
+
+  /settings/{key}:
+    get:
+      tags:
+        - 设置管理
+      summary: 获取单个设置
+      description: 根据键名获取单个设置项（需要管理员权限）
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+          description: 设置键名
+          example: email_sync_interval
+      responses:
+        '200':
+          description: 设置详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                            description: 设置键名
+                          value:
+                            type: string
+                            description: 设置值
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  key: email_sync_interval
+                  value: "30"
+                error: null
+
+    put:
+      tags:
+        - 设置管理
+      summary: 更新设置
+      description: 更新单个设置项（需要管理员权限）
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+          description: 设置键名
+          example: email_sync_interval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  type: string
+                  description: 设置值
+              required:
+                - value
+            example:
+              value: "60"
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                            description: 设置键名
+                          value:
+                            type: string
+                            description: 新的设置值
+              example:
+                code: 0
+                message: msg.update_success
+                data:
+                  key: email_sync_interval
+                  value: "60"
+                error: null
+
+    delete:
+      tags:
+        - 设置管理
+      summary: 删除设置
+      description: 删除单个设置项（需要管理员权限）
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+          description: 设置键名
+          example: custom_setting
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /settings/app:
+    get:
+      tags:
+        - 设置管理
+      summary: 获取应用设置
+      description: 获取常用的应用设置（需要管理员权限）
+      responses:
+        '200':
+          description: 应用设置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AppSettings'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  email_sync_interval: 30
+                  email_sync_enabled: true
+                  max_emails_per_sync: 100
+                  theme: "auto"
+                  language: "zh-CN"
+                error: null
+
+    put:
+      tags:
+        - 设置管理
+      summary: 更新应用设置
+      description: 更新常用的应用设置（需要管理员权限）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppSettings'
+            example:
+              email_sync_interval: 60
+              email_sync_enabled: true
+              theme: "dark"
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AppSettings'
+
+  /settings/email-monitor:
+    get:
+      tags:
+        - 设置管理
+      summary: 获取邮件监控设置
+      description: 获取邮件监控服务的配置设置
+      responses:
+        '200':
+          description: 成功获取设置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailMonitorSettings'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  enabled: true
+                  enable_idle: true
+                  check_interval: 300
+                  day_time_start: 8
+                  day_time_end: 22
+                  day_time_poll_interval: "1m"
+                  night_time_poll_interval: "10m"
+                  retry_interval: "30s"
+                  max_retries: 3
+
+    put:
+      tags:
+        - 设置管理
+      summary: 更新邮件监控设置
+      description: 更新邮件监控服务的配置设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailMonitorSettings'
+      responses:
+        '200':
+          description: 设置更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmailMonitorSettings'
+
+  /email-monitor/status:
+    get:
+      tags:
+        - 邮件监控
+      summary: 获取邮件监控状态
+      description: 获取所有账户的邮件监控状态（管理员权限）
+      responses:
+        '200':
+          description: 成功获取监控状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties:
+                          $ref: '#/components/schemas/MonitorStatus'
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  "1":
+                    is_active: true
+                    is_idle_supported: true
+                    mode: "idle"
+                    last_check: "2024-01-20T10:30:00Z"
+                    error_count: 0
+                    emails_received: 150
+
+  /email-monitor/accounts/{account_id}/status:
+    get:
+      tags:
+        - 邮件监控
+      summary: 获取账户监控状态
+      description: 获取指定账户的邮件监控状态（管理员权限）
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 成功获取监控状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MonitorStatus'
+        '404':
+          description: 账户未找到或未在监控中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+
+  /email-monitor/accounts/{account_id}/start:
+    post:
+      tags:
+        - 邮件监控
+      summary: 启动账户监控
+      description: 启动指定账户的邮件监控（管理员权限）
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 成功启动监控
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+              example:
+                code: 0
+                message: msg.success
+                data: null
+        '404':
+          description: 账户未找到
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+
+  /email-monitor/accounts/{account_id}/stop:
+    post:
+      tags:
+        - 邮件监控
+      summary: 停止账户监控
+      description: 停止指定账户的邮件监控（管理员权限）
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 账户 ID
+      responses:
+        '200':
+          description: 成功停止监控
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+              example:
+                code: 0
+                message: msg.success
+                data: null
+        '404':
+          description: 账户未找到或未在监控中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+
+  # 通知管理（管理员权限）
+  /notify/channels:
+    get:
+      tags:
+        - 通知管理
+      summary: 获取通知渠道列表
+      description: 获取所有通知渠道的列表（管理员权限）
+      parameters:
+        - name: enabled
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: 是否只返回启用的渠道
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          channels:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/NotifyChannel'
+                          total:
+                            type: integer
+                            description: 渠道总数
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  channels:
+                    - id: "550e8400-e29b-41d4-a716-446655440000"
+                      name: "飞书通知"
+                      type: "feishu"
+                      enabled: true
+                      config:
+                        webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                      max_retries: 3
+                      retry_interval: 30
+                      created_at: "2024-01-08T12:00:00Z"
+                      updated_at: "2024-01-08T12:00:00Z"
+                  total: 1
+                error: null
+
+    post:
+      tags:
+        - 通知管理
+      summary: 创建通知渠道
+      description: 创建新的通知渠道（管理员权限）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNotifyChannelRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NotifyChannel'
+              example:
+                code: 0
+                message: msg.create_success
+                data:
+                  id: "550e8400-e29b-41d4-a716-446655440000"
+                  name: "企业微信通知"
+                  type: "wecom"
+                  enabled: true
+                  config:
+                    webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                  max_retries: 3
+                  retry_interval: 30
+                  created_at: "2024-01-08T12:00:00Z"
+                  updated_at: "2024-01-08T12:00:00Z"
+                error: null
+
+  /notify/channels/{id}:
+    get:
+      tags:
+        - 通知管理
+      summary: 获取通知渠道详情
+      description: 根据ID获取通知渠道详情（管理员权限）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 渠道 ID (UUID)
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/NotifyChannel'
+        '404':
+          description: 渠道不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - 通知管理
+      summary: 更新通知渠道
+      description: 更新通知渠道信息（管理员权限）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 渠道 ID (UUID)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotifyChannelRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+    delete:
+      tags:
+        - 通知管理
+      summary: 删除通知渠道
+      description: 删除指定的通知渠道（管理员权限）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 渠道 ID (UUID)
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /notify/channels/{id}/test:
+    post:
+      tags:
+        - 通知管理
+      summary: 测试通知渠道
+      description: 向指定渠道发送测试通知（管理员权限）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 渠道 ID (UUID)
+      responses:
+        '200':
+          description: 测试成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                code: 0
+                message: msg.success
+                data: null
+                error: null
+
+  /notify/test:
+    post:
+      tags:
+        - 通知管理
+      summary: 发送测试通知
+      description: 向所有启用的渠道发送测试通知（管理员权限）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestNotificationRequest'
+      responses:
+        '200':
+          description: 发送成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /notify/events:
+    get:
+      tags:
+        - 通知管理
+      summary: 获取事件定义列表
+      description: 获取所有支持的事件类型定义（管理员权限）
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          definitions:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/EventDefinition'
+                          total:
+                            type: integer
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  definitions:
+                    - type: "new_email"
+                      name: "新邮件"
+                      description: "收到新邮件时触发"
+                      default_severity: "low"
+                      parameters:
+                        - name: "account_id"
+                          type: "uint"
+                          required: true
+                          description: "邮箱账户ID"
+                  total: 20
+                error: null
+
+  /notify/logs:
+    get:
+      tags:
+        - 通知管理
+      summary: 获取通知日志
+      description: 获取通知发送历史记录（管理员权限）
+      parameters:
+        - name: channel_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 渠道 ID
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 事件类型
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, success, failed]
+          description: 状态
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: 开始时间
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: 结束时间
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          logs:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/NotifyLog'
+                          total:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+              example:
+                code: 0
+                message: msg.success
+                data:
+                  logs:
+                    - id: 1
+                      channel_id: "550e8400-e29b-41d4-a716-446655440000"
+                      event_type: "new_email"
+                      severity: "low"
+                      status: "success"
+                      retry_count: 0
+                      created_at: "2024-01-08T12:00:00Z"
+                  total: 100
+                  page: 1
+                  page_size: 20
+                error: null
+
+  /notify/sse/{client_id}/subscribe:
+    post:
+      tags:
+        - 通知管理
+      summary: SSE客户端订阅
+      description: 为SSE客户端订阅特定的事件通知
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: SSE客户端ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SSEEventSubscription'
+      responses:
+        '200':
+          description: 订阅成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /notify/sse/{client_id}/unsubscribe:
+    post:
+      tags:
+        - 通知管理
+      summary: 取消SSE客户端订阅
+      description: 取消SSE客户端的事件订阅
+      parameters:
+        - name: client_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: SSE客户端ID
+      responses:
+        '200':
+          description: 取消订阅成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # 实时通讯
+  /events:
+    get:
+      tags:
+        - 实时通讯
+      summary: Server-Sent Events
+      description: |
+        建立 SSE 连接以接收服务器推送事件。客户端会自动订阅与用户相关的所有事件。
+
+        **事件类型**:
+        - `connected` - 连接建立成功
+        - `heartbeat` - 心跳事件（每30秒）
+        - `new_emails` - 新邮件通知
+        - `task_created` - 任务创建
+        - `task_started` - 任务开始
+        - `task_progress` - 任务进度更新
+        - `task_counts` - 任务计数更新
+        - `task_completed` - 任务完成
+        - `task_failed` - 任务失败
+        - `task_cancelled` - 任务取消
+
+        **事件格式**:
+        ```
+        event: task_progress
+        data: {"task_id":"550e8400-e29b-41d4-a716-446655440000","progress":50,"message":"正在同步邮件...","current_count":50,"total_count":100}
+
+        event: new_emails
+        data: {"account_id":1,"count":5,"emails":[...]}
+
+        data: {"type":"heartbeat","timestamp":1640995200}
+        ```
+      responses:
+        '200':
+          description: SSE 连接建立成功
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                connected:
+                  summary: 连接成功事件
+                  value: 'data: {"type":"connected","user_id":1,"time":"2024-01-08T12:00:00Z"}'
+                task_progress:
+                  summary: 任务进度事件
+                  value: |
+                    event: task_progress
+                    data: {"task_id":"550e8400-e29b-41d4-a716-446655440000","progress":50,"message":"正在同步邮件...","current_count":50,"total_count":100}
+                new_emails:
+                  summary: 新邮件事件
+                  value: |
+                    event: new_emails
+                    data: {"account_id":1,"count":3,"emails":[{"email_id":123,"subject":"测试邮件","from":"sender@example.com"}]}
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # 枚举类型
+    FolderType:
+      type: integer
+      enum: [0, 1, 2, 3, 4, 5, 6, 7]
+      description: |
+        文件夹类型枚举：
+        - 0: unknown (未知)
+        - 1: inbox (收件箱)
+        - 2: sent (已发送)
+        - 3: drafts (草稿箱)
+        - 4: trash (垃圾箱)
+        - 5: junk (垃圾邮件)
+        - 6: archive (归档)
+        - 7: custom (自定义)
+      example: 1
+
+    # 请求模型
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: 用户名
+          example: admin
+        password:
+          type: string
+          description: 密码
+          example: admin123
+
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: 刷新令牌
+
+    CreateAccountRequest:
+      type: object
+      required:
+        - name
+        - email
+        - type
+      properties:
+        name:
+          type: string
+          description: 账户名称
+          example: 我的Gmail
+        email:
+          type: string
+          format: email
+          description: 邮箱地址
+          example: user@gmail.com
+        type:
+          type: string
+          enum: [smtp, imap, oauth]
+          description: 账户类型
+          example: imap
+        imap_server:
+          type: string
+          description: 接收邮件服务器
+          example: pop.gmail.com
+        imap_port:
+          type: integer
+          description: 接收邮件端口
+          example: 995
+        imap_ssl:
+          type: boolean
+          description: 接收邮件是否使用SSL
+          example: true
+        smtp_server:
+          type: string
+          description: 发送邮件服务器
+          example: smtp.gmail.com
+        smtp_port:
+          type: integer
+          description: 发送邮件端口
+          example: 587
+        smtp_ssl:
+          type: boolean
+          description: 发送邮件是否使用SSL
+          example: true
+        username:
+          type: string
+          description: 邮箱用户名
+          example: user@gmail.com
+        password:
+          type: string
+          description: 邮箱密码或应用密码
+        initial_sync_option:
+          type: string
+          enum: [none, recent_days, recent_count, full]
+          description: |
+            初始同步选项：
+            - none: 不同步历史邮件
+            - recent_days: 同步最近N天的邮件
+            - recent_count: 每个文件夹同步最近N封邮件
+            - full: 完全同步所有历史邮件
+          default: full
+          example: recent_days
+        initial_sync_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: 当 initial_sync_option 为 recent_days 时，同步的天数
+          example: 7
+        initial_sync_count:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: 当 initial_sync_option 为 recent_count 时，每个文件夹同步的邮件数量
+          example: 50
+
+    SendEmailRequest:
+      type: object
+      required:
+        - to
+        - subject
+        - body
+      properties:
+        to:
+          type: array
+          items:
+            type: string
+            format: email
+          description: 收件人邮箱列表
+          example: ["recipient@example.com"]
+        cc:
+          type: array
+          items:
+            type: string
+            format: email
+          description: 抄送邮箱列表
+          example: []
+        bcc:
+          type: array
+          items:
+            type: string
+            format: email
+          description: 密送邮箱列表
+          example: []
+        subject:
+          type: string
+          description: 邮件主题
+          example: 测试邮件
+        body:
+          type: string
+          description: 邮件内容
+          example: 这是一封测试邮件
+        content_type:
+          type: string
+          description: 内容类型 (text/plain 或 text/html)
+          example: text/plain
+          default: text/plain
+
+
+    # 统一响应模型
+    BaseResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          description: 状态码 (0=成功, 非0=错误)
+          example: 0
+        message:
+          type: string
+          description: 消息ID（用于前端国际化）
+          example: msg.success
+        data:
+          type: object
+          nullable: true
+          description: 响应数据
+        error:
+          $ref: '#/components/schemas/ErrorInfo'
+          nullable: true
+          description: 错误详情（仅在错误时存在）
+
+    ErrorInfo:
+      type: object
+      properties:
+        details:
+          type: string
+          description: 错误详情
+        field:
+          type: string
+          description: 错误字段
+        reason:
+          type: string
+          description: 错误原因
+        suggestion:
+          type: string
+          description: 建议
+        error_code:
+          type: string
+          description: 错误代码
+        metadata:
+          type: object
+          additionalProperties: true
+          description: 额外信息
+
+    PageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items: {}
+          description: 数据列表
+        page:
+          type: integer
+          description: 当前页
+        page_size:
+          type: integer
+          description: 每页大小
+        total:
+          type: integer
+          format: int64
+          description: 总数
+        total_pages:
+          type: integer
+          description: 总页数
+
+    # 响应模型
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                access_token:
+                  type: string
+                  description: 访问令牌
+                refresh_token:
+                  type: string
+                  description: 刷新令牌
+                user:
+                  $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          description: 用户 ID
+        username:
+          type: string
+          description: 用户名
+        is_admin:
+          type: boolean
+          description: 是否为管理员
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    EmailAccount:
+      type: object
+      properties:
+        account_id:
+          type: integer
+          description: 账户 ID
+        user_id:
+          type: integer
+          description: 用户 ID
+        name:
+          type: string
+          description: 账户名称
+        email:
+          type: string
+          description: 邮箱地址
+        type:
+          type: string
+          description: 账户类型
+        imap_server:
+          type: string
+          description: 接收服务器
+        imap_port:
+          type: integer
+          description: 接收端口
+        imap_ssl:
+          type: boolean
+          description: 接收SSL
+        smtp_server:
+          type: string
+          description: 发送服务器
+        smtp_port:
+          type: integer
+          description: 发送端口
+        smtp_ssl:
+          type: boolean
+          description: 发送SSL
+        username:
+          type: string
+          description: 用户名
+        is_active:
+          type: boolean
+          description: 是否活跃
+        last_sync:
+          type: string
+          format: date-time
+          description: 最后同步时间
+        supports_idle:
+          type: boolean
+          nullable: true
+          description: 是否支持 IDLE 扩展
+        capabilities:
+          type: string
+          description: 服务器支持的功能列表
+        last_capability_check:
+          type: string
+          format: date-time
+          nullable: true
+          description: 最后检查服务器功能的时间
+        sort_order:
+          type: integer
+          description: 排序值（值越小越靠前）
+          default: 0
+        is_full_synced:
+          type: boolean
+          description: 是否已完成初始全量同步
+          default: false
+        is_syncing:
+          type: boolean
+          description: 是否正在同步
+          default: false
+        sync_progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 同步进度百分比
+          default: 0
+        sync_error:
+          type: string
+          description: 最后的同步错误信息
+        initial_sync_option:
+          type: string
+          enum: [none, recent_days, recent_count, full]
+          description: 初始同步选项
+        initial_sync_days:
+          type: integer
+          description: 同步最近N天的邮件（当 initial_sync_option 为 recent_days 时）
+          default: 7
+        initial_sync_count:
+          type: integer
+          description: 每个文件夹同步最近N封邮件（当 initial_sync_option 为 recent_count 时）
+          default: 50
+        last_sync_error:
+          type: string
+          format: date-time
+          nullable: true
+          description: 最后同步错误时间
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    Email:
+      type: object
+      properties:
+        email_id:
+          type: integer
+          description: 邮件 ID
+        account_id:
+          type: integer
+          description: 账户 ID
+        message_id:
+          type: string
+          description: 邮件唯一标识
+        uid:
+          type: integer
+          description: IMAP 邮件唯一标识符（UID），用于在IMAP服务器上唯一标识邮件
+        subject:
+          type: string
+          description: 邮件主题
+        from:
+          type: string
+          description: 发件人
+        to:
+          type: string
+          description: 收件人
+        cc:
+          type: string
+          description: 抄送
+        bcc:
+          type: string
+          description: 密送
+        is_read:
+          type: boolean
+          description: 是否已读
+        is_starred:
+          type: boolean
+          description: 是否星标
+        date:
+          type: string
+          format: date-time
+          description: 邮件日期
+        size:
+          type: integer
+          description: 邮件大小（字节）
+        folder_name:
+          type: string
+          description: 文件夹名称（UTF-8解码后）
+          example: 收件箱
+        folder_id:
+          type: integer
+          nullable: true
+          description: 文件夹ID（可选，用于引用完整性）
+          example: 123
+        folder_type:
+          $ref: '#/components/schemas/FolderType'
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    EmailDetail:
+      allOf:
+        - $ref: '#/components/schemas/Email'
+        - type: object
+          properties:
+            body:
+              type: string
+              description: 邮件文本内容
+            body_html:
+              type: string
+              description: 邮件HTML内容
+            attachments:
+              type: array
+              items:
+                $ref: '#/components/schemas/Attachment'
+              description: 附件列表
+
+    Attachment:
+      type: object
+      properties:
+        attachment_id:
+          type: integer
+          description: 附件 ID
+        email_id:
+          type: integer
+          description: 邮件 ID
+        filename:
+          type: string
+          description: 文件名
+        content_type:
+          type: string
+          description: 内容类型
+        size:
+          type: integer
+          description: 文件大小
+
+    Folder:
+      type: object
+      properties:
+        folder_id:
+          type: integer
+          description: 文件夹 ID
+        account_id:
+          type: integer
+          description: 账户 ID
+        name:
+          type: string
+          description: 文件夹名称（UTF-8解码后）
+          example: 收件箱
+        raw_name:
+          type: string
+          description: 原始文件夹名称（UTF-7编码）
+          example: INBOX
+        type:
+          $ref: '#/components/schemas/FolderType'
+        delimiter:
+          type: string
+          description: 文件夹层级分隔符
+          example: /
+        parent_name:
+          type: string
+          description: 父文件夹名称
+          example: ""
+        flags:
+          type: string
+          description: IMAP 文件夹标志
+          example: "\\HasNoChildren"
+        email_count:
+          type: integer
+          description: 邮件总数
+          example: 100
+        unread_count:
+          type: integer
+          description: 未读邮件数
+          example: 10
+        last_sync_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 最后同步时间
+        sort_order:
+          type: integer
+          description: 排序值（值越小越靠前）
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    TaskConfig:
+      type: object
+      description: 任务配置
+      properties:
+        id:
+          type: integer
+          description: 任务配置 ID
+        user_id:
+          type: integer
+          description: 用户 ID
+        task_type:
+          type: string
+          enum: [loop, scheduled, once]
+          description: 任务类型
+        task_name:
+          type: string
+          description: 任务名称（如 email_monitor, system_backup 等）
+        task_id:
+          type: string
+          description: 任务唯一标识符
+        name:
+          type: string
+          description: 任务显示名称
+        description:
+          type: string
+          description: 任务描述
+        is_active:
+          type: boolean
+          description: 是否激活
+        priority:
+          type: string
+          enum: [high, normal, low]
+          description: 任务优先级
+        loop_interval:
+          type: integer
+          description: 循环间隔（秒），仅 loop 类型
+          nullable: true
+        cron_expression:
+          type: string
+          description: Cron 表达式，仅 scheduled 类型
+          nullable: true
+        execute_at:
+          type: string
+          format: date-time
+          description: 执行时间，仅 once 类型
+          nullable: true
+        is_running:
+          type: boolean
+          description: 是否正在运行
+        last_run_at:
+          type: string
+          format: date-time
+          description: 最后运行时间
+          nullable: true
+        next_run_at:
+          type: string
+          format: date-time
+          description: 下次运行时间
+          nullable: true
+        run_count:
+          type: integer
+          description: 运行次数
+        success_count:
+          type: integer
+          description: 成功次数
+        error_count:
+          type: integer
+          description: 错误次数
+        last_error:
+          type: string
+          description: 最后错误信息
+          nullable: true
+        max_retry:
+          type: integer
+          description: 最大重试次数
+        timeout:
+          type: integer
+          description: 超时时间（秒）
+        extra_config:
+          type: object
+          description: 任务特定的额外配置
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    TaskLog:
+      type: object
+      description: 任务执行日志
+      properties:
+        id:
+          type: integer
+          description: 日志 ID
+        user_id:
+          type: integer
+          description: 用户 ID
+        task_type:
+          type: string
+          enum: [loop, scheduled, once]
+          description: 任务类型
+        task_name:
+          type: string
+          description: 任务名称
+        task_id:
+          type: string
+          description: 任务标识符
+        status:
+          type: string
+          enum: [running, success, failed, cancelled]
+          description: 执行状态
+        started_at:
+          type: string
+          format: date-time
+          description: 开始时间
+        finished_at:
+          type: string
+          format: date-time
+          description: 结束时间
+          nullable: true
+        duration:
+          type: integer
+          description: 执行时长（秒）
+        error:
+          type: string
+          description: 错误信息
+          nullable: true
+        result:
+          type: object
+          description: 执行结果
+          nullable: true
+        retry_count:
+          type: integer
+          description: 重试次数
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    TaskConfigPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskConfig'
+          description: 任务配置列表
+        total:
+          type: integer
+          description: 总数
+        page:
+          type: integer
+          description: 当前页
+        page_size:
+          type: integer
+          description: 每页数量
+        total_pages:
+          type: integer
+          description: 总页数
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: 当前页码
+        limit:
+          type: integer
+          description: 每页数量
+        total:
+          type: integer
+          description: 总数量
+        pages:
+          type: integer
+          description: 总页数
+
+    SuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          example:
+            code: 0
+            message: msg.success
+            data: null
+            error: null
+
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          example:
+            code: 1000
+            message: msg.invalid_request
+            data: null
+            error:
+              details: 参数验证失败
+              field: email
+              reason: 邮箱格式不正确
+              suggestion: 请提供有效的邮箱地址
+
+    SystemStatus:
+      type: object
+      description: 系统资源状态
+      properties:
+        uptime:
+          type: integer
+          format: int64
+          description: 运行时长（秒）
+        memory:
+          $ref: '#/components/schemas/MemoryStatus'
+        gc:
+          $ref: '#/components/schemas/GCStatus'
+        goroutines:
+          type: integer
+          description: Goroutine数量
+        database:
+          $ref: '#/components/schemas/DatabaseStatus'
+
+    MemoryStatus:
+      type: object
+      description: 内存使用状态
+      properties:
+        used:
+          type: integer
+          format: int64
+          description: 已使用内存（字节）
+        total:
+          type: integer
+          format: int64
+          description: 系统分配的总内存（字节）
+        heap_alloc:
+          type: integer
+          format: int64
+          description: 堆内存分配（字节）
+        heap_inuse:
+          type: integer
+          format: int64
+          description: 堆内存使用（字节）
+        usage_percent:
+          type: number
+          format: float
+          description: 内存使用百分比
+
+    GCStatus:
+      type: object
+      description: 垃圾回收状态
+      properties:
+        num_gc:
+          type: integer
+          format: int32
+          description: GC运行次数
+        last_gc:
+          type: integer
+          format: int64
+          description: 上次GC时间（Unix时间戳）
+        pause_total_ns:
+          type: integer
+          format: int64
+          description: GC总暂停时间（纳秒）
+        pause_avg_ns:
+          type: integer
+          format: int64
+          description: 平均GC暂停时间（纳秒）
+
+    DatabaseStatus:
+      type: object
+      description: 数据库连接状态
+      properties:
+        connected:
+          type: boolean
+          description: 是否连接
+        open_connections:
+          type: integer
+          description: 打开的连接数
+        in_use:
+          type: integer
+          description: 正在使用的连接数
+        idle:
+          type: integer
+          description: 空闲连接数
+        max_open:
+          type: integer
+          description: 最大连接数
+
+    HealthStatus:
+      type: object
+      description: 健康状态
+      properties:
+        healthy:
+          type: boolean
+          description: 整体是否健康
+        services:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ServiceHealth'
+          description: 各服务健康状态
+        uptime:
+          type: integer
+          format: int64
+          description: 运行时长（秒）
+
+    ServiceHealth:
+      type: object
+      description: 服务健康状态
+      properties:
+        healthy:
+          type: boolean
+          description: 是否健康
+        message:
+          type: string
+          description: 状态描述
+
+    RealtimeStatus:
+      type: object
+      description: 实时监控状态
+      properties:
+        active_connections:
+          type: integer
+          description: 活跃连接数
+        running_tasks:
+          type: integer
+          description: 正在运行的任务数
+        pending_tasks:
+          type: integer
+          description: 等待中的任务数
+        recent_errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonitorErrorInfo'
+          description: 最近的错误信息
+        request_rate:
+          type: number
+          format: float
+          description: 请求速率（每秒）
+
+    MonitorErrorInfo:
+      type: object
+      description: 监控错误信息
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+          description: 错误发生时间（Unix时间戳）
+        operation:
+          type: string
+          description: 操作名称
+        error:
+          type: string
+          description: 错误信息
+        count:
+          type: integer
+          description: 错误次数
+
+    MonitorSummary:
+      type: object
+      description: 综合监控摘要
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: 时间戳
+        system:
+          $ref: '#/components/schemas/SystemStatus'
+        health:
+          $ref: '#/components/schemas/HealthStatus'
+        realtime:
+          $ref: '#/components/schemas/RealtimeStatus'
+
+    # 任务相关模型
+    Task:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: 任务唯一标识
+        type:
+          type: string
+          description: 任务类型
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: 任务状态
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    TaskDetail:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: 任务唯一标识
+        type:
+          type: string
+          description: 任务类型
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: 任务状态
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 进度百分比
+        current_step:
+          type: string
+          description: 当前步骤
+        total_count:
+          type: integer
+          description: 总数量
+        current_count:
+          type: integer
+          description: 当前完成数量
+        error_message:
+          type: string
+          nullable: true
+          description: 错误信息
+        result:
+          type: object
+          nullable: true
+          description: 任务结果
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 开始时间
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 完成时间
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    TaskPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskDetail'
+          description: 任务列表
+        total:
+          type: integer
+          description: 总数
+        page:
+          type: integer
+          description: 当前页
+        page_size:
+          type: integer
+          description: 每页数量
+        total_pages:
+          type: integer
+          description: 总页数
+
+    AppSettings:
+      type: object
+      description: 应用程序设置
+      properties:
+        email_sync_interval:
+          type: integer
+          description: 邮件同步间隔（分钟）
+          example: 30
+        email_sync_enabled:
+          type: boolean
+          description: 是否启用自动同步
+          example: true
+        max_emails_per_sync:
+          type: integer
+          description: 每次同步的最大邮件数
+          example: 100
+        delete_after_days:
+          type: integer
+          description: 多少天后删除邮件（0表示永不删除）
+          example: 0
+        enable_monitor:
+          type: boolean
+          description: 是否启用指标收集
+          example: true
+        enable_debug_log:
+          type: boolean
+          description: 是否启用调试日志
+          example: false
+        session_timeout:
+          type: integer
+          description: 会话超时时间（分钟）
+          example: 60
+        max_upload_size:
+          type: integer
+          description: 最大上传文件大小（MB）
+          example: 10
+        theme:
+          type: string
+          enum: [light, dark, auto]
+          description: UI主题
+          example: auto
+        language:
+          type: string
+          description: UI语言
+          example: zh-CN
+        timezone:
+          type: string
+          description: 显示时区
+          example: Asia/Shanghai
+        date_format:
+          type: string
+          description: 日期显示格式
+          example: "2006-01-02 15:04:05"
+        enable_two_factor:
+          type: boolean
+          description: 是否启用双因素认证
+          example: false
+        password_min_length:
+          type: integer
+          description: 密码最小长度
+          example: 8
+        password_require_upper:
+          type: boolean
+          description: 密码是否需要大写字母
+          example: true
+        password_require_lower:
+          type: boolean
+          description: 密码是否需要小写字母
+          example: true
+        password_require_number:
+          type: boolean
+          description: 密码是否需要数字
+          example: true
+        password_require_special:
+          type: boolean
+          description: 密码是否需要特殊字符
+          example: false
+
+    EmailMonitorSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: 是否启用邮件监控
+          example: true
+        enable_idle:
+          type: boolean
+          description: 是否启用 IDLE 支持
+          example: true
+        check_interval:
+          type: integer
+          description: 检查间隔（秒）
+          example: 300
+        day_time_start:
+          type: integer
+          description: 白天开始时间（小时，0-23）
+          example: 8
+        day_time_end:
+          type: integer
+          description: 白天结束时间（小时，0-23）
+          example: 22
+        day_time_poll_interval:
+          type: string
+          description: 白天轮询间隔
+          example: "1m"
+        night_time_poll_interval:
+          type: string
+          description: 夜间轮询间隔
+          example: "10m"
+        retry_interval:
+          type: string
+          description: 重试间隔
+          example: "30s"
+        max_retries:
+          type: integer
+          description: 最大重试次数
+          example: 3
+
+    MonitorStatus:
+      type: object
+      properties:
+        is_active:
+          type: boolean
+          description: 是否正在监控
+          example: true
+        is_idle_supported:
+          type: boolean
+          description: 是否支持 IDLE
+          example: true
+        mode:
+          type: string
+          description: 监控模式 (idle 或 polling)
+          example: "idle"
+        last_check:
+          type: string
+          format: date-time
+          description: 最后检查时间
+          example: "2024-01-20T10:30:00Z"
+        last_error:
+          type: string
+          description: 最后错误信息
+          example: ""
+        error_count:
+          type: integer
+          description: 错误计数
+          example: 0
+        emails_received:
+          type: integer
+          format: int64
+          description: 已接收邮件数
+          example: 150
+
+    # 通知管理相关模型
+    NotifyChannel:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 渠道 ID (UUID)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: 渠道名称
+          example: "飞书通知"
+        type:
+          type: string
+          enum: [webhook, feishu, wecom, telegram, email]
+          description: 渠道类型
+          example: "feishu"
+        enabled:
+          type: boolean
+          description: 是否启用
+          example: true
+        config:
+          type: object
+          description: 渠道配置（不同类型有不同字段）
+          additionalProperties: true
+        max_retries:
+          type: integer
+          description: 最大重试次数
+          example: 3
+        retry_interval:
+          type: integer
+          description: 重试间隔（秒）
+          example: 30
+        time_ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotifyTimeRange'
+          description: 通知时间段
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotifyChannelEvent'
+          description: 订阅的事件
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    NotifyTimeRange:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID
+        start_time:
+          type: string
+          description: 开始时间 (HH:MM)
+          example: "09:00"
+        end_time:
+          type: string
+          description: 结束时间 (HH:MM)
+          example: "18:00"
+        weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+          description: 星期几列表 (0=周日, 1=周一, ..., 6=周六)
+          example: [1, 2, 3, 4, 5]
+
+    NotifyChannelEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID
+        event_type:
+          type: string
+          description: 事件类型
+          example: "new_email"
+        min_severity:
+          type: string
+          enum: [low, medium, high, critical]
+          description: 最低严重级别
+          example: "medium"
+
+    NotifyLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 日志 ID
+        channel_id:
+          type: string
+          description: 渠道 ID
+        channel:
+          $ref: '#/components/schemas/NotifyChannel'
+          description: 渠道详情
+        event_type:
+          type: string
+          description: 事件类型
+        severity:
+          type: string
+          description: 严重级别
+        status:
+          type: string
+          enum: [pending, success, failed]
+          description: 发送状态
+        retry_count:
+          type: integer
+          description: 重试次数
+        error_message:
+          type: string
+          description: 错误信息
+        event_data:
+          type: object
+          description: 事件数据
+        request:
+          type: string
+          description: 请求内容
+        response:
+          type: string
+          description: 响应内容
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        sent_at:
+          type: string
+          format: date-time
+          description: 发送时间
+
+    EventDefinition:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 事件类型
+          example: "new_email"
+        name:
+          type: string
+          description: 事件名称
+          example: "新邮件"
+        description:
+          type: string
+          description: 事件描述
+          example: "收到新邮件时触发"
+        default_severity:
+          type: string
+          enum: [low, medium, high, critical]
+          description: 默认严重级别
+          example: "low"
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventParameter'
+          description: 事件参数
+
+    EventParameter:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 参数名称
+          example: "account_id"
+        type:
+          type: string
+          description: 参数类型
+          example: "uint"
+        required:
+          type: boolean
+          description: 是否必需
+          example: true
+        description:
+          type: string
+          description: 参数描述
+          example: "邮箱账户ID"
+
+    CreateNotifyChannelRequest:
+      type: object
+      required:
+        - name
+        - type
+        - config
+      properties:
+        name:
+          type: string
+          description: 渠道名称
+          example: "飞书通知"
+        type:
+          type: string
+          enum: [webhook, feishu, wecom, telegram, email]
+          description: 渠道类型
+          example: "feishu"
+        enabled:
+          type: boolean
+          description: 是否启用
+          default: true
+          example: true
+        config:
+          type: object
+          description: 渠道配置
+          additionalProperties: true
+          example:
+            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+        max_retries:
+          type: integer
+          description: 最大重试次数
+          default: 3
+          example: 3
+        retry_interval:
+          type: integer
+          description: 重试间隔（秒）
+          default: 30
+          example: 30
+        time_ranges:
+          type: array
+          items:
+            type: object
+            properties:
+              start_time:
+                type: string
+                description: 开始时间 (HH:MM)
+                example: "09:00"
+              end_time:
+                type: string
+                description: 结束时间 (HH:MM)
+                example: "18:00"
+              weekdays:
+                type: array
+                items:
+                  type: integer
+                  minimum: 0
+                  maximum: 6
+                description: 星期几列表
+                example: [1, 2, 3, 4, 5]
+          description: 通知时间段
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_type:
+                type: string
+                description: 事件类型
+                example: "new_email"
+              min_severity:
+                type: string
+                enum: [low, medium, high, critical]
+                description: 最低严重级别
+                example: "medium"
+          description: 订阅的事件
+
+    UpdateNotifyChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 渠道名称
+        enabled:
+          type: boolean
+          description: 是否启用
+        config:
+          type: object
+          description: 渠道配置
+          additionalProperties: true
+        max_retries:
+          type: integer
+          description: 最大重试次数
+        retry_interval:
+          type: integer
+          description: 重试间隔（秒）
+        time_ranges:
+          type: array
+          items:
+            type: object
+            properties:
+              start_time:
+                type: string
+                description: 开始时间 (HH:MM)
+              end_time:
+                type: string
+                description: 结束时间 (HH:MM)
+              weekdays:
+                type: array
+                items:
+                  type: integer
+                description: 星期几列表
+          description: 通知时间段
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_type:
+                type: string
+                description: 事件类型
+              min_severity:
+                type: string
+                enum: [low, medium, high, critical]
+                description: 最低严重级别
+          description: 订阅的事件
+
+    TestNotificationRequest:
+      type: object
+      properties:
+        event_type:
+          type: string
+          description: 事件类型
+          example: "system_warning"
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+          description: 严重级别
+          example: "medium"
+        data:
+          type: object
+          description: 事件数据
+          additionalProperties: true
+          example:
+            message: "这是一条测试通知"
+
+    SSEEventSubscription:
+      type: object
+      required:
+        - event_types
+      properties:
+        event_types:
+          type: array
+          items:
+            type: string
+          description: 订阅的事件类型列表
+          example: ["new_email", "email_sync_failed"]
+        severities:
+          type: array
+          items:
+            type: string
+            enum: [low, medium, high, critical]
+          description: 订阅的严重级别列表
+          example: ["high", "critical"]
+        account_ids:
+          type: array
+          items:
+            type: integer
+          description: 订阅的账户ID列表（可选）
+
+tags:
+  - name: 认证
+    description: 用户认证相关操作
+  - name: 邮箱账户
+    description: 邮箱账户管理
+  - name: 文件夹管理
+    description: 邮件文件夹管理和同步
+  - name: 邮件操作
+    description: 邮件收发和同步操作
+  - name: 邮件管理
+    description: 邮件查看和管理
+  - name: 邮件监控
+    description: 邮件账户实时监控管理
+  - name: 任务管理
+    description: 统一的任务管理系统，支持循环、定时和单次任务
+  - name: 通知管理
+    description: 通知渠道和推送管理（管理员权限）
+  - name: 设置管理
+    description: 系统设置管理（管理员权限）
+  - name: 实时通讯
+    description: SSE 实时通讯
+  - name: 监控
+    description: 系统监控和指标

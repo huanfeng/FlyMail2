@@ -1,0 +1,126 @@
+{
+  "providers": [
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "domains": ["gmail.com"],
+      "servers": {
+        "ssl": { "host": "imap.gmail.com", "port": 993 },
+        "starttls": { "host": "imap.gmail.com", "port": 143 }
+      },
+      "folder_mappings": {
+        "INBOX": "primary",
+        "[Gmail]/Spam": "spam",
+        "[Gmail]/Trash": "trash",
+        "[Gmail]/Sent Mail": "sent",
+        "[Gmail]/Drafts": "draft",
+        "[Gmail]/Starred": "important",
+        "[Gmail]/Important": "important",
+        "[Gmail]/All Mail": "primary",
+        "Categories/Promotions": "promotion",
+        "Categories/Social": "social",
+        "Categories/Updates": "notification",
+        "Categories/Forums": "social"
+      }
+    },
+    {
+      "id": "outlook",
+      "name": "Outlook",
+      "domains": ["outlook.com", "office365.com", "hotmail.com"],
+      "servers": {
+        "ssl": { "host": "outlook.office365.com", "port": 993 },
+        "starttls": { "host": "outlook.office365.com", "port": 143 }
+      },
+      "folder_mappings": {
+        "Inbox": "primary",
+        "Junk": "spam",
+        "Junk Email": "spam",
+        "Deleted": "trash",
+        "Deleted Items": "trash",
+        "Sent": "sent",
+        "Sent Items": "sent",
+        "Drafts": "draft",
+        "Archive": "primary"
+      }
+    },
+    {
+      "id": "yahoo",
+      "name": "Yahoo Mail",
+      "domains": ["yahoo.com"],
+      "servers": {
+        "ssl": { "host": "imap.mail.yahoo.com", "port": 993 },
+        "starttls": { "host": "imap.mail.yahoo.com", "port": 143 }
+      },
+      "folder_mappings": {
+        "Inbox": "primary",
+        "Bulk Mail": "spam",
+        "Trash": "trash",
+        "Sent": "sent",
+        "Draft": "draft"
+      }
+    },
+    {
+      "id": "163",
+      "name": "NetEase 163",
+      "domains": ["163.com"],
+      "servers": {
+        "ssl": { "host": "imap.163.com", "port": 993 },
+        "starttls": { "host": "imap.163.com", "port": 143 }
+      },
+      "folder_mappings": {
+        "INBOX": "primary",
+        "垃圾邮件": "spam",
+        "&V4NXPpCuTvY-": "spam",
+        "已删除": "trash",
+        "&XfJT0ZAB-": "trash",
+        "已发送": "sent",
+        "&XfJSIJZk-": "sent",
+        "草稿箱": "draft",
+        "&g0l6P3ux-": "draft",
+        "病毒文件夹": "spam",
+        "广告邮件": "promotion",
+        "&W4tiyDz8SssypQ-": "promotion"
+      }
+    },
+    {
+      "id": "126",
+      "name": "NetEase 126",
+      "domains": ["126.com"],
+      "servers": {
+        "ssl": { "host": "imap.126.com", "port": 993 },
+        "starttls": { "host": "imap.126.com", "port": 143 }
+      },
+      "folder_mappings": {
+        "INBOX": "primary",
+        "垃圾邮件": "spam",
+        "&V4NXPpCuTvY-": "spam",
+        "已删除": "trash",
+        "&XfJT0ZAB-": "trash",
+        "已发送": "sent",
+        "&XfJSIJZk-": "sent",
+        "草稿箱": "draft",
+        "&g0l6P3ux-": "draft"
+      }
+    },
+    {
+      "id": "yeah",
+      "name": "Yeah Mail",
+      "domains": ["yeah.net", "yeah.com"],
+      "servers": {
+        "ssl": { "host": "imap.yeah.net", "port": 993 },
+        "starttls": { "host": "imap.yeah.net", "port": 143 }
+      },
+      "folder_mappings": {
+        "INBOX": "primary",
+        "垃圾邮件": "spam",
+        "&V4NXPpCuTvY-": "spam",
+        "已删除": "trash",
+        "&XfJT0ZAB-": "trash",
+        "已发送": "sent",
+        "&XfJSIJZk-": "sent",
+        "草稿箱": "draft",
+        "&g0l6P3ux-": "draft"
+      }
+    }
+  ]
+}

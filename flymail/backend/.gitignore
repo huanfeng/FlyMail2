@@ -1,0 +1,51 @@
+# 可执行文件
+bin/
+*.exe
+/flymail
+
+# 数据库文件
+data/flymail.db
+*.db
+
+# 日志文件
+*.log
+
+# 临时文件
+tmp/
+temp/
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 文件
+.DS_Store
+Thumbs.db
+
+# Go 相关
+vendor/
+*.test
+*.out
+*.prof
+
+# 配置文件中的敏感信息（保留示例配置）
+data/*.yaml
+data/*.db-journal
+
+# 编译输出
+main
+debug
+
+# 测试覆盖率文件
+coverage.out
+
+# 发布文件
+release/
+dist/
+
+# Docker
+Dockerfile
+docker-compose.yml

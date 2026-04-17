@@ -2,6 +2,6 @@ go 1.26.1
 
 use (
 	./core
-	./mail2im/backend
 	./flymail/backend
+	./mail2im/backend
 )

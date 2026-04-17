@@ -8,8 +8,9 @@ import (
 	"gorm.io/gorm/logger"
 
 	"flymail/modules/system/task"
-	"flymail/pkg/utils"
 	"flymail/shared/config"
+
+	coreauth "flymail-core/auth"
 	"flymail/shared/store/model"
 )
 
@@ -83,7 +84,7 @@ func createDefaultAdmin(mainDB *gorm.DB, cfg *config.Config) error {
 	}
 
 	if count == 0 {
-		hashedPassword, err := utils.HashPassword(cfg.Auth.AdminDefaultPassword)
+		hashedPassword, err := coreauth.HashPassword(cfg.Auth.AdminDefaultPassword)
 		if err != nil {
 			return err
 		}
@@ -139,7 +140,7 @@ func ResetAdminPassword(cfg *config.Config) error {
 		}
 	}
 
-	hashedPassword, err := utils.HashPassword(cfg.Auth.AdminDefaultPassword)
+	hashedPassword, err := coreauth.HashPassword(cfg.Auth.AdminDefaultPassword)
 	if err != nil {
 		return err
 	}

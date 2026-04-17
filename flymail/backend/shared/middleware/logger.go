@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // bodyLogWriter is a wrapper for gin.ResponseWriter that captures response body

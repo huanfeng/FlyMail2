@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // Service interface for email message operations

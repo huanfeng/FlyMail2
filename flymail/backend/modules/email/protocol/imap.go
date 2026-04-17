@@ -20,7 +20,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	emailmessage "flymail/modules/email/message"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 func init() {

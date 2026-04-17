@@ -5,10 +5,7 @@ import (
 	"testing"
 )
 
-func init() {
-	// Load embedded default config for tests
-	loadDefaultProviderConfig()
-}
+// No init() needed — flymail-core/provider.init() loads embedded defaults automatically.
 
 func TestGetProvider_Gmail(t *testing.T) {
 	p := GetProvider("gmail")
@@ -29,9 +26,9 @@ func TestGetProvider_NotFound(t *testing.T) {
 
 func TestGuessProviderByDomain(t *testing.T) {
 	tests := []struct {
-		email    string
-		wantID   string
-		wantNil  bool
+		email   string
+		wantID  string
+		wantNil bool
 	}{
 		{"user@gmail.com", "gmail", false},
 		{"user@outlook.com", "outlook", false},

@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // worker processes tasks from the queue

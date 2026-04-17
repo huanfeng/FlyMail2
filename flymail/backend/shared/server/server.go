@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"flymail/modules/realtime"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 	"flymail/shared/config"
 	"flymail/shared/database"
 )

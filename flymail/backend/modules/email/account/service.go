@@ -11,7 +11,7 @@ import (
 	"github.com/emersion/go-imap/client"
 	"go.uber.org/zap"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 var (

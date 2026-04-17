@@ -13,7 +13,7 @@ import (
 	"flymail/modules/system/monitor"
 	"flymail/modules/system/setting"
 	"flymail/modules/system/task"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 	"flymail/shared/config"
 	"flymail/shared/middleware"
 )

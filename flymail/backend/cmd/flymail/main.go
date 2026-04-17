@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 	"flymail/shared/config"
 	"flymail/shared/database"
 	"flymail/shared/server"

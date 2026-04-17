@@ -13,8 +13,9 @@ import (
 	"strconv"
 	"time"
 
+	coreauth "flymail-core/auth"
+
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -168,7 +169,7 @@ func ResetDefaultUserPassword(customPassword string) (*models.User, string, erro
 		}
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPwd), bcrypt.DefaultCost)
+	hash, err := coreauth.HashPassword(newPwd)
 	if err != nil {
 		return nil, "", err
 	}
@@ -180,7 +181,7 @@ func ResetDefaultUserPassword(customPassword string) (*models.User, string, erro
 	if err := DB.WithContext(context.Background()).
 		Model(&user).
 		Updates(map[string]interface{}{
-			"password_hash": string(hash),
+			"password_hash": hash,
 			"username":      user.Username,
 		}).Error; err != nil {
 		return nil, "", err
@@ -201,7 +202,10 @@ func VerifyUserPassword(user models.User, password string) error {
 	if user.PasswordHash == "" {
 		return errors.New("user password not set")
 	}
-	return bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	if !coreauth.VerifyPassword(user.PasswordHash, password) {
+		return errors.New("invalid password")
+	}
+	return nil
 }
 
 func generateRandomPassword(length int) (string, error) {

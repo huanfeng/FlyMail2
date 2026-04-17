@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"flymail/pkg/i18n"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 	"flymail/pkg/response"
 )
 

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"flymail/modules/email/protocol"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 	"flymail/pkg/utils"
 )
 

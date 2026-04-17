@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // Repository interface for email account data access

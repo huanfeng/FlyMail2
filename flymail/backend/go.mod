@@ -2,6 +2,10 @@ module flymail
 
 go 1.26.1
 
+require flymail-core v0.0.0
+
+replace flymail-core => ../../core
+
 require (
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-imap-idle v0.0.0-20210907174914-db2568431445

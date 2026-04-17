@@ -9,7 +9,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // Manager interface for task management

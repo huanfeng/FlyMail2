@@ -1,3 +1,4 @@
+// TODO: migrate to flymail-core/auth for JWT
 package middleware
 
 import (

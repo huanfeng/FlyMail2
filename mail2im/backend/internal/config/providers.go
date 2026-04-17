@@ -1,111 +1,51 @@
 package config
 
 import (
-	_ "embed"
-	"encoding/json"
+	"flymail-core/provider"
 	"log"
-	"os"
 	"strings"
 )
 
-type ServerEndpoint struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-}
+// Provider is a type alias so existing callers keep working with the same field names.
+type Provider = provider.ProviderConfig
 
-type Provider struct {
-	ID             string                    `json:"id"`
-	Name           string                    `json:"name"`
-	Domains        []string                  `json:"domains"`
-	Servers        map[string]ServerEndpoint `json:"servers"`          // ssl, starttls, none
-	FolderMappings map[string]string         `json:"folder_mappings"` // folder name/path → mail type key
-}
+// ServerEndpoint is a type alias for the core type.
+type ServerEndpoint = provider.ServerEndpoint
 
-type ProviderConfig struct {
-	Providers []Provider `json:"providers"`
-}
-
-var providerConfig ProviderConfig
-
-//go:embed defaults/providers.json
-var defaultProviderConfig []byte
-
+// LoadProviderConfig loads provider presets from a JSON file.
+// Falls back to the embedded defaults on error (handled by flymail-core/provider init).
 func LoadProviderConfig(path string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("[warn] unable to read provider config at %s: %v, using built-in defaults", path, err)
-		loadDefaultProviderConfig()
-		return
-	}
-
-	if err := json.Unmarshal(data, &providerConfig); err != nil {
-		log.Printf("[warn] failed to parse provider config at %s: %v, using built-in defaults", path, err)
-		loadDefaultProviderConfig()
-		return
+	if err := provider.LoadProviders(path); err != nil {
+		log.Printf("[warn] %v, using built-in defaults", err)
+		// embedded defaults are already loaded by provider.init()
 	}
 }
 
-func loadDefaultProviderConfig() {
-	if len(defaultProviderConfig) == 0 {
-		return
-	}
-
-	if err := json.Unmarshal(defaultProviderConfig, &providerConfig); err != nil {
-		log.Printf("[warn] failed to load embedded provider config: %v", err)
-	}
-}
-
+// Providers returns all known provider presets.
 func Providers() []Provider {
-	return providerConfig.Providers
+	return provider.Providers()
 }
 
+// GetProvider looks up a provider by ID.
 func GetProvider(id string) *Provider {
-	for _, p := range providerConfig.Providers {
-		if p.ID == id {
-			return &p
-		}
-	}
-	return nil
+	return provider.GetProviderByID(id)
 }
 
+// GuessProviderByDomain extracts the domain from an email address and looks up
+// the matching provider preset.
 func GuessProviderByDomain(email string) *Provider {
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
 		return nil
 	}
-	domain := parts[1]
-	for _, p := range providerConfig.Providers {
-		for _, d := range p.Domains {
-			if strings.EqualFold(d, domain) {
-				return &p
-			}
-		}
+	p, ok := provider.GetProvider(parts[1])
+	if !ok {
+		return nil
 	}
-	return nil
+	return p
 }
 
-// LookupFolderType returns the mail type for a folder name/path using the
-// provider's built-in folder mappings. It checks both the decoded name and
-// the raw IMAP path. Returns empty string if no mapping is found.
+// LookupFolderType delegates to the core provider package.
 func LookupFolderType(providerID, folderName, folderPath string) string {
-	p := GetProvider(providerID)
-	if p == nil || len(p.FolderMappings) == 0 {
-		return ""
-	}
-
-	// Exact match on folder name
-	if t, ok := p.FolderMappings[folderName]; ok {
-		return t
-	}
-	// Exact match on raw path
-	if t, ok := p.FolderMappings[folderPath]; ok {
-		return t
-	}
-	// Case-insensitive match
-	for k, v := range p.FolderMappings {
-		if strings.EqualFold(k, folderName) || strings.EqualFold(k, folderPath) {
-			return v
-		}
-	}
-	return ""
+	return provider.LookupFolderType(providerID, folderName, folderPath)
 }

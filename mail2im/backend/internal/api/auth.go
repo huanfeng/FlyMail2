@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
+	coreauth "flymail-core/auth"
+
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"mail2im/internal/core"
@@ -61,7 +62,7 @@ func SetupUser(c *gin.Context) {
 		return
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashed, err := coreauth.HashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_hash_password"})
 		return
@@ -70,7 +71,7 @@ func SetupUser(c *gin.Context) {
 	user := models.User{
 		Username:     req.Username,
 		Email:        req.Email,
-		PasswordHash: string(hashed),
+		PasswordHash: hashed,
 	}
 
 	if err := core.DB.Create(&user).Error; err != nil {
@@ -110,7 +111,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	if !coreauth.VerifyPassword(user.PasswordHash, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
 		return
 	}
@@ -210,16 +211,16 @@ func UpdateProfile(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "current_password_required"})
 			return
 		}
-		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		if !coreauth.VerifyPassword(user.PasswordHash, req.CurrentPassword) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "current_password_invalid"})
 			return
 		}
-		hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		hashed, err := coreauth.HashPassword(req.NewPassword)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_hash_password"})
 			return
 		}
-		updates["password_hash"] = string(hashed)
+		updates["password_hash"] = hashed
 	}
 
 	if err := core.DB.Model(&user).Updates(updates).Error; err != nil {

@@ -10,7 +10,7 @@ import (
 
 	"flymail/modules/email/account"
 	"flymail/modules/email/message"
-	"flymail/pkg/logger"
+	"flymail-core/logger"
 )
 
 // AccountMonitor monitors a single email account

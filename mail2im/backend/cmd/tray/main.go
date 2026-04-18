@@ -41,6 +41,11 @@ func onReady() {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("退出", "退出应用")
 
+	// Click tray icon to open browser
+	systray.SetOnTapped(func() {
+		openBrowser()
+	})
+
 	// Auto-start server
 	go startServer(mStart, mStop)
 

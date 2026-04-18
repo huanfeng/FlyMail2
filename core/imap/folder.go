@@ -36,8 +36,14 @@ func (s *Session) ListFolders() ([]types.FolderInfo, error) {
 			attrs = append(attrs, string(a))
 		}
 
+		// Decode UTF-7 folder name; fall back to raw name on error
+		name := mbox.Mailbox
+		if decoded, err := DecodeUTF7(mbox.Mailbox); err == nil {
+			name = decoded
+		}
+
 		folders = append(folders, types.FolderInfo{
-			Name:       mbox.Mailbox,
+			Name:       name,
 			Path:       mbox.Mailbox,
 			Delimiter:  string(mbox.Delim),
 			Attributes: attrs,

@@ -85,7 +85,7 @@ func (w *Worker) pushIdleEvent(ev idleEvent) {
 }
 
 func (w *Worker) MarkAsRead(uid uint) error {
-	if w.Client == nil {
+	if w.session == nil {
 		return fmt.Errorf("client not connected")
 	}
 
@@ -97,29 +97,19 @@ func (w *Worker) MarkAsRead(uid uint) error {
 
 	var mailbox models.Mailbox
 	if err := DB.Where("account_id = ? AND name = ?", w.Account.ID, email.Mailbox).First(&mailbox).Error; err != nil {
-		// Try raw path if name fails (fallback)
 		if err := DB.Where("account_id = ? AND path = ?", w.Account.ID, email.MailboxPath).First(&mailbox).Error; err != nil {
 			return fmt.Errorf("mailbox not found")
 		}
 	}
 
 	// 2. Select Mailbox
-	if _, err := w.Client.Select(mailbox.Path, nil).Wait(); err != nil {
+	if _, err := w.session.SelectFolder(mailbox.Path); err != nil {
 		return fmt.Errorf("failed to select mailbox: %v", err)
 	}
 
-	// 3. Store flags
-	uidSet := imap.UIDSet{}
-	uidSet.AddNum(imap.UID(uid))
-
-	storeFlags := imap.StoreFlags{
-		Op:    imap.StoreFlagsAdd,
-		Flags: []imap.Flag{imap.FlagSeen},
-	}
-
-	storeCmd := w.Client.Store(uidSet, &storeFlags, nil)
-	if err := storeCmd.Close(); err != nil {
-		return fmt.Errorf("failed to store flags: %v", err)
+	// 3. Mark as read via session
+	if err := w.session.MarkRead(imap.UID(uid)); err != nil {
+		return fmt.Errorf("failed to mark as read: %v", err)
 	}
 
 	// 4. Update local DB
@@ -504,7 +494,7 @@ func (w *Worker) resolvePollInterval() time.Duration {
 }
 
 func (w *Worker) selectMailbox(target string) error {
-	if w.Client == nil {
+	if w.session == nil {
 		return fmt.Errorf("client is not connected")
 	}
 
@@ -516,10 +506,8 @@ func (w *Worker) selectMailbox(target string) error {
 		}
 	}
 
-	if _, err := w.Client.Select(path, nil).Wait(); err != nil {
-		return err
-	}
-	return nil
+	_, err := w.session.SelectFolder(path)
+	return err
 }
 
 func (w *Worker) fetchMailboxByName(name string) int {
@@ -555,41 +543,34 @@ func (w *Worker) fetchAllMailboxes() int {
 }
 
 func (w *Worker) syncMailboxes() {
-	if w.Client == nil {
+	if w.session == nil {
 		return
 	}
 
 	w.log("debug", StateConnecting, "Syncing mailboxes")
 
-	listCmd := w.Client.List("", "*", nil)
+	folders, err := w.session.ListFolders()
+	if err != nil {
+		w.log("warn", StateError, fmt.Sprintf("List mailboxes failed: %v", err))
+		return
+	}
+
 	var synced []models.Mailbox
 	foundPaths := make(map[string]bool)
 
-	for {
-		mbox := listCmd.Next()
-		if mbox == nil {
-			break
-		}
-
-		name := mbox.Mailbox
-		var attrsList []string
-		for _, attr := range mbox.Attrs {
-			attrsList = append(attrsList, string(attr))
-		}
-		attrs := strings.Join(attrsList, ",")
-		foundPaths[mbox.Mailbox] = true
+	for _, fi := range folders {
+		attrs := strings.Join(fi.Attributes, ",")
+		foundPaths[fi.Path] = true
 
 		var existing models.Mailbox
-		if err := DB.Where("account_id = ? AND path = ?", w.Account.ID, mbox.Mailbox).First(&existing).Error; err == nil {
-			existing.Name = name
-			existing.Delimiter = string(mbox.Delim)
+		if err := DB.Where("account_id = ? AND path = ?", w.Account.ID, fi.Path).First(&existing).Error; err == nil {
+			existing.Name = fi.Name
+			existing.Delimiter = fi.Delimiter
 			existing.Attributes = attrs
 			existing.WatchStatus = "verified"
 
-			// Only auto-update type if it was "unknown" to preserve manual overrides?
-			// Or always re-evaluate if not manually locked? (For now, let's assume simple overwrite if unknown)
 			if existing.Type == "" || existing.Type == "unknown" {
-				existing.Type = classifyMailboxType(w.Account.Provider, name, mbox.Mailbox)
+				existing.Type = classifyMailboxType(w.Account.Provider, fi.Name, fi.Path)
 			}
 			DB.Save(&existing)
 			synced = append(synced, existing)
@@ -597,7 +578,7 @@ func (w *Worker) syncMailboxes() {
 		}
 
 		// New Mailbox
-		predictedType := classifyMailboxType(w.Account.Provider, name, mbox.Mailbox)
+		predictedType := classifyMailboxType(w.Account.Provider, fi.Name, fi.Path)
 		watchMode := "none"
 		if predictedType == "primary" {
 			watchMode = "idle"
@@ -605,9 +586,9 @@ func (w *Worker) syncMailboxes() {
 
 		entry := models.Mailbox{
 			AccountID:   w.Account.ID,
-			Name:        name,
-			Path:        mbox.Mailbox,
-			Delimiter:   string(mbox.Delim),
+			Name:        fi.Name,
+			Path:        fi.Path,
+			Delimiter:   fi.Delimiter,
 			Attributes:  attrs,
 			WatchStatus: "verified",
 			Type:        predictedType,
@@ -615,11 +596,6 @@ func (w *Worker) syncMailboxes() {
 		}
 		DB.Create(&entry)
 		synced = append(synced, entry)
-	}
-
-	if err := listCmd.Close(); err != nil {
-		w.log("warn", StateError, fmt.Sprintf("List mailboxes failed: %v", err))
-		return
 	}
 
 	// Handle deletions: Delete mailboxes in DB that are not in foundPaths
@@ -656,7 +632,7 @@ func getMapKeys(m map[string]bool) []string {
 }
 
 func (w *Worker) fetchMailboxMessages(mb *models.Mailbox) int {
-	if w.Client == nil {
+	if w.session == nil {
 		return 0
 	}
 
@@ -665,7 +641,7 @@ func (w *Worker) fetchMailboxMessages(mb *models.Mailbox) int {
 		return 0
 	}
 
-	if _, err := w.Client.Select(mb.Path, nil).Wait(); err != nil {
+	if _, err := w.session.SelectFolder(mb.Path); err != nil {
 		w.log("warn", StateError, fmt.Sprintf("Select %s failed: %v", mb.Path, err))
 		return 0
 	}
@@ -677,21 +653,12 @@ func (w *Worker) fetchMailboxMessages(mb *models.Mailbox) int {
 	if startUID == 0 {
 		startUID = 1
 	}
-	uidSet := imap.UIDSet{}
-	uidSet.AddRange(startUID, 0)
 
-	criteria := &imap.SearchCriteria{
-		UID:     []imap.UIDSet{uidSet},
-		NotFlag: []imap.Flag{imap.FlagSeen},
-	}
-
-	searchRes, err := w.Client.UIDSearch(criteria, nil).Wait()
+	uids, err := w.session.SearchUnseenSince(startUID)
 	if err != nil {
 		w.log("error", StateError, fmt.Sprintf("Search error in %s: %v", mb.Path, err))
 		return 0
 	}
-
-	uids := searchRes.AllUIDs()
 	if len(uids) == 0 {
 		return 0
 	}

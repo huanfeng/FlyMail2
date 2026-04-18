@@ -140,10 +140,11 @@ $beLOG = Join-Path $logDir "backend.log"
 "" | Set-Content $feLOG
 "" | Set-Content $beLOG
 
+$feWorkDir = Join-Path (Get-Location) "frontend-react"
+$feErrLog = Join-Path $logDir "frontend-err.log"
 $frontendProc = Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c","pnpm run dev -- --port $FrontendPort --host 0.0.0.0" `
-    -WorkingDirectory (Join-Path (Get-Location) "frontend-react") `
-    -RedirectStandardOutput $feLOG -RedirectStandardError (Join-Path $logDir "frontend-err.log") `
+    -ArgumentList "/c `"cd /d $feWorkDir && pnpm run dev --port $FrontendPort --host 0.0.0.0`"" `
+    -RedirectStandardOutput $feLOG -RedirectStandardError $feErrLog `
     -PassThru -WindowStyle Hidden
 
 Write-Host "[Frontend] http://localhost:$FrontendPort" -ForegroundColor Green

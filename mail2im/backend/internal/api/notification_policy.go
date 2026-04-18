@@ -2,10 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/dispatcher"
 	"mail2im/internal/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +28,7 @@ type PolicyChannel struct {
 func GetNotificationPolicy(c *gin.Context) {
 	var mailTypes []models.MailType
 	if err := core.DB.Order("priority desc, key asc").Find(&mailTypes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
@@ -55,7 +55,7 @@ func GetNotificationPolicy(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, items)
+	httputil.Success(c, items)
 }
 
 // UpdateNotificationPolicy updates a single mail type's channel_ids and action.
@@ -64,7 +64,7 @@ func UpdateNotificationPolicy(c *gin.Context) {
 
 	var mt models.MailType
 	if err := core.DB.Where("key = ?", key).First(&mt).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "mail type not found"})
+		httputil.NotFound(c, "mail type not found", nil)
 		return
 	}
 
@@ -74,7 +74,7 @@ func UpdateNotificationPolicy(c *gin.Context) {
 		Priority   *int   `json:"priority"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
@@ -87,7 +87,7 @@ func UpdateNotificationPolicy(c *gin.Context) {
 		case "notify", "silent", "ignore":
 			updates["action"] = req.Action
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "action must be notify, silent, or ignore"})
+			httputil.BadRequest(c, "action must be notify, silent, or ignore", nil)
 			return
 		}
 	}
@@ -96,19 +96,19 @@ func UpdateNotificationPolicy(c *gin.Context) {
 	}
 
 	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no updates provided"})
+		httputil.BadRequest(c, "no updates provided", nil)
 		return
 	}
 
 	if err := core.DB.Model(&mt).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	// Reload dispatcher channels so the new routing takes effect
 	dispatcher.Instance.ReloadChannels()
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	httputil.NoContent(c, "ok")
 }
 
 func parseChannelIDs(raw string) map[uint]bool {

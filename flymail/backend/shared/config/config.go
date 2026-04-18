@@ -1,16 +1,11 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/spf13/viper"
+	coreconfig "flymail-core/config"
 )
 
 type Config struct {
@@ -78,46 +73,19 @@ type WorkerConfig struct {
 }
 
 func Load() (*Config, error) {
-	// Set default values
-	setDefaults()
-
-	// Read environment variables first
-	viper.SetEnvPrefix("FLYMAIL")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
-
-	// Set config file path
-	var configPath string
-	if configFile := viper.GetString("config"); configFile != "" {
-		configPath = configFile
-		viper.SetConfigFile(configFile)
-	} else {
+	// Determine config file path from env or default
+	configPath := os.Getenv("FLYMAIL_CONFIG")
+	if configPath == "" {
 		configPath = "./data/config.yaml"
-		viper.SetConfigFile(configPath)
-	}
-
-	// Try to read config file
-	if err := viper.ReadInConfig(); err != nil {
-		var pathError *fs.PathError
-		if errors.As(err, &pathError) && errors.Is(pathError.Err, fs.ErrNotExist) {
-			if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-				return nil, fmt.Errorf("failed to create data directory: %w", err)
-			}
-
-			if err := viper.SafeWriteConfigAs(configPath); err != nil {
-				return nil, fmt.Errorf("failed to create default config: %w", err)
-			}
-
-			fmt.Printf("Created default config file at %s\n", configPath)
-			fmt.Println("WARNING: Please change the default admin password and review the JWT secret for security!")
-		} else {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
 	}
 
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	if err := coreconfig.LoadConfig(coreconfig.LoadOptions{
+		EnvPrefix:  "FLYMAIL",
+		ConfigPath: configPath,
+		Defaults:   defaultValues(),
+	}, &cfg); err != nil {
+		return nil, err
 	}
 
 	// Validate JWT secret
@@ -159,40 +127,30 @@ func GetConfig() *Config {
 	return cfg
 }
 
-func setDefaults() {
-	viper.SetDefault("app.name", "FlyMail")
-	viper.SetDefault("app.version", "1.0.0")
-	viper.SetDefault("app.env", "production")
-	viper.SetDefault("server.port", 8080)
-	viper.SetDefault("server.host", "127.0.0.1")
-	viper.SetDefault("database.path", "flymail.db")
-	viper.SetDefault("database.log_path", "flymail_log.db")
-	viper.SetDefault("auth.jwt_secret", generateRandomSecret())
-	viper.SetDefault("auth.jwt_expiration", 3600)
-	viper.SetDefault("auth.jwt_refresh_expiration_hours", 7*24)
-	viper.SetDefault("auth.admin_default_password", "admin123")
-	viper.SetDefault("data_dir", "./data")
-	viper.SetDefault("logger.level", "info")
-	viper.SetDefault("logger.development", false)
-	viper.SetDefault("logger.output_paths", []string{"stdout"})
-	// CROS 默认设置
-	viper.SetDefault("cors.allow_origins", []string{})
-	viper.SetDefault("cors.allow_methods", []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
-	viper.SetDefault("cors.allow_headers", []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"})
-	viper.SetDefault("cors.expose_headers", []string{})
-	viper.SetDefault("cors.allow_credentials", true)
-	viper.SetDefault("cors.max_age", 3600)
-	// Worker 默认设置
-	viper.SetDefault("worker.notify_workers", 5)
-	viper.SetDefault("worker.task_workers", 5)
-}
-
-// generateRandomSecret generates a random 32-character hex string for JWT secret
-func generateRandomSecret() string {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to a default if random generation fails
-		return "default-insecure-jwt-secret-replace-me"
+func defaultValues() map[string]any {
+	return map[string]any{
+		"app.name":                         "FlyMail",
+		"app.version":                      "1.0.0",
+		"app.env":                          "production",
+		"server.port":                      8080,
+		"server.host":                      "127.0.0.1",
+		"database.path":                    "flymail.db",
+		"database.log_path":                "flymail_log.db",
+		"auth.jwt_secret":                  coreconfig.GenerateRandomSecret(),
+		"auth.jwt_expiration":              3600,
+		"auth.jwt_refresh_expiration_hours": 7 * 24,
+		"auth.admin_default_password":      "admin123",
+		"data_dir":                         "./data",
+		"logger.level":                     "info",
+		"logger.development":               false,
+		"logger.output_paths":              []string{"stdout"},
+		"cors.allow_origins":               []string{},
+		"cors.allow_methods":               []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		"cors.allow_headers":               []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
+		"cors.expose_headers":              []string{},
+		"cors.allow_credentials":           true,
+		"cors.max_age":                     3600,
+		"worker.notify_workers":            5,
+		"worker.task_workers":              5,
 	}
-	return hex.EncodeToString(bytes)
 }

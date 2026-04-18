@@ -1,9 +1,9 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,18 +16,18 @@ func GenerateShareLink(c *gin.Context) {
 	// Verify email exists and belongs to user (middleware handles auth)
 	var email models.Email
 	if err := core.DB.First(&email, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
+		httputil.NotFound(c, "Email not found", nil)
 		return
 	}
 
 	// Generate token valid for 1 hour
 	token, err := core.GenerateOneTimeToken(id, 1*time.Hour)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		httputil.InternalError(c, "Failed to generate token", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	httputil.Success(c, gin.H{
 		"token":      token,
 		"expires_at": time.Now().Add(1 * time.Hour),
 		"url":        "/share/" + token, // Frontend route
@@ -38,15 +38,15 @@ func GenerateShareLink(c *gin.Context) {
 func GetSharedEmail(c *gin.Context) {
 	token := c.Param("token")
 	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Token required"})
+		httputil.BadRequest(c, "Token required", nil)
 		return
 	}
 
 	email, err := core.RedeemOneTimeToken(token)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or expired link"})
+		httputil.Forbidden(c, "Invalid or expired link", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, email)
+	httputil.Success(c, email)
 }

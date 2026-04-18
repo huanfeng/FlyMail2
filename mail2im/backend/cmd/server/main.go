@@ -8,9 +8,9 @@ import (
 	"syscall"
 
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 
 	"mail2im/internal/app"
+	appconfig "mail2im/internal/config"
 	"mail2im/internal/core"
 )
 
@@ -58,22 +58,20 @@ func main() {
 		return
 	}
 
-	// Viper setup
-	viper.SetEnvPrefix("MAIL2IM")
-	viper.AutomaticEnv()
-	viper.BindPFlag("data_root", pflag.Lookup("data-root"))
-
-	dataRoot := viper.GetString("data_root")
-	if dataRoot == "" {
-		dataRoot = os.Getenv("DATA_ROOT")
+	// Load config
+	if dataRoot := pflag.Lookup("data-root").Value.String(); dataRoot != "./mail2im_data" {
+		os.Setenv("MAIL2IM_DATA_ROOT", dataRoot)
 	}
-	if dataRoot == "" {
-		dataRoot = "./mail2im_data"
+
+	appCfg, err := appconfig.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// Handle --reset-password (needs DB init first)
 	if pflag.Lookup("reset-password").Changed {
-		core.InitDB(dataRoot + "/mail2im.db")
+		core.InitCrypto(appCfg.AppSecret)
+		core.InitDB(appCfg.DataRoot + "/mail2im.db")
 		val := pflag.Lookup("reset-password").Value.String()
 
 		var targetPwd string
@@ -99,11 +97,8 @@ func main() {
 
 	// Build server config
 	cfg := app.ServerConfig{
-		Port:     os.Getenv("PORT"),
-		DataRoot: dataRoot,
-	}
-	if cfg.Port == "" {
-		cfg.Port = "8080"
+		Port:     appCfg.Port,
+		DataRoot: appCfg.DataRoot,
 	}
 
 	// Start server

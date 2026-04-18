@@ -1,9 +1,9 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -15,17 +15,17 @@ func GetMailboxes(c *gin.Context) {
 	accountIDStr := c.Param("id")
 	accountID, err := strconv.ParseUint(accountIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
+		httputil.BadRequest(c, "Invalid account ID", nil)
 		return
 	}
 
 	var mailboxes []models.Mailbox
 	if err := core.DB.Where("account_id = ?", accountID).Find(&mailboxes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch mailboxes"})
+		httputil.InternalError(c, "Failed to fetch mailboxes", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, mailboxes)
+	httputil.Success(c, mailboxes)
 }
 
 type UpdateMailboxRequest struct {
@@ -38,26 +38,26 @@ func UpdateMailbox(c *gin.Context) {
 	mailboxIDStr := c.Param("mailbox_id")
 	mailboxID, err := strconv.ParseUint(mailboxIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid mailbox ID"})
+		httputil.BadRequest(c, "Invalid mailbox ID", nil)
 		return
 	}
 
 	var req UpdateMailboxRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		httputil.BadRequest(c, "Invalid request body", nil)
 		return
 	}
 
 	var mailbox models.Mailbox
 	if err := core.DB.First(&mailbox, mailboxID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Mailbox not found"})
+		httputil.NotFound(c, "Mailbox not found", nil)
 		return
 	}
 
 	// Validate inputs
 	if req.WatchMode != "" {
 		if req.WatchMode != "idle" && req.WatchMode != "poll" && req.WatchMode != "none" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid watch_mode (idle, poll, none)"})
+			httputil.BadRequest(c, "Invalid watch_mode (idle, poll, none)", nil)
 			return
 		}
 		mailbox.WatchMode = req.WatchMode
@@ -68,14 +68,14 @@ func UpdateMailbox(c *gin.Context) {
 	}
 
 	if err := core.DB.Save(&mailbox).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mailbox"})
+		httputil.InternalError(c, "Failed to update mailbox", nil)
 		return
 	}
 
 	// Restart worker to apply changes
 	core.Watcher.RestartWorker(mailbox.AccountID)
 
-	c.JSON(http.StatusOK, mailbox)
+	httputil.Success(c, mailbox)
 }
 
 // SyncMailboxes force fetch folders from remote
@@ -83,7 +83,7 @@ func SyncMailboxes(c *gin.Context) {
 	accountIDStr := c.Param("id")
 	accountID, err := strconv.ParseUint(accountIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
+		httputil.BadRequest(c, "Invalid account ID", nil)
 		return
 	}
 
@@ -96,9 +96,10 @@ func SyncMailboxes(c *gin.Context) {
 
 	var mailboxes []models.Mailbox
 	if err := core.DB.Where("account_id = ?", accountID).Find(&mailboxes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch mailboxes"})
+		httputil.InternalError(c, "Failed to fetch mailboxes", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, mailboxes)
+	httputil.Success(c, mailboxes)
 }
+

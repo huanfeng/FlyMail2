@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 
 	"flymail-core/logger"
 	"mail2im/internal/app"
+	appconfig "mail2im/internal/config"
 )
 
 var (
@@ -20,6 +22,9 @@ var (
 )
 
 func main() {
+	if _, err := appconfig.Load(); err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 	systray.Run(onReady, onExit)
 }
 

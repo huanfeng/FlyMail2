@@ -4,7 +4,7 @@ import (
 	"log"
 	"mail2im/internal/models"
 
-	"gorm.io/driver/sqlite"
+	"flymail-core/database"
 	"gorm.io/gorm"
 )
 
@@ -12,7 +12,7 @@ var DB *gorm.DB
 
 func InitDB(dbPath string) {
 	var err error
-	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	DB, err = database.OpenSQLite(database.Options{Path: dbPath})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}

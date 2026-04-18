@@ -3,14 +3,12 @@ package database
 import (
 	"fmt"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
-	"flymail/modules/system/task"
-	"flymail/shared/config"
 
 	coreauth "flymail-core/auth"
+	"flymail-core/database"
+	"flymail/modules/system/task"
+	"flymail/shared/config"
 	"flymail/shared/store/model"
 )
 
@@ -24,9 +22,7 @@ var serverDB *ServerDB
 func Init(cfg *config.Config) error {
 	var err error
 
-	mainDB, err := gorm.Open(sqlite.Open(cfg.Database.Path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Error),
-	})
+	mainDB, err := database.OpenSQLite(database.Options{Path: cfg.Database.Path})
 	if err != nil {
 		return fmt.Errorf("failed to connect to main database: %w", err)
 	}
@@ -55,9 +51,7 @@ func Init(cfg *config.Config) error {
 		return fmt.Errorf("failed to create default settings: %w", err)
 	}
 
-	logDB, err := gorm.Open(sqlite.Open(cfg.Database.LogPath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Error),
-	})
+	logDB, err := database.OpenSQLite(database.Options{Path: cfg.Database.LogPath})
 	if err != nil {
 		return fmt.Errorf("failed to connect to log database: %w", err)
 	}

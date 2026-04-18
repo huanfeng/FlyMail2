@@ -2,9 +2,9 @@ package api
 
 import (
 	"fmt"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 	"strings"
 	"time"
 
@@ -82,15 +82,15 @@ func ExportConfig(c *gin.Context) {
 	if sections["accounts"] {
 		user, ok := CurrentUser(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			httputil.Unauthorized(c, "unauthorized", nil)
 			return
 		}
 		if req.Password == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "password_required"})
+			httputil.BadRequest(c, "password_required", nil)
 			return
 		}
 		if err := core.VerifyUserPassword(user, req.Password); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_password"})
+			httputil.Unauthorized(c, "invalid_password", nil)
 			return
 		}
 	}
@@ -103,7 +103,7 @@ func ExportConfig(c *gin.Context) {
 	var proxies []models.Proxy
 	if sections["proxies"] || sections["accounts"] {
 		if err := core.DB.Find(&proxies).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 	}
@@ -131,7 +131,7 @@ func ExportConfig(c *gin.Context) {
 	if sections["accounts"] {
 		var accounts []models.Account
 		if err := core.DB.Find(&accounts).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		for _, acc := range accounts {
@@ -174,7 +174,7 @@ func ExportConfig(c *gin.Context) {
 	if sections["channels"] {
 		var channels []models.Channel
 		if err := core.DB.Find(&channels).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		for _, ch := range channels {
@@ -195,7 +195,7 @@ func ExportConfig(c *gin.Context) {
 	if sections["settings"] {
 		var systemSettings []models.SystemSetting
 		if err := core.DB.Find(&systemSettings).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		if len(systemSettings) > 0 {
@@ -206,18 +206,18 @@ func ExportConfig(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(200, resp)
 }
 
 func ImportConfig(c *gin.Context) {
 	var payload ConfigImportRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	if len(payload.Accounts) == 0 && len(payload.Proxies) == 0 && payload.SystemSettings == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no data to import"})
+		httputil.BadRequest(c, "no data to import", nil)
 		return
 	}
 
@@ -226,7 +226,7 @@ func ImportConfig(c *gin.Context) {
 	if len(payload.Proxies) > 0 || len(payload.Accounts) > 0 {
 		var existingProxies []models.Proxy
 		if err := core.DB.Find(&existingProxies).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		for _, p := range existingProxies {
@@ -238,7 +238,7 @@ func ImportConfig(c *gin.Context) {
 	if len(payload.Accounts) > 0 {
 		var existingAccounts []models.Account
 		if err := core.DB.Find(&existingAccounts).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		for _, a := range existingAccounts {
@@ -267,7 +267,7 @@ func ImportConfig(c *gin.Context) {
 	if len(payload.Channels) > 0 {
 		var existingChannels []models.Channel
 		if err := core.DB.Find(&existingChannels).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 		for _, ch := range existingChannels {
@@ -281,10 +281,10 @@ func ImportConfig(c *gin.Context) {
 	}
 
 	if (len(conflicts.Accounts) > 0 || len(conflicts.Proxies) > 0) && !payload.Overwrite {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":     "conflict",
-			"message":   "conflicts detected, retry with overwrite=true to replace existing records",
-			"conflicts": conflicts,
+		httputil.ErrorWithInfo(c, httputil.CodeConflict, "conflicts detected, retry with overwrite=true to replace existing records", &httputil.ErrorInfo{
+			Metadata: map[string]any{
+				"conflicts": conflicts,
+			},
 		})
 		return
 	}
@@ -300,7 +300,7 @@ func ImportConfig(c *gin.Context) {
 	for _, p := range payload.Proxies {
 		encryptedPwd, err := core.Encrypt(p.Password)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to encrypt proxy password: %v", err)})
+			httputil.InternalError(c, fmt.Sprintf("Failed to encrypt proxy password: %v", err), nil)
 			return
 		}
 
@@ -315,7 +315,7 @@ func ImportConfig(c *gin.Context) {
 				Password: encryptedPwd,
 			}
 			if err := core.DB.Create(&newProxy).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 		} else {
@@ -325,7 +325,7 @@ func ImportConfig(c *gin.Context) {
 			existing.Username = p.Username
 			existing.Password = encryptedPwd
 			if err := core.DB.Save(&existing).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 		}
@@ -380,7 +380,7 @@ func ImportConfig(c *gin.Context) {
 
 		account, err := toAccount(req, target, true)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to encrypt account password: %v", err)})
+			httputil.InternalError(c, fmt.Sprintf("Failed to encrypt account password: %v", err), nil)
 			return
 		}
 		if acc.Status != "" {
@@ -397,14 +397,14 @@ func ImportConfig(c *gin.Context) {
 
 		if hasExisting {
 			if err := core.DB.Save(account).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 			existingAccountMap[acc.Email] = *account
 			go core.Watcher.RestartWorker(account.ID)
 		} else {
 			if err := core.DB.Create(account).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 			existingAccountMap[acc.Email] = *account
@@ -426,7 +426,7 @@ func ImportConfig(c *gin.Context) {
 			existing.QuietStart = ch.QuietStart
 			existing.QuietEnd = ch.QuietEnd
 			if err := core.DB.Save(&existing).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 			existingChannelMap[ch.Name] = existing
@@ -443,7 +443,7 @@ func ImportConfig(c *gin.Context) {
 				QuietEnd:    ch.QuietEnd,
 			}
 			if err := core.DB.Create(&newCh).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 			existingChannelMap[ch.Name] = newCh
@@ -454,7 +454,7 @@ func ImportConfig(c *gin.Context) {
 	if payload.SystemSettings != nil {
 		for k, v := range payload.SystemSettings {
 			if err := core.SetSystemSetting(k, v); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httputil.InternalError(c, err.Error(), err)
 				return
 			}
 			imported["system_settings"]++
@@ -462,7 +462,7 @@ func ImportConfig(c *gin.Context) {
 	}
 
 	core.RecordSystemLog("config_import", "success", "Imported configuration", fmt.Sprintf("accounts=%d proxies=%d channels=%d settings=%d", imported["accounts"], imported["proxies"], imported["channels"], imported["system_settings"]))
-	c.JSON(http.StatusOK, gin.H{"message": "Imported", "imported": imported})
+	httputil.Success(c, gin.H{"imported": imported})
 }
 
 func parseSectionSelection(raw interface{}) map[string]bool {

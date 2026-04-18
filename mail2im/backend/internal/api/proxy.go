@@ -1,9 +1,9 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,40 +11,40 @@ import (
 func CreateProxy(c *gin.Context) {
 	var input models.Proxy
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	// TODO: Validate input (e.g. Type must be socks5 or http)
 
 	if err := core.DB.Create(&input).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
-	c.JSON(http.StatusOK, input)
+	httputil.Success(c, input)
 }
 
 func GetProxies(c *gin.Context) {
 	var proxies []models.Proxy
 	if err := core.DB.Find(&proxies).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
-	c.JSON(http.StatusOK, proxies)
+	httputil.Success(c, proxies)
 }
 
 func UpdateProxy(c *gin.Context) {
 	id := c.Param("id")
 	var proxy models.Proxy
 	if err := core.DB.First(&proxy, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Proxy not found"})
+		httputil.NotFound(c, "Proxy not found", nil)
 		return
 	}
 
 	var input models.Proxy
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
@@ -58,18 +58,18 @@ func UpdateProxy(c *gin.Context) {
 	}
 
 	if err := core.DB.Save(&proxy).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
-	c.JSON(http.StatusOK, proxy)
+	httputil.Success(c, proxy)
 }
 
 func DeleteProxy(c *gin.Context) {
 	id := c.Param("id")
 	if err := core.DB.Delete(&models.Proxy{}, id).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+	httputil.NoContent(c, "deleted")
 }

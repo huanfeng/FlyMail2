@@ -1,11 +1,11 @@
 package api
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
 	coreauth "flymail-core/auth"
+	"flymail-core/httputil"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -39,18 +39,18 @@ type updateProfileRequest struct {
 func SetupUser(c *gin.Context) {
 	var count int64
 	if err := core.DB.Model(&models.User{}).Count(&count).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check user state"})
+		httputil.InternalError(c, "failed to check user state", err)
 		return
 	}
 
 	if count > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_exists"})
+		httputil.BadRequest(c, "user_exists", nil)
 		return
 	}
 
 	var req setupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		httputil.BadRequest(c, "invalid_payload", nil)
 		return
 	}
 
@@ -58,13 +58,13 @@ func SetupUser(c *gin.Context) {
 	req.Email = strings.TrimSpace(req.Email)
 
 	if req.Username == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username_and_password_required"})
+		httputil.BadRequest(c, "username_and_password_required", nil)
 		return
 	}
 
 	hashed, err := coreauth.HashPassword(req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_hash_password"})
+		httputil.InternalError(c, "failed_to_hash_password", err)
 		return
 	}
 
@@ -75,44 +75,44 @@ func SetupUser(c *gin.Context) {
 	}
 
 	if err := core.DB.Create(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed_to_create_user"})
+		httputil.BadRequest(c, "failed_to_create_user", nil)
 		return
 	}
 
 	pair, err := core.IssueTokenPair(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_issue_tokens"})
+		httputil.InternalError(c, "failed_to_issue_tokens", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, authResponse(user, pair))
+	httputil.Success(c, authResponse(user, pair))
 }
 
 func Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		httputil.BadRequest(c, "invalid_payload", nil)
 		return
 	}
 
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || strings.TrimSpace(req.Password) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username_and_password_required"})
+		httputil.BadRequest(c, "username_and_password_required", nil)
 		return
 	}
 
 	var user models.User
 	if err := core.DB.Where("username = ? OR email = ?", identifier, identifier).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+			httputil.Unauthorized(c, "invalid_credentials", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_query_user"})
+		httputil.InternalError(c, "failed_to_query_user", err)
 		return
 	}
 
 	if !coreauth.VerifyPassword(user.PasswordHash, req.Password) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+		httputil.Unauthorized(c, "invalid_credentials", nil)
 		return
 	}
 
@@ -121,48 +121,48 @@ func Login(c *gin.Context) {
 
 	pair, err := core.IssueTokenPair(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_issue_tokens"})
+		httputil.InternalError(c, "failed_to_issue_tokens", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, authResponse(user, pair))
+	httputil.Success(c, authResponse(user, pair))
 }
 
 func RefreshToken(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		httputil.BadRequest(c, "invalid_payload", nil)
 		return
 	}
 
 	tokenRecord, err := core.ValidateRefreshToken(req.RefreshToken)
 	if err != nil {
-		status := http.StatusUnauthorized
+		status := 401
 		if err == gorm.ErrRecordNotFound {
-			status = http.StatusUnauthorized
+			status = 401
 		}
-		c.JSON(status, gin.H{"error": "invalid_refresh_token"})
+		httputil.ErrorHTTP(c, status, httputil.CodeUnauthorized, "invalid_refresh_token")
 		return
 	}
 
 	var user models.User
 	if err := core.DB.First(&user, tokenRecord.UserID).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_refresh_token"})
+		httputil.Unauthorized(c, "invalid_refresh_token", nil)
 		return
 	}
 
 	if err := core.RevokeRefreshToken(req.RefreshToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_revoke_refresh_token"})
+		httputil.InternalError(c, "failed_to_revoke_refresh_token", err)
 		return
 	}
 
 	pair, err := core.IssueTokenPair(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_issue_tokens"})
+		httputil.InternalError(c, "failed_to_issue_tokens", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, authResponse(user, pair))
+	httputil.Success(c, authResponse(user, pair))
 }
 
 func GetMe(c *gin.Context) {
@@ -172,7 +172,7 @@ func GetMe(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": publicUser(user)})
+	httputil.Success(c, gin.H{"user": publicUser(user)})
 }
 
 func UpdateProfile(c *gin.Context) {
@@ -184,7 +184,7 @@ func UpdateProfile(c *gin.Context) {
 
 	var req updateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		httputil.BadRequest(c, "invalid_payload", nil)
 		return
 	}
 
@@ -192,12 +192,12 @@ func UpdateProfile(c *gin.Context) {
 	email := strings.TrimSpace(req.Email)
 
 	if username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username_required"})
+		httputil.BadRequest(c, "username_required", nil)
 		return
 	}
 
 	if err := core.DB.First(&user, user.ID).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_user"})
+		httputil.Unauthorized(c, "invalid_user", nil)
 		return
 	}
 
@@ -208,44 +208,44 @@ func UpdateProfile(c *gin.Context) {
 
 	if strings.TrimSpace(req.NewPassword) != "" {
 		if strings.TrimSpace(req.CurrentPassword) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "current_password_required"})
+			httputil.BadRequest(c, "current_password_required", nil)
 			return
 		}
 		if !coreauth.VerifyPassword(user.PasswordHash, req.CurrentPassword) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "current_password_invalid"})
+			httputil.Unauthorized(c, "current_password_invalid", nil)
 			return
 		}
 		hashed, err := coreauth.HashPassword(req.NewPassword)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_hash_password"})
+			httputil.InternalError(c, "failed_to_hash_password", err)
 			return
 		}
 		updates["password_hash"] = hashed
 	}
 
 	if err := core.DB.Model(&user).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed_to_update_user"})
+		httputil.BadRequest(c, "failed_to_update_user", nil)
 		return
 	}
 
 	if err := core.DB.First(&user, user.ID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_load_user"})
+		httputil.InternalError(c, "failed_to_load_user", err)
 		return
 	}
 
 	// Rotate refresh tokens after profile changes
 	if err := core.RevokeAllRefreshTokensForUser(user.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_revoke_tokens"})
+		httputil.InternalError(c, "failed_to_revoke_tokens", err)
 		return
 	}
 
 	pair, err := core.IssueTokenPair(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed_to_issue_tokens"})
+		httputil.InternalError(c, "failed_to_issue_tokens", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, authResponse(user, pair))
+	httputil.Success(c, authResponse(user, pair))
 }
 
 func authResponse(user models.User, pair *core.TokenPair) gin.H {

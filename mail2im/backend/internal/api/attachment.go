@@ -1,8 +1,8 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
-	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +13,7 @@ func DownloadAttachment(c *gin.Context) {
 	path := core.Attachments.GetPath(filename)
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not found"})
+		httputil.NotFound(c, "Attachment not found", nil)
 		return
 	}
 

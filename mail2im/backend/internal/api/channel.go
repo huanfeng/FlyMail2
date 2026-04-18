@@ -2,11 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/dispatcher"
 	"mail2im/internal/dispatcher/channels"
 	"mail2im/internal/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,59 +14,59 @@ import (
 func GetChannels(c *gin.Context) {
 	var channels []models.Channel
 	if err := core.DB.Find(&channels).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
-	c.JSON(http.StatusOK, channels)
+	c.JSON(200, channels)
 }
 
 func CreateChannel(c *gin.Context) {
 	var channel models.Channel
 	if err := c.ShouldBindJSON(&channel); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	if err := core.DB.Create(&channel).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	dispatcher.Instance.ReloadChannels()
-	c.JSON(http.StatusOK, channel)
+	c.JSON(200, channel)
 }
 
 func UpdateChannel(c *gin.Context) {
 	id := c.Param("id")
 	var channel models.Channel
 	if err := core.DB.First(&channel, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		httputil.NotFound(c, "Channel not found", nil)
 		return
 	}
 
 	if err := c.ShouldBindJSON(&channel); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	if err := core.DB.Save(&channel).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	dispatcher.Instance.ReloadChannels()
-	c.JSON(http.StatusOK, channel)
+	c.JSON(200, channel)
 }
 
 func DeleteChannel(c *gin.Context) {
 	id := c.Param("id")
 	if err := core.DB.Delete(&models.Channel{}, id).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	dispatcher.Instance.ReloadChannels()
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	httputil.NoContent(c, "deleted")
 }
 
 func TestChannel(c *gin.Context) {
@@ -76,7 +76,7 @@ func TestChannel(c *gin.Context) {
 		EventType string `json:"event_type"` // "system", "email"
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
@@ -91,12 +91,12 @@ func TestChannel(c *gin.Context) {
 			ChatID string `json:"chat_id"`
 		}
 		if err := json.Unmarshal([]byte(input.Config), &config); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid config format"})
+			httputil.BadRequest(c, "Invalid config format", nil)
 			return
 		}
 		channel = channels.NewTelegramChannelWithConfig(config.Token, config.ChatID, core.PriorityNormal, "")
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported channel type"})
+		httputil.BadRequest(c, "Unsupported channel type", nil)
 		return
 	}
 
@@ -132,9 +132,9 @@ func TestChannel(c *gin.Context) {
 	err = channel.Send(event)
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	httputil.NoContent(c, "ok")
 }

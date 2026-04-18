@@ -27,26 +27,31 @@ import (
 	"mail2im/internal/api"
 )
 
+// InitFromConfig 从配置文件初始化应用配置，返回 ServerConfig
+func InitFromConfig() (ServerConfig, error) {
+	cfg, err := appconfig.Load()
+	if err != nil {
+		return ServerConfig{}, fmt.Errorf("failed to load config: %w", err)
+	}
+	return ServerConfig{
+		Port:     cfg.Port,
+		DataRoot: cfg.DataRoot,
+	}, nil
+}
+
 // ServerConfig holds configuration for the server.
 type ServerConfig struct {
 	Port     string
 	DataRoot string
 }
 
-// DefaultServerConfig returns a config with default values, reading from env.
+// DefaultServerConfig returns a config with default values from the loaded config.
 func DefaultServerConfig() ServerConfig {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg := appconfig.AppConfig
+	if cfg != nil {
+		return ServerConfig{Port: cfg.Port, DataRoot: cfg.DataRoot}
 	}
-	dataRoot := os.Getenv("MAIL2IM_DATA_ROOT")
-	if dataRoot == "" {
-		dataRoot = os.Getenv("DATA_ROOT")
-	}
-	if dataRoot == "" {
-		dataRoot = "./mail2im_data"
-	}
-	return ServerConfig{Port: port, DataRoot: dataRoot}
+	return ServerConfig{Port: "8080", DataRoot: "./mail2im_data"}
 }
 
 // Server manages the Mail2IM HTTP server and background services.
@@ -96,7 +101,9 @@ func (s *Server) Start() error {
 	}
 
 	// Initialize services
-	core.InitAuth()
+	cfg := appconfig.AppConfig
+	core.InitCrypto(cfg.AppSecret)
+	core.InitAuth(cfg.JWTSecret)
 	core.InitDB(filepath.Join(dataRoot, "mail2im.db"))
 	appconfig.LoadProviderConfig(filepath.Join(configDir, "providers.json"))
 	core.InitEventBus()
@@ -191,10 +198,10 @@ func (s *Server) setupRouter() *gin.Engine {
 
 	// CORS
 	corsConfig := cors.DefaultConfig()
-	if os.Getenv("ENV") == "production" {
-		corsOrigins := os.Getenv("CORS_ORIGINS")
-		if corsOrigins != "" {
-			corsConfig.AllowOrigins = strings.Split(corsOrigins, ",")
+	cfg := appconfig.AppConfig
+	if cfg != nil && cfg.Env == "production" {
+		if cfg.CORSOrigins != "" {
+			corsConfig.AllowOrigins = strings.Split(cfg.CORSOrigins, ",")
 		}
 	} else {
 		corsConfig.AllowAllOrigins = true

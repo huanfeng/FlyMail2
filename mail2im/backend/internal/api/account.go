@@ -1,9 +1,9 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -87,18 +87,18 @@ func toAccount(input CreateAccountRequest, existing *models.Account, encryptPass
 func CreateAccount(c *gin.Context) {
 	var input CreateAccountRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	account, err := toAccount(input, nil, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt password"})
+		httputil.InternalError(c, "Failed to encrypt password", err)
 		return
 	}
 
 	if err := core.DB.Create(account).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
@@ -110,13 +110,13 @@ func CreateAccount(c *gin.Context) {
 	if created.Enabled {
 		go core.Watcher.StartWorker(created)
 	}
-	c.JSON(http.StatusOK, created)
+	httputil.Success(c, created)
 }
 
 func CreateAccounts(c *gin.Context) {
 	var inputs []CreateAccountRequest
 	if err := c.ShouldBindJSON(&inputs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
@@ -124,12 +124,12 @@ func CreateAccounts(c *gin.Context) {
 	for _, input := range inputs {
 		account, err := toAccount(input, nil, true)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt password"})
+			httputil.InternalError(c, "Failed to encrypt password", err)
 			return
 		}
 
 		if err := core.DB.Create(account).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httputil.InternalError(c, err.Error(), err)
 			return
 		}
 
@@ -146,50 +146,50 @@ func CreateAccounts(c *gin.Context) {
 		created = append(created, createdAcc)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"count": len(created), "message": "Accounts created successfully"})
+	httputil.Success(c, gin.H{"count": len(created), "message": "Accounts created successfully"})
 }
 
 func GetAccounts(c *gin.Context) {
 	var accounts []models.Account
 	if err := core.DB.Preload("Proxy").Find(&accounts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
-	c.JSON(http.StatusOK, accounts)
+	httputil.Success(c, accounts)
 }
 
 func GetAccount(c *gin.Context) {
 	id := c.Param("id")
 	var account models.Account
 	if err := core.DB.Preload("Proxy").First(&account, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		httputil.NotFound(c, "Account not found", nil)
 		return
 	}
-	c.JSON(http.StatusOK, account)
+	httputil.Success(c, account)
 }
 
 func UpdateAccount(c *gin.Context) {
 	id := c.Param("id")
 	var existing models.Account
 	if err := core.DB.Preload("Proxy").First(&existing, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		httputil.NotFound(c, "Account not found", nil)
 		return
 	}
 
 	var input CreateAccountRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	account, err := toAccount(input, &existing, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt password"})
+		httputil.InternalError(c, "Failed to encrypt password", err)
 		return
 	}
 
 	if err := core.DB.Save(account).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
@@ -198,7 +198,7 @@ func UpdateAccount(c *gin.Context) {
 	} else {
 		go core.Watcher.StopWorker(account.ID)
 	}
-	c.JSON(http.StatusOK, account)
+	httputil.Success(c, account)
 }
 
 func DeleteAccount(c *gin.Context) {
@@ -209,35 +209,35 @@ func DeleteAccount(c *gin.Context) {
 	// Let's fetch first
 	var account models.Account
 	if err := core.DB.First(&account, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		httputil.NotFound(c, "Account not found", nil)
 		return
 	}
 
 	core.Watcher.StopWorker(account.ID)
 
 	if err := core.DB.Delete(&account).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+	httputil.NoContent(c, "deleted")
 }
 
 func TestAccountConnection(c *gin.Context) {
 	var input CreateAccountRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	account, err := toAccount(input, nil, false)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
 	if account.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password is required for testing"})
+		httputil.BadRequest(c, "password is required for testing", nil)
 		return
 	}
 
@@ -251,11 +251,11 @@ func TestAccountConnection(c *gin.Context) {
 
 	info, latency, err := core.TestIMAPConnection(*account)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	httputil.Success(c, gin.H{
 		"message":       "Connection successful",
 		"supports_idle": info != nil && info.SupportsIDLE,
 		"capabilities":  info.Capabilities,

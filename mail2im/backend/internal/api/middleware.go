@@ -1,12 +1,12 @@
 package api
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
 )
@@ -33,7 +33,8 @@ func AuthMiddleware() gin.HandlerFunc {
 				respondUnauthorized(c)
 				return
 			}
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load user"})
+			httputil.InternalError(c, "failed to load user", err)
+			c.Abort()
 			return
 		}
 
@@ -72,5 +73,6 @@ func extractAccessToken(c *gin.Context) string {
 }
 
 func respondUnauthorized(c *gin.Context) {
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	httputil.Unauthorized(c, "unauthorized", nil)
+	c.Abort()
 }

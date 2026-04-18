@@ -1,15 +1,15 @@
 package api
 
 import (
+	"flymail-core/httputil"
 	"mail2im/internal/core"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
 func GetDebugStats(c *gin.Context) {
 	statuses := core.Debug.GetAllStatuses()
-	c.JSON(http.StatusOK, gin.H{
+	httputil.Success(c, gin.H{
 		"workers": statuses,
 		"total":   len(statuses),
 	})
@@ -22,5 +22,5 @@ func TriggerTestEvent(c *gin.Context) {
 		Source:   "debug:test",
 		Payload:  map[string]interface{}{"message": "Hello from test event"},
 	})
-	c.JSON(http.StatusOK, gin.H{"message": "Event triggered"})
+	httputil.NoContent(c, "event triggered")
 }

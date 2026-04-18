@@ -2,8 +2,8 @@ package api
 
 import (
 	"fmt"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,13 +31,13 @@ func GetSettings(c *gin.Context) {
 		"night_end":     nightEnd,
 	}
 
-	c.JSON(http.StatusOK, response)
+	httputil.Success(c, response)
 }
 
 func UpdateSettings(c *gin.Context) {
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
 
@@ -64,5 +64,5 @@ func UpdateSettings(c *gin.Context) {
 		core.SetSystemSetting("night_end", v.(string))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	httputil.NoContent(c, "ok")
 }

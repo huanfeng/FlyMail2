@@ -3,9 +3,9 @@ package api
 import (
 	"errors"
 	"fmt"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -16,10 +16,10 @@ func GetLogs(c *gin.Context) {
 	// Get last 50 logs, ordered by time desc
 	result := core.DB.Order("created_at desc").Limit(50).Find(&logs)
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		httputil.InternalError(c, result.Error.Error(), result.Error)
 		return
 	}
-	c.JSON(http.StatusOK, logs)
+	httputil.Success(c, logs)
 }
 
 func DeleteLog(c *gin.Context) {
@@ -27,29 +27,29 @@ func DeleteLog(c *gin.Context) {
 	var logEntry models.ForwardLog
 	if err := core.DB.First(&logEntry, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Log not found"})
+			httputil.NotFound(c, "Log not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	if err := core.DB.Delete(&logEntry).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	core.RecordSystemLog("log_delete", "success", fmt.Sprintf("Deleted log #%d", logEntry.ID), fmt.Sprintf("channel=%s status=%s", logEntry.ChannelName, logEntry.Status))
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+	httputil.NoContent(c, "deleted")
 }
 
 func DeleteAllLogs(c *gin.Context) {
 	result := core.DB.Where("1 = 1").Delete(&models.ForwardLog{})
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		httputil.InternalError(c, result.Error.Error(), result.Error)
 		return
 	}
 
 	core.RecordSystemLog("log_delete_all", "success", "Cleared logs", fmt.Sprintf("deleted %d logs", result.RowsAffected))
-	c.JSON(http.StatusOK, gin.H{"message": "Cleared"})
+	httputil.NoContent(c, "cleared")
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"flymail-core/httputil"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
 	"net/http"
@@ -38,11 +39,11 @@ func GetEmails(c *gin.Context) {
 		Limit(pageSize).
 		Offset(offset).
 		Find(&emails).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch emails"})
+		httputil.InternalError(c, "Failed to fetch emails", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	httputil.Success(c, gin.H{
 		"data":  emails,
 		"total": total,
 	})
@@ -52,7 +53,7 @@ func GetEmail(c *gin.Context) {
 	id := c.Param("id")
 	var email models.Email
 	if err := core.DB.First(&email, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
+		httputil.NotFound(c, "Email not found", nil)
 		return
 	}
 
@@ -62,7 +63,7 @@ func GetEmail(c *gin.Context) {
 		core.DB.Save(&email)
 	}
 
-	c.JSON(http.StatusOK, email)
+	httputil.Success(c, email)
 }
 
 func GetEmailHTML(c *gin.Context) {
@@ -113,29 +114,29 @@ func DeleteEmail(c *gin.Context) {
 	var email models.Email
 	if err := core.DB.First(&email, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Email not found"})
+			httputil.NotFound(c, "Email not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	if err := core.DB.Delete(&email).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httputil.InternalError(c, err.Error(), err)
 		return
 	}
 
 	core.RecordSystemLog("email_delete", "success", fmt.Sprintf("Deleted email #%s", email.ID), email.Subject)
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+	httputil.NoContent(c, "deleted")
 }
 
 func DeleteAllEmails(c *gin.Context) {
 	result := core.DB.Where("1 = 1").Delete(&models.Email{})
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		httputil.InternalError(c, result.Error.Error(), result.Error)
 		return
 	}
 
 	core.RecordSystemLog("email_delete_all", "success", "Deleted all local emails", fmt.Sprintf("deleted %d emails", result.RowsAffected))
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+	httputil.NoContent(c, "deleted")
 }

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"mail2im/internal/models"
-	"os"
 	"strconv"
 	"time"
 
@@ -33,14 +32,10 @@ type TokenPair struct {
 	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
 }
 
-func InitAuth() {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = os.Getenv("MAIL2IM_JWT_SECRET")
-	}
-	if secret == "" {
+func InitAuth(secret string) {
+	if secret == "" || secret == "change-me-in-prod" {
+		logger.Warn("JWT_SECRET not set, using insecure default. Set MAIL2IM_JWT_SECRET for production.")
 		secret = "change-me-in-prod"
-		logger.Warn("JWT_SECRET not set, using insecure default. Set JWT_SECRET for production.")
 	}
 	jwtSecret = []byte(secret)
 }

@@ -40,8 +40,9 @@ $trayProc = $null
 $backendJob = $null
 $frontendProc = $null
 
-# Prepare log directory for output tailing
+# Prepare log directory (clean up stale files from previous runs)
 $logDir = Join-Path (Get-Location) ".dev-logs"
+Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
 # --- Build & start backend (with or without tray) ---
@@ -134,11 +135,13 @@ if (-not (Test-Path "frontend-react\node_modules")) {
 
 Write-Host "`n[Frontend] Starting (pnpm dev)..." -ForegroundColor Yellow
 
-# Log files for tailing
+# Clean up stale log files (kill leftover processes if locked)
 $feLOG = Join-Path $logDir "frontend.log"
 $beLOG = Join-Path $logDir "backend.log"
-"" | Set-Content $feLOG
-"" | Set-Content $beLOG
+Remove-Item $feLOG -Force -ErrorAction SilentlyContinue
+Remove-Item $beLOG -Force -ErrorAction SilentlyContinue
+New-Item -ItemType File -Path $feLOG -Force | Out-Null
+New-Item -ItemType File -Path $beLOG -Force | Out-Null
 
 $feWorkDir = Join-Path (Get-Location) "frontend-react"
 $feErrLog = Join-Path $logDir "frontend-err.log"

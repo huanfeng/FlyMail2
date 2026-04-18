@@ -1,9 +1,11 @@
 package config
 
 import (
+	"flymail-core/logger"
 	"flymail-core/provider"
-	"log"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 // Provider is a type alias so existing callers keep working with the same field names.
@@ -16,7 +18,7 @@ type ServerEndpoint = provider.ServerEndpoint
 // Falls back to the embedded defaults on error (handled by flymail-core/provider init).
 func LoadProviderConfig(path string) {
 	if err := provider.LoadProviders(path); err != nil {
-		log.Printf("[warn] %v, using built-in defaults", err)
+		logger.Warn("Failed to load provider config, using built-in defaults", zap.Error(err))
 		// embedded defaults are already loaded by provider.init()
 	}
 }

@@ -3,13 +3,16 @@ package dispatcher
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"mail2im/internal/core"
 	"mail2im/internal/dispatcher/channels"
 	"mail2im/internal/models"
 	"strings"
 	"sync"
 	"time"
+
+	"flymail-core/logger"
+
+	"go.uber.org/zap"
 )
 
 type quietConfig struct {
@@ -65,7 +68,7 @@ func InitDispatcher() {
 	core.Bus.Subscribe(core.EventSystemError, Instance.handleEvent)
 
 	Instance.ReloadChannels()
-	log.Println("Notification Dispatcher initialized")
+	logger.Info("Notification Dispatcher initialized")
 }
 
 func (d *Dispatcher) Register(c core.NotificationChannel) {
@@ -77,7 +80,7 @@ func (d *Dispatcher) Register(c core.NotificationChannel) {
 		sender: c,
 		quiet:  channelQuiet{Mode: "global"},
 	})
-	log.Printf("Registered notification channel: %s", c.Name())
+	logger.Info("Registered notification channel", zap.String("channel", c.Name()))
 }
 
 func (d *Dispatcher) ReloadChannels() {
@@ -102,7 +105,7 @@ func (d *Dispatcher) ReloadChannels() {
 	// Load channels from DB
 	var dbChannels []models.Channel
 	if err := core.DB.Find(&dbChannels, "status = ?", "enabled").Error; err != nil {
-		log.Printf("Failed to load channels from DB: %v", err)
+		logger.Error("Failed to load channels from DB", zap.Error(err))
 		return
 	}
 
@@ -138,9 +141,9 @@ func (d *Dispatcher) ReloadChannels() {
 					subscribedTypes: subs,
 					templateContent: tmplContent,
 				})
-				log.Printf("Loaded Telegram channel: %s", dbCh.Name)
+				logger.Info("Loaded Telegram channel", zap.String("channel", dbCh.Name))
 			} else {
-				log.Printf("Failed to parse config for channel %s: %v", dbCh.Name, err)
+				logger.Error("Failed to parse config for channel", zap.String("channel", dbCh.Name), zap.Error(err))
 			}
 
 		case "discord":
@@ -157,9 +160,9 @@ func (d *Dispatcher) ReloadChannels() {
 					subscribedTypes: subs,
 					templateContent: tmplContent,
 				})
-				log.Printf("Loaded Discord channel: %s", dbCh.Name)
+				logger.Info("Loaded Discord channel", zap.String("channel", dbCh.Name))
 			} else {
-				log.Printf("Failed to parse config for channel %s: %v", dbCh.Name, err)
+				logger.Error("Failed to parse config for channel", zap.String("channel", dbCh.Name), zap.Error(err))
 			}
 		}
 	}
@@ -184,7 +187,7 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 
 	// Check global strategy (block patterns, etc.)
 	if !d.strategy.ShouldSend(event) {
-		log.Printf("Event blocked by strategy: %s", event.Type)
+		logger.Info("Event blocked by strategy", zap.String("type", string(event.Type)))
 		return
 	}
 
@@ -199,7 +202,7 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 			}
 			switch action {
 			case "ignore", "silent":
-				log.Printf("Event suppressed by MailType action=%s for type=%s", action, mailType)
+				logger.Info("Event suppressed by MailType", zap.String("action", action), zap.String("mailType", mailType))
 				return
 			}
 			// Parse ChannelIDs if set
@@ -247,7 +250,7 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 
 		// 4. Check Quiet Mode
 		if d.isQuietForChannel(ch.quiet) {
-			log.Printf("Channel %s suppressed by quiet hours", ch.name)
+			logger.Info("Channel suppressed by quiet hours", zap.String("channel", ch.name))
 			continue
 		}
 
@@ -283,7 +286,7 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 			}
 
 			if err != nil {
-				log.Printf("Failed to send to channel %s: %v", channelName, err)
+				logger.Error("Failed to send to channel", zap.String("channel", channelName), zap.Error(err))
 				if accountID > 0 {
 					core.RecordForwardLog(accountID, "push", "failed", entry.id, channelName, messageID, subject, from, receivedAt, int(e.Priority), reqDetail, respDetail, err.Error())
 				}

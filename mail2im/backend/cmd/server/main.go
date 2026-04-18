@@ -20,6 +20,9 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"golang.org/x/text/encoding/htmlindex"
+
+	"flymail-core/logger"
+	"go.uber.org/zap"
 )
 
 var (
@@ -275,8 +278,8 @@ func main() {
 	protected.GET("/templates/variables", api.GetTemplateVariables)
 	protected.GET("/templates/defaults", api.GetDefaultTemplates)
 
-	log.Printf("Server starting on :%s", port)
+	logger.Info("Server starting", zap.String("port", port))
 	if err := r.Run(":" + port); err != nil {
-		log.Fatal(err)
+		logger.Fatal("Server failed to start", zap.Error(err))
 	}
 }

@@ -1,9 +1,12 @@
 package core
 
 import (
-	"log"
 	"mail2im/internal/models"
 	"time"
+
+	"flymail-core/logger"
+
+	"go.uber.org/zap"
 )
 
 type Janitor struct {
@@ -25,7 +28,7 @@ func (j *Janitor) Start() {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 
-	log.Println("Janitor started")
+	logger.Info("Janitor started")
 
 	// Run once immediately
 	j.RunCleanup()
@@ -35,7 +38,7 @@ func (j *Janitor) Start() {
 		case <-ticker.C:
 			j.RunCleanup()
 		case <-j.stopChan:
-			log.Println("Janitor stopped")
+			logger.Info("Janitor stopped")
 			return
 		}
 	}
@@ -46,14 +49,14 @@ func (j *Janitor) Stop() {
 }
 
 func (j *Janitor) RunCleanup() {
-	log.Println("Running cleanup task...")
+	logger.Info("Running cleanup task...")
 
 	// 1. Cleanup Attachments
 	if Attachments != nil {
 		if err := Attachments.Cleanup(j.RetentionDays); err != nil {
-			log.Printf("Failed to cleanup attachments: %v", err)
+			logger.Error("Failed to cleanup attachments", zap.Error(err))
 		} else {
-			log.Println("Attachments cleanup completed")
+			logger.Info("Attachments cleanup completed")
 		}
 	}
 
@@ -61,8 +64,8 @@ func (j *Janitor) RunCleanup() {
 	// For now, we just log
 	threshold := time.Now().AddDate(0, 0, -j.RetentionDays)
 	if err := DB.Where("created_at < ?", threshold).Delete(&models.ForwardLog{}).Error; err != nil {
-		log.Printf("Failed to cleanup logs: %v", err)
+		logger.Error("Failed to cleanup logs", zap.Error(err))
 	} else {
-		log.Println("Logs cleanup completed")
+		logger.Info("Logs cleanup completed")
 	}
 }

@@ -2,10 +2,13 @@ package core
 
 import (
 	"fmt"
-	"log"
 	"mail2im/internal/models"
 	"sync"
 	"time"
+
+	"flymail-core/logger"
+
+	"go.uber.org/zap"
 )
 
 type WatcherManager struct {
@@ -24,11 +27,11 @@ func StartWatcher() {
 	// Load all active accounts
 	// For now, we might not have any accounts in DB, so this is safe
 	if err := DB.Preload("Proxy").Find(&accounts).Error; err != nil {
-		log.Printf("Failed to load accounts: %v", err)
+		logger.Error("Failed to load accounts", zap.Error(err))
 		return
 	}
 
-	log.Printf("Starting watcher with %d accounts", len(accounts))
+	logger.Info("Starting watcher", zap.Int("accounts", len(accounts)))
 	for _, account := range accounts {
 		if !account.Enabled {
 			continue
@@ -42,19 +45,19 @@ func (wm *WatcherManager) StartWorker(account models.Account) {
 	defer wm.mu.Unlock()
 
 	if !account.Enabled {
-		log.Printf("Skip starting worker for disabled account: %s", account.Email)
+		logger.Info("Skip starting worker for disabled account", zap.String("email", account.Email))
 		return
 	}
 
 	if _, exists := wm.workers[account.ID]; exists {
-		log.Printf("Worker for account %d already exists", account.ID)
+		logger.Info("Worker for account already exists", zap.Uint("accountID", account.ID))
 		return
 	}
 
 	worker := NewWorker(account)
 	wm.workers[account.ID] = worker
 	worker.Start()
-	log.Printf("Started worker for account: %s", account.Email)
+	logger.Info("Started worker for account", zap.String("email", account.Email))
 }
 
 func (wm *WatcherManager) StopWorker(accountID uint) {
@@ -64,14 +67,14 @@ func (wm *WatcherManager) StopWorker(accountID uint) {
 	if worker, exists := wm.workers[accountID]; exists {
 		worker.Stop()
 		delete(wm.workers, accountID)
-		log.Printf("Stopped worker for account ID: %d", accountID)
+		logger.Info("Stopped worker for account", zap.Uint("accountID", accountID))
 	}
 }
 
 func (wm *WatcherManager) RestartWorker(accountID uint) {
 	var account models.Account
 	if err := DB.Preload("Proxy").First(&account, accountID).Error; err != nil {
-		log.Printf("Failed to reload account %d: %v", accountID, err)
+		logger.Error("Failed to reload account", zap.Uint("accountID", accountID), zap.Error(err))
 		return
 	}
 

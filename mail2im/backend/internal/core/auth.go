@@ -7,13 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"mail2im/internal/models"
 	"os"
 	"strconv"
 	"time"
 
 	coreauth "flymail-core/auth"
+	"flymail-core/logger"
 
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
@@ -40,7 +40,7 @@ func InitAuth() {
 	}
 	if secret == "" {
 		secret = "change-me-in-prod"
-		log.Println("Warning: JWT_SECRET not set, using insecure default. Set JWT_SECRET for production.")
+		logger.Warn("JWT_SECRET not set, using insecure default. Set JWT_SECRET for production.")
 	}
 	jwtSecret = []byte(secret)
 }

@@ -1,11 +1,13 @@
 package core
 
 import (
-	"log"
 	"sync"
 	"time"
 
+	"flymail-core/logger"
+
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type EventType string
@@ -51,7 +53,7 @@ func InitEventBus() {
 		eventChan:   make(chan Event, 1000),
 	}
 	go Bus.dispatcher()
-	log.Println("EventBus initialized")
+	logger.Info("EventBus initialized")
 }
 
 func (b *EventBus) Subscribe(eventType EventType, handler EventHandler) {
@@ -71,7 +73,7 @@ func (b *EventBus) Publish(event Event) {
 	select {
 	case b.eventChan <- event:
 	default:
-		log.Printf("ERROR: EventBus queue full, dropping event: %v", event.Type)
+		logger.Error("EventBus queue full, dropping event", zap.String("type", string(event.Type)))
 	}
 }
 
@@ -85,7 +87,7 @@ func (b *EventBus) dispatcher() {
 			go func(h EventHandler, e Event) {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("Panic in event handler: %v", r)
+						logger.Error("Panic in event handler", zap.Any("panic", r))
 					}
 				}()
 				h(e)

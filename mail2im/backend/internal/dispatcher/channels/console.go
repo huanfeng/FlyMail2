@@ -1,8 +1,10 @@
 package channels
 
 import (
-	"log"
 	"mail2im/internal/core"
+
+	"flymail-core/logger"
+	"go.uber.org/zap"
 )
 
 type ConsoleChannel struct {
@@ -18,13 +20,17 @@ func (c *ConsoleChannel) Name() string {
 }
 
 func (c *ConsoleChannel) Send(event core.Event) error {
-	log.Printf("[ConsoleChannel] Received event: Type=%s, Priority=%d, Source=%s, Payload=%v",
-		event.Type, event.Priority, event.Source, event.Payload)
+	logger.Debug("ConsoleChannel received event",
+		zap.String("type", string(event.Type)),
+		zap.Int("priority", int(event.Priority)),
+		zap.String("source", event.Source))
 	return nil
 }
 
 func (c *ConsoleChannel) SendRendered(rendered string, event core.Event) error {
-	log.Printf("[ConsoleChannel] %s\n%s", event.Type, rendered)
+	logger.Debug("ConsoleChannel rendered",
+		zap.String("type", string(event.Type)),
+		zap.String("content", rendered))
 	return nil
 }
 

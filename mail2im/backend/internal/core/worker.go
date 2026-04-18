@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	appconfig "mail2im/internal/config"
 	"mail2im/internal/models"
 	"regexp"
@@ -15,8 +14,10 @@ import (
 	imap "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	nanoid "github.com/matoous/go-nanoid/v2"
+	"go.uber.org/zap"
 
 	corevimap "flymail-core/imap"
+	"flymail-core/logger"
 	"flymail-core/parser"
 	"flymail-core/types"
 )
@@ -870,7 +871,7 @@ func classifyMailboxType(providerID, name, path string) string {
 	// 2. FolderRule regex (user-configurable rules from DB)
 	var rules []models.FolderRule
 	if err := DB.Order("`order` asc").Find(&rules).Error; err != nil {
-		log.Printf("Failed to load classification rules: %v", err)
+		logger.Error("Failed to load classification rules", zap.Error(err))
 		return "unknown"
 	}
 

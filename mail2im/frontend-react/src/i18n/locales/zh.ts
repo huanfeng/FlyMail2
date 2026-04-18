@@ -1,8 +1,17 @@
 export default {
   nav: {
     title: 'Mail2IM',
+    dashboard: '仪表盘',
+    accounts: '账户管理',
+    emails: '邮件',
     logs: '日志',
-    settings: '系统设置'
+    channels: '通知渠道',
+    proxies: '代理管理',
+    classification: '分类策略',
+    templates: '通知模板',
+    notification_policy: '通知策略',
+    settings: '系统设置',
+    debug: '调试'
   },
   profile: {
     title: '个人资料',

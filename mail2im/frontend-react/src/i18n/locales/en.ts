@@ -1,8 +1,17 @@
 export default {
   nav: {
     title: 'Mail2IM',
+    dashboard: 'Dashboard',
+    accounts: 'Accounts',
+    emails: 'Emails',
     logs: 'Logs',
-    settings: 'System Settings'
+    channels: 'Channels',
+    proxies: 'Proxies',
+    classification: 'Classification',
+    templates: 'Templates',
+    notification_policy: 'Notification Policy',
+    settings: 'System Settings',
+    debug: 'Debug'
   },
   profile: {
     title: 'Profile',

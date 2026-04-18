@@ -3,34 +3,12 @@ import { useAuthStore } from '@/stores/auth'
 
 let refreshPromise: Promise<string | null> | null = null
 
-// Request interceptor: inject Bearer token
-http.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken
-  if (token) {
-    config.headers = config.headers || {}
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-// Response interceptor: unwrap unified format + auto refresh
+// 401 auto-refresh interceptor (depends on auth store, so kept separate from http.ts)
 http.interceptors.response.use(
-  (response) => {
-    const body = response.data
-    if (body && typeof body === 'object' && 'code' in body && body.code === 0) {
-      response.data = body.data
-    }
-    return response
-  },
+  undefined, // don't duplicate the success handler from http.ts
   async (error) => {
     const { response, config } = error
     if (!response || !config) return Promise.reject(error)
-
-    // Normalize error format
-    const body = response.data
-    if (body && typeof body === 'object' && 'code' in body && body.code !== 0) {
-      response.data.error = body.message || body.error?.details || 'unknown error'
-    }
 
     const status = response.status
     const originalRequest = config as typeof config & { _retry?: boolean; _skipAuthRetry?: boolean }

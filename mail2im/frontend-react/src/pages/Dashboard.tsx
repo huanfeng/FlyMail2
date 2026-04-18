@@ -79,21 +79,21 @@ export function DashboardPage() {
         },
       },
       {
-        queryKey: ['accounts'],
+        queryKey: ['dashboard', 'accounts-count'],
         queryFn: async () => {
           const res = await api.get<unknown[]>('/accounts')
           return Array.isArray(res.data) ? res.data.length : 0
         },
       },
       {
-        queryKey: ['proxies'],
+        queryKey: ['dashboard', 'proxies-count'],
         queryFn: async () => {
           const res = await api.get<unknown[]>('/proxies')
           return Array.isArray(res.data) ? res.data.length : 0
         },
       },
       {
-        queryKey: ['channels'],
+        queryKey: ['dashboard', 'channels-count'],
         queryFn: async () => {
           const res = await api.get<unknown[]>('/channels')
           return Array.isArray(res.data) ? res.data.length : 0

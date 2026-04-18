@@ -6,6 +6,15 @@ export default {
   },
   profile: {
     title: 'Profile',
+    email: 'Email',
+    email_placeholder: 'Enter email',
+    current_password: 'Current Password',
+    current_password_placeholder: 'Enter current password',
+    new_password: 'New Password',
+    new_password_placeholder: 'Enter new password',
+    change_password_hint: 'Leave blank to keep current password',
+    save_success: 'Profile updated',
+    save_error: 'Update failed',
   },
   settings: {
     title: 'System Settings',
@@ -183,12 +192,17 @@ export default {
     folder_rule_delete_success: 'Rule deleted',
     folder_rule_save_error: 'Failed to save rule',
     folder_rule_delete_error: 'Failed to delete rule',
-    folder_rules_load_error: 'Failed to load rules'
+    folder_rules_load_error: 'Failed to load rules',
+    mail_type_color: 'Color',
+    rule_folder_pattern: 'Folder Pattern',
+    rule_mail_type: 'Mail Type',
+    rule_priority: 'Priority'
   },
   common: {
     new: 'New',
     save: 'Save',
     cancel: 'Cancel',
+    close: 'Close',
     confirm: 'Confirm',
     yes: 'Yes',
     no: 'No',

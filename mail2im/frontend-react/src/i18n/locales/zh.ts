@@ -6,6 +6,15 @@ export default {
   },
   profile: {
     title: '个人资料',
+    email: '邮箱',
+    email_placeholder: '请输入邮箱',
+    current_password: '当前密码',
+    current_password_placeholder: '请输入当前密码',
+    new_password: '新密码',
+    new_password_placeholder: '请输入新密码',
+    change_password_hint: '不修改密码请留空',
+    save_success: '个人资料已更新',
+    save_error: '更新失败',
   },
   settings: {
     title: '系统设置',
@@ -183,12 +192,17 @@ export default {
     folder_rule_delete_success: '规则已删除',
     folder_rule_save_error: '保存规则失败',
     folder_rule_delete_error: '删除规则失败',
-    folder_rules_load_error: '加载规则列表失败'
+    folder_rules_load_error: '加载规则列表失败',
+    mail_type_color: '颜色',
+    rule_folder_pattern: '文件夹匹配模式',
+    rule_mail_type: '邮件类型',
+    rule_priority: '优先级'
   },
   common: {
     new: '新建',
     save: '保存',
     cancel: '取消',
+    close: '关闭',
     confirm: '确认',
     yes: '是',
     no: '否',

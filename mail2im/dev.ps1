@@ -1,9 +1,10 @@
 # Mail2IM Development Environment Launcher (Windows)
-# Usage: .\dev.ps1 [-Port 8080] [-FrontendPort 8008]
+# Usage: .\dev.ps1 [-Port 8080] [-FrontendPort 8008] [-NoTray]
 
 param(
     [int]$Port = 8080,
-    [int]$FrontendPort = 8008
+    [int]$FrontendPort = 8008,
+    [switch]$NoTray
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,26 +21,53 @@ Write-Host "  Mail2IM Development Environment"       -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Backend  : http://localhost:$Port"
 Write-Host "Frontend : http://localhost:$FrontendPort"
-Write-Host "API Proxy: /api -> http://localhost:$Port"
+Write-Host "Tray     : $(if ($NoTray) { 'disabled' } else { 'enabled' })"
 Write-Host "========================================" -ForegroundColor Cyan
 
-# --- Build flags ---
-$version = git describe --tags --always --dirty 2>$null
-if (-not $version) { $version = "dev" }
-$commit = git rev-parse --short HEAD 2>$null
-if (-not $commit) { $commit = "unknown" }
-$date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$ldflags = "-X 'main.AppVersion=$version' -X 'main.GitCommit=$commit' -X 'main.BuildTime=$date'"
+$ldflags = ""
+try {
+    $version = git describe --tags --always --dirty 2>$null
+    if (-not $version) { $version = "dev" }
+    $commit = git rev-parse --short HEAD 2>$null
+    if (-not $commit) { $commit = "unknown" }
+    $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $ldflags = "-X 'main.AppVersion=$version' -X 'main.GitCommit=$commit' -X 'main.BuildTime=$date'"
+} catch {
+    $ldflags = "-X 'main.AppVersion=dev'"
+}
 
-# --- Start Backend ---
-Write-Host "`n[Backend] Starting..." -ForegroundColor Yellow
-$backendJob = Start-Job -ScriptBlock {
-    param($root, $ldflags, $port, $goproxy)
-    $env:PORT = $port
-    $env:GOPROXY = $goproxy
-    Set-Location "$root\backend"
-    & go run -ldflags $ldflags cmd/server/main.go 2>&1
-} -ArgumentList (Get-Location).Path, $ldflags, $Port, $env:GOPROXY
+$trayProc = $null
+$backendJob = $null
+$frontendJob = $null
+
+# --- Build & start backend (with or without tray) ---
+if (-not $NoTray) {
+    # Build tray binary (includes the server)
+    Write-Host "`n[Tray] Building..." -ForegroundColor Yellow
+    Push-Location backend
+    $buildOutput = & go build -ldflags $ldflags -o ../mail2im-tray.exe ./cmd/tray 2>&1
+    Pop-Location
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[Error] Tray build failed:" -ForegroundColor Red
+        Write-Host $buildOutput
+        exit 1
+    }
+    Write-Host "[Tray] Build OK" -ForegroundColor Green
+
+    # Start tray process (auto-starts server)
+    Write-Host "[Tray] Starting (server on :$Port)..." -ForegroundColor Yellow
+    $trayProc = Start-Process -FilePath ".\mail2im-tray.exe" -PassThru -WindowStyle Hidden
+} else {
+    # No tray: start backend with go run
+    Write-Host "`n[Backend] Starting..." -ForegroundColor Yellow
+    $backendJob = Start-Job -ScriptBlock {
+        param($root, $ldflags, $port, $goproxy)
+        $env:PORT = $port
+        $env:GOPROXY = $goproxy
+        Set-Location "$root\backend"
+        & go run -ldflags $ldflags cmd/server/main.go 2>&1
+    } -ArgumentList (Get-Location).Path, $ldflags, $Port, $env:GOPROXY
+}
 
 # Wait for backend to be ready
 Write-Host "[Backend] Waiting for port $Port..." -ForegroundColor Yellow
@@ -54,9 +82,13 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
         $ready = $true
         break
     } catch {
-        # Check if job died
-        if ($backendJob.State -eq "Failed" -or $backendJob.State -eq "Completed") {
-            Write-Host "[Error] Backend process exited unexpectedly:" -ForegroundColor Red
+        # Check if process/job died
+        if ($trayProc -and $trayProc.HasExited) {
+            Write-Host "[Error] Tray process exited unexpectedly (code $($trayProc.ExitCode))" -ForegroundColor Red
+            exit 1
+        }
+        if ($backendJob -and ($backendJob.State -eq "Failed" -or $backendJob.State -eq "Completed")) {
+            Write-Host "[Error] Backend exited unexpectedly:" -ForegroundColor Red
             Receive-Job $backendJob
             Remove-Job $backendJob -Force
             exit 1
@@ -66,7 +98,8 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
 
 if (-not $ready) {
     Write-Host "[Error] Backend failed to start within $maxRetries seconds." -ForegroundColor Red
-    Stop-Job $backendJob; Remove-Job $backendJob -Force
+    if ($trayProc) { Stop-Process -Id $trayProc.Id -Force -ErrorAction SilentlyContinue }
+    if ($backendJob) { Stop-Job $backendJob; Remove-Job $backendJob -Force }
     exit 1
 }
 Write-Host "[Backend] Ready!" -ForegroundColor Green
@@ -86,8 +119,8 @@ Write-Host "`nPress Ctrl+C to stop all services.`n" -ForegroundColor DarkGray
 # --- Stream output + handle exit ---
 try {
     while ($true) {
-        # Print backend output
-        if ($backendJob.HasMoreData) {
+        # Print backend output (only in NoTray mode)
+        if ($backendJob -and $backendJob.HasMoreData) {
             Receive-Job $backendJob | ForEach-Object {
                 Write-Host "[BE] $_" -ForegroundColor DarkCyan
             }
@@ -98,18 +131,27 @@ try {
                 Write-Host "[FE] $_" -ForegroundColor DarkMagenta
             }
         }
-        # Check if jobs died
-        if ($backendJob.State -ne "Running" -and $frontendJob.State -ne "Running") {
-            Write-Host "`nBoth processes exited." -ForegroundColor Yellow
+        # Check if processes died
+        $backendAlive = if ($trayProc) { -not $trayProc.HasExited } elseif ($backendJob) { $backendJob.State -eq "Running" } else { $false }
+        $frontendAlive = $frontendJob.State -eq "Running"
+        if (-not $backendAlive -and -not $frontendAlive) {
+            Write-Host "`nAll processes exited." -ForegroundColor Yellow
             break
         }
         Start-Sleep -Milliseconds 500
     }
 } finally {
     Write-Host "`nStopping services..." -ForegroundColor Yellow
-    Stop-Job $backendJob -ErrorAction SilentlyContinue
+    if ($trayProc -and -not $trayProc.HasExited) {
+        Stop-Process -Id $trayProc.Id -Force -ErrorAction SilentlyContinue
+    }
+    if ($backendJob) {
+        Stop-Job $backendJob -ErrorAction SilentlyContinue
+        Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
+    }
     Stop-Job $frontendJob -ErrorAction SilentlyContinue
-    Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
     Remove-Job $frontendJob -Force -ErrorAction SilentlyContinue
+    # Clean up tray binary
+    Remove-Item ".\mail2im-tray.exe" -ErrorAction SilentlyContinue
     Write-Host "Done." -ForegroundColor Green
 }

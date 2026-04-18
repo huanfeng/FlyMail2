@@ -144,8 +144,7 @@ $frontendProc = Start-Process -FilePath "pnpm" `
     -ArgumentList "run","dev","--","--port",$FrontendPort,"--host","0.0.0.0" `
     -WorkingDirectory (Join-Path (Get-Location) "frontend-react") `
     -RedirectStandardOutput $feLOG -RedirectStandardError (Join-Path $logDir "frontend-err.log") `
-    -PassThru -WindowStyle Hidden `
-    -EnvironmentVariable @{ API_HOST = $env:API_HOST }
+    -PassThru -WindowStyle Hidden
 
 Write-Host "[Frontend] http://localhost:$FrontendPort" -ForegroundColor Green
 Write-Host "`nPress Ctrl+C to stop all services.`n" -ForegroundColor DarkGray

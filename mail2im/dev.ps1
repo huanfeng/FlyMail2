@@ -105,12 +105,26 @@ if (-not $ready) {
 Write-Host "[Backend] Ready!" -ForegroundColor Green
 
 # --- Start Frontend ---
+# Ensure node_modules exists
+if (-not (Test-Path "frontend\node_modules")) {
+    Write-Host "`n[Frontend] Installing dependencies..." -ForegroundColor Yellow
+    Push-Location frontend
+    & pnpm install
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[Error] pnpm install failed" -ForegroundColor Red
+        Pop-Location
+        exit 1
+    }
+    Pop-Location
+    Write-Host "[Frontend] Dependencies installed" -ForegroundColor Green
+}
+
 Write-Host "`n[Frontend] Starting (pnpm dev)..." -ForegroundColor Yellow
 $frontendJob = Start-Job -ScriptBlock {
     param($root, $frontendPort, $apiHost)
     $env:API_HOST = $apiHost
     Set-Location "$root\frontend"
-    & pnpm dev --port $frontendPort --host 0.0.0.0 2>&1
+    & pnpm run dev -- --port $frontendPort --host 0.0.0.0 2>&1
 } -ArgumentList (Get-Location).Path, $FrontendPort, $env:API_HOST
 
 Write-Host "[Frontend] http://localhost:$FrontendPort" -ForegroundColor Green

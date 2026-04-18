@@ -5,6 +5,9 @@ import (
 
 	"flymail/modules/email/account"
 	"flymail/modules/email/sync"
+
+	coresmtp "flymail-core/smtp"
+	"flymail-core/types"
 )
 
 // Factory creates email protocol instances
@@ -15,25 +18,18 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// CreateProtocol creates an EmailProtocol instance for the given account
+// CreateProtocol creates an EmailProtocol instance for the given account.
+// Uses core/imap (go-imap/v2) via CoreAdapter.
 func (f *Factory) CreateProtocol(acc *account.EmailAccount) (sync.EmailProtocol, error) {
 	switch acc.Type {
 	case "imap":
-		return NewIMAPClient(
-			acc.ImapServer,
-			acc.ImapPort,
-			acc.Username,
-			acc.Password,
-			acc.ImapSSL,
-			acc.AccountID,
-		), nil
+		cfg := buildIMAPConfig(acc)
+		return NewCoreAdapter(cfg, acc.AccountID), nil
 
 	case "smtp":
-		// SMTP is only for sending, not for sync
 		return nil, fmt.Errorf("SMTP accounts cannot be used for email sync")
 
 	case "oauth":
-		// OAuth support can be added later
 		return nil, fmt.Errorf("OAuth accounts are not yet supported")
 
 	default:
@@ -41,63 +37,55 @@ func (f *Factory) CreateProtocol(acc *account.EmailAccount) (sync.EmailProtocol,
 	}
 }
 
-// CreateSMTPClient creates an SMTP client for sending emails
-func (f *Factory) CreateSMTPClient(acc *account.EmailAccount) (*SMTPClient, error) {
+// CreateSMTPClient creates an SMTP client for sending emails.
+// Uses core/smtp with unified SSL/STARTTLS/proxy support.
+func (f *Factory) CreateSMTPClient(acc *account.EmailAccount) (*coresmtp.Client, error) {
 	if acc.SmtpServer == "" || acc.SmtpPort == 0 {
 		return nil, fmt.Errorf("SMTP server configuration is missing")
 	}
 
-	return NewSMTPClient(
-		acc.SmtpServer,
-		acc.SmtpPort,
-		acc.Username,
-		acc.Password,
-		acc.SmtpSSL,
-	), nil
-}
-
-// TestConnection tests both IMAP and SMTP connections for an account
-func (f *Factory) TestConnection(acc *account.EmailAccount) (*ConnectionTestResult, error) {
-	result := &ConnectionTestResult{
-		AccountID: acc.AccountID,
+	security := types.SecurityNone
+	if acc.SmtpSSL {
+		security = types.SecuritySSL
 	}
 
-	// Test IMAP if configured
-	if acc.ImapServer != "" && acc.ImapPort > 0 {
-		imapClient := NewIMAPClient(
-			acc.ImapServer,
-			acc.ImapPort,
-			acc.Username,
-			acc.Password,
-			acc.ImapSSL,
-			acc.AccountID,
-		)
+	cfg := types.SMTPConfig{
+		Host:     acc.SmtpServer,
+		Port:     acc.SmtpPort,
+		Username: acc.Username,
+		Password: acc.Password,
+		Security: security,
+	}
 
-		if err := imapClient.Connect(); err != nil {
+	return coresmtp.NewClient(cfg), nil
+}
+
+// TestConnection tests both IMAP and SMTP connections for an account.
+func (f *Factory) TestConnection(acc *account.EmailAccount) (*types.ConnectionTestResult, error) {
+	result := &types.ConnectionTestResult{}
+
+	// Test IMAP
+	if acc.ImapServer != "" && acc.ImapPort > 0 {
+		cfg := buildIMAPConfig(acc)
+		adapter := NewCoreAdapter(cfg, acc.AccountID)
+		imapResult, err := adapter.TestConnection()
+		if err != nil {
 			result.IMAPError = err.Error()
 		} else {
-			result.IMAP = true
-			result.SupportsIDLE, _ = imapClient.SupportsIDLE()
-
-			// Get capabilities
-			// TODO: Find a way to get capabilities using public API
-			// The caps field is not exported in the client library
-
-			imapClient.Disconnect()
+			result.IMAP = imapResult.IMAP
+			result.SupportsIDLE = imapResult.SupportsIDLE
+			result.Capabilities = imapResult.Capabilities
+			result.SecurityMode = imapResult.SecurityMode
+			result.IMAPError = imapResult.IMAPError
 		}
 	}
 
-	// Test SMTP if configured
+	// Test SMTP
 	if acc.SmtpServer != "" && acc.SmtpPort > 0 {
-		smtpClient := NewSMTPClient(
-			acc.SmtpServer,
-			acc.SmtpPort,
-			acc.Username,
-			acc.Password,
-			acc.SmtpSSL,
-		)
-
-		if err := smtpClient.TestConnection(); err != nil {
+		smtpClient, err := f.CreateSMTPClient(acc)
+		if err != nil {
+			result.SMTPError = err.Error()
+		} else if err := smtpClient.TestConnection(); err != nil {
 			result.SMTPError = err.Error()
 		} else {
 			result.SMTP = true
@@ -107,13 +95,19 @@ func (f *Factory) TestConnection(acc *account.EmailAccount) (*ConnectionTestResu
 	return result, nil
 }
 
-// ConnectionTestResult represents the result of connection tests
-type ConnectionTestResult struct {
-	AccountID    uint     `json:"account_id"`
-	IMAP         bool     `json:"imap"`
-	SMTP         bool     `json:"smtp"`
-	SupportsIDLE bool     `json:"supports_idle"`
-	Capabilities []string `json:"capabilities"`
-	IMAPError    string   `json:"imap_error,omitempty"`
-	SMTPError    string   `json:"smtp_error,omitempty"`
+func buildIMAPConfig(acc *account.EmailAccount) types.IMAPConfig {
+	security := types.SecurityNone
+	if acc.ImapSSL {
+		security = types.SecuritySSL
+	}
+
+	return types.IMAPConfig{
+		Host:         acc.ImapServer,
+		Port:         acc.ImapPort,
+		Username:     acc.Username,
+		Password:     acc.Password,
+		Security:     security,
+		ClientName:   "FlyMail",
+		ClientVendor: "FlyMail",
+	}
 }

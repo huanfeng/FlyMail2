@@ -7,6 +7,13 @@ import { AccountsPage } from '@/pages/Accounts'
 import { EmailsPage } from '@/pages/Emails'
 import { EmailDetailPage } from '@/pages/EmailDetail'
 import { LogsPage } from '@/pages/Logs'
+import { ChannelsPage } from '@/pages/Channels'
+import { ProxiesPage } from '@/pages/Proxies'
+import { ClassificationPage } from '@/pages/Classification'
+import { TemplatesPage } from '@/pages/Templates'
+import { NotificationPolicyPage } from '@/pages/NotificationPolicy'
+import { SettingsPage } from '@/pages/Settings'
+import { DebugPage } from '@/pages/Debug'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -33,23 +40,15 @@ export default function App() {
         <Route path="emails" element={<EmailsPage />} />
         <Route path="emails/:id" element={<EmailDetailPage />} />
         <Route path="logs" element={<LogsPage />} />
-        <Route path="channels" element={<PlaceholderPage title="Channels" />} />
-        <Route path="proxies" element={<PlaceholderPage title="Proxies" />} />
-        <Route path="classification" element={<PlaceholderPage title="Classification" />} />
-        <Route path="templates" element={<PlaceholderPage title="Templates" />} />
-        <Route path="notification-policy" element={<PlaceholderPage title="Notification Policy" />} />
-        <Route path="settings" element={<PlaceholderPage title="Settings" />} />
-        <Route path="dev" element={<PlaceholderPage title="Debug" />} />
+        <Route path="channels" element={<ChannelsPage />} />
+        <Route path="proxies" element={<ProxiesPage />} />
+        <Route path="classification" element={<ClassificationPage />} />
+        <Route path="templates" element={<TemplatesPage />} />
+        <Route path="notification-policy" element={<NotificationPolicyPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="dev" element={<DebugPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  )
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center h-full">
-      <p className="text-muted-foreground text-lg">{title} - Coming soon</p>
-    </div>
   )
 }

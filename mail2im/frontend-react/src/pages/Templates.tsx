@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Plus, RefreshCw, Pencil, Trash2, TriangleAlert, FileText, Loader2 } from 'lucide-react'
 
-import http from '@/services/http'
+import http from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

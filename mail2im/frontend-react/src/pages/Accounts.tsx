@@ -12,7 +12,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 
-import http from '@/services/http'
+import http from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

@@ -104,13 +104,15 @@ func stopServer(mStart, mStop *systray.MenuItem) {
 }
 
 func openBrowser() {
-	serverLock.Lock()
-	port := ""
-	if server != nil {
-		port = server.Port()
+	// In dev mode (MAIL2IM_FRONTEND_PORT set), open frontend; otherwise open backend
+	port := os.Getenv("MAIL2IM_FRONTEND_PORT")
+	if port == "" {
+		serverLock.Lock()
+		if server != nil {
+			port = server.Port()
+		}
+		serverLock.Unlock()
 	}
-	serverLock.Unlock()
-
 	if port == "" {
 		port = "8080"
 	}

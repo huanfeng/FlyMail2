@@ -56,6 +56,7 @@ if (-not $NoTray) {
 
     # Start tray process (auto-starts server)
     Write-Host "[Tray] Starting (server on :$Port)..." -ForegroundColor Yellow
+    $env:MAIL2IM_FRONTEND_PORT = $FrontendPort
     $trayProc = Start-Process -FilePath ".\mail2im-tray.exe" -PassThru -WindowStyle Hidden
 } else {
     # No tray: start backend with go run

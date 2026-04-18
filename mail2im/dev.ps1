@@ -38,7 +38,11 @@ try {
 
 $trayProc = $null
 $backendJob = $null
-$frontendJob = $null
+$frontendProc = $null
+
+# Prepare log directory for output tailing
+$logDir = Join-Path (Get-Location) ".dev-logs"
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
 # --- Build & start backend (with or without tray) ---
 if (-not $NoTray) {
@@ -59,15 +63,15 @@ if (-not $NoTray) {
     $env:MAIL2IM_FRONTEND_PORT = $FrontendPort
     $trayProc = Start-Process -FilePath ".\mail2im-tray.exe" -PassThru -WindowStyle Hidden
 } else {
-    # No tray: start backend with go run
+    # No tray: start backend with go run (output to log file for tailing)
     Write-Host "`n[Backend] Starting..." -ForegroundColor Yellow
     $backendJob = Start-Job -ScriptBlock {
-        param($root, $ldflags, $port, $goproxy)
+        param($root, $ldflags, $port, $goproxy, $logFile)
         $env:PORT = $port
         $env:GOPROXY = $goproxy
         Set-Location "$root\backend"
-        & go run -ldflags $ldflags cmd/server/main.go 2>&1
-    } -ArgumentList (Get-Location).Path, $ldflags, $Port, $env:GOPROXY
+        & go run -ldflags $ldflags cmd/server/main.go 2>&1 | Tee-Object -FilePath $logFile
+    } -ArgumentList (Get-Location).Path, $ldflags, $Port, $env:GOPROXY, (Join-Path (Get-Location) ".dev-logs\backend.log")
 }
 
 # Wait for backend to be ready
@@ -105,6 +109,14 @@ if (-not $ready) {
 }
 Write-Host "[Backend] Ready!" -ForegroundColor Green
 
+# Show default test credentials
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Default Account (first run)" -ForegroundColor Cyan
+Write-Host "  Username: admin" -ForegroundColor White
+Write-Host "  Password: admin (or set via setup)" -ForegroundColor White
+Write-Host "========================================" -ForegroundColor Cyan
+
 # --- Start Frontend ---
 # Ensure node_modules exists
 if (-not (Test-Path "frontend-react\node_modules")) {
@@ -121,34 +133,51 @@ if (-not (Test-Path "frontend-react\node_modules")) {
 }
 
 Write-Host "`n[Frontend] Starting (pnpm dev)..." -ForegroundColor Yellow
-$frontendJob = Start-Job -ScriptBlock {
-    param($root, $frontendPort, $apiHost)
-    $env:API_HOST = $apiHost
-    Set-Location "$root\frontend-react"
-    & pnpm run dev -- --port $frontendPort --host 0.0.0.0 2>&1
-} -ArgumentList (Get-Location).Path, $FrontendPort, $env:API_HOST
+
+# Log files for tailing
+$feLOG = Join-Path $logDir "frontend.log"
+$beLOG = Join-Path $logDir "backend.log"
+"" | Set-Content $feLOG
+"" | Set-Content $beLOG
+
+$frontendProc = Start-Process -FilePath "pnpm" `
+    -ArgumentList "run","dev","--","--port",$FrontendPort,"--host","0.0.0.0" `
+    -WorkingDirectory (Join-Path (Get-Location) "frontend-react") `
+    -RedirectStandardOutput $feLOG -RedirectStandardError (Join-Path $logDir "frontend-err.log") `
+    -PassThru -WindowStyle Hidden `
+    -EnvironmentVariable @{ API_HOST = $env:API_HOST }
 
 Write-Host "[Frontend] http://localhost:$FrontendPort" -ForegroundColor Green
 Write-Host "`nPress Ctrl+C to stop all services.`n" -ForegroundColor DarkGray
 
-# --- Stream output + handle exit ---
+# --- Tail logs + handle exit ---
+$feLastLine = 0
+$beLastLine = 0
 try {
     while ($true) {
-        # Print backend output (only in NoTray mode)
-        if ($backendJob -and $backendJob.HasMoreData) {
-            Receive-Job $backendJob | ForEach-Object {
-                Write-Host "[BE] $_" -ForegroundColor DarkCyan
+        # Tail backend log (NoTray mode writes to $beLOG)
+        if (Test-Path $beLOG) {
+            $lines = Get-Content $beLOG -ErrorAction SilentlyContinue
+            if ($lines -and $lines.Count -gt $beLastLine) {
+                $lines[$beLastLine..($lines.Count - 1)] | ForEach-Object {
+                    if ($_.Trim()) { Write-Host "[BE] $_" -ForegroundColor DarkCyan }
+                }
+                $beLastLine = $lines.Count
             }
         }
-        # Print frontend output
-        if ($frontendJob.HasMoreData) {
-            Receive-Job $frontendJob | ForEach-Object {
-                Write-Host "[FE] $_" -ForegroundColor DarkMagenta
+        # Tail frontend log
+        if (Test-Path $feLOG) {
+            $lines = Get-Content $feLOG -ErrorAction SilentlyContinue
+            if ($lines -and $lines.Count -gt $feLastLine) {
+                $lines[$feLastLine..($lines.Count - 1)] | ForEach-Object {
+                    if ($_.Trim()) { Write-Host "[FE] $_" -ForegroundColor DarkMagenta }
+                }
+                $feLastLine = $lines.Count
             }
         }
         # Check if processes died
         $backendAlive = if ($trayProc) { -not $trayProc.HasExited } elseif ($backendJob) { $backendJob.State -eq "Running" } else { $false }
-        $frontendAlive = $frontendJob.State -eq "Running"
+        $frontendAlive = -not $frontendProc.HasExited
         if (-not $backendAlive -and -not $frontendAlive) {
             Write-Host "`nAll processes exited." -ForegroundColor Yellow
             break
@@ -164,9 +193,11 @@ try {
         Stop-Job $backendJob -ErrorAction SilentlyContinue
         Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
     }
-    Stop-Job $frontendJob -ErrorAction SilentlyContinue
-    Remove-Job $frontendJob -Force -ErrorAction SilentlyContinue
-    # Clean up tray binary
+    if ($frontendProc -and -not $frontendProc.HasExited) {
+        Stop-Process -Id $frontendProc.Id -Force -ErrorAction SilentlyContinue
+    }
+    # Clean up
     Remove-Item ".\mail2im-tray.exe" -ErrorAction SilentlyContinue
+    Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "Done." -ForegroundColor Green
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 	"os/exec"
 	"runtime"
 	"sync"
@@ -41,9 +42,14 @@ func onReady() {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("退出", "退出应用")
 
-	// Click tray icon to open browser
+	// Double-click tray icon to open browser
+	var lastTap time.Time
 	systray.SetOnTapped(func() {
-		openBrowser()
+		now := time.Now()
+		if now.Sub(lastTap) < 500*time.Millisecond {
+			openBrowser()
+		}
+		lastTap = now
 	})
 
 	// Auto-start server

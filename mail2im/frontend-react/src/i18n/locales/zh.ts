@@ -4,8 +4,13 @@ export default {
     logs: '日志',
     settings: '系统设置'
   },
+  profile: {
+    title: '个人资料',
+  },
   settings: {
     title: '系统设置',
+    light_mode: '浅色模式',
+    dark_mode: '深色模式',
     appearance: '界面与主题',
     appearance_desc: '在这里调整界面的配色与显示效果。',
     theme_color: '主题色',
@@ -216,9 +221,17 @@ export default {
   auth: {
     title: 'Mail2IM',
     subtitle_login: '请登录后继续',
-    username: '邮箱或用户名',
+    login_title: '登录到 Mail2IM',
+    setup_title: '创建管理员账号',
+    setup_hint: '首次使用，请创建管理员账号',
+    setup_button: '创建账号',
+    login_button: '登录',
+    username: '用户名',
+    username_placeholder: '请输入用户名',
     password: '密码',
+    password_placeholder: '请输入密码',
     login: '登录',
+    login_failed: '登录失败，请检查用户名或密码',
     remember_me: '记住密码',
     forgot_password: '忘记密码？',
     reset_help_title: '重置密码',

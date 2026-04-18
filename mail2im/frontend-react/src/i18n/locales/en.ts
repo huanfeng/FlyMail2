@@ -4,8 +4,13 @@ export default {
     logs: 'Logs',
     settings: 'System Settings'
   },
+  profile: {
+    title: 'Profile',
+  },
   settings: {
     title: 'System Settings',
+    light_mode: 'Light Mode',
+    dark_mode: 'Dark Mode',
     appearance: 'Appearance',
     appearance_desc: 'Adjust how the ui looks and feels.',
     theme_color: 'Theme Color',
@@ -216,9 +221,17 @@ export default {
   auth: {
     title: 'Mail2IM',
     subtitle_login: 'Sign in to continue',
-    username: 'Email or username',
+    login_title: 'Sign in to Mail2IM',
+    setup_title: 'Create Admin Account',
+    setup_hint: 'First time? Create an admin account',
+    setup_button: 'Create Account',
+    login_button: 'Sign In',
+    username: 'Username',
+    username_placeholder: 'Enter username',
     password: 'Password',
+    password_placeholder: 'Enter password',
     login: 'Sign In',
+    login_failed: 'Login failed. Check username or password.',
     remember_me: 'Remember me',
     forgot_password: 'Forgot password?',
     reset_help_title: 'Reset password',

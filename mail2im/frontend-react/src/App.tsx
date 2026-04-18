@@ -2,6 +2,11 @@ import { Routes, Route, Navigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth'
 import { AppLayout } from '@/layout/AppLayout'
 import { LoginPage } from '@/pages/Login'
+import { DashboardPage } from '@/pages/Dashboard'
+import { AccountsPage } from '@/pages/Accounts'
+import { EmailsPage } from '@/pages/Emails'
+import { EmailDetailPage } from '@/pages/EmailDetail'
+import { LogsPage } from '@/pages/Logs'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -23,11 +28,11 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-        <Route index element={<PlaceholderPage title="Dashboard" />} />
-        <Route path="accounts" element={<PlaceholderPage title="Accounts" />} />
-        <Route path="emails" element={<PlaceholderPage title="Emails" />} />
-        <Route path="emails/:id" element={<PlaceholderPage title="Email Detail" />} />
-        <Route path="logs" element={<PlaceholderPage title="Logs" />} />
+        <Route index element={<DashboardPage />} />
+        <Route path="accounts" element={<AccountsPage />} />
+        <Route path="emails" element={<EmailsPage />} />
+        <Route path="emails/:id" element={<EmailDetailPage />} />
+        <Route path="logs" element={<LogsPage />} />
         <Route path="channels" element={<PlaceholderPage title="Channels" />} />
         <Route path="proxies" element={<PlaceholderPage title="Proxies" />} />
         <Route path="classification" element={<PlaceholderPage title="Classification" />} />

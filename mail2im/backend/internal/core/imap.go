@@ -126,9 +126,16 @@ func TestIMAPConnection(account models.Account) (*ConnectionInfo, time.Duration,
 	worker := NewWorker(account)
 	worker.Silent = true
 	start := time.Now()
-	conn, info, err := worker.dialAndLogin()
-	if conn != nil {
-		conn.Logout()
+	session, err := worker.dialAndLogin()
+	elapsed := time.Since(start)
+	if err != nil {
+		return nil, elapsed, err
 	}
-	return info, time.Since(start), err
+	info := &ConnectionInfo{
+		Capabilities: session.Capabilities,
+		SupportsIDLE: session.SupportsIDLE,
+		SecurityMode: session.SecurityMode,
+	}
+	session.Close()
+	return info, elapsed, nil
 }

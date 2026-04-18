@@ -142,11 +142,11 @@ func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.Fetc
 	if env := buf.Envelope; env != nil {
 		email.Subject = parser.DecodeMIMEHeader(env.Subject)
 		email.MessageID = strings.Trim(env.MessageID, "<>")
-		email.From = convertIMAPAddresses(env.From)
-		email.To = convertIMAPAddresses(env.To)
-		email.CC = convertIMAPAddresses(env.Cc)
-		email.BCC = convertIMAPAddresses(env.Bcc)
-		email.ReplyTo = convertIMAPAddresses(env.ReplyTo)
+		email.From = ConvertIMAPAddresses(env.From)
+		email.To = ConvertIMAPAddresses(env.To)
+		email.CC = ConvertIMAPAddresses(env.Cc)
+		email.BCC = ConvertIMAPAddresses(env.Bcc)
+		email.ReplyTo = ConvertIMAPAddresses(env.ReplyTo)
 
 		if email.Date.IsZero() && !env.Date.IsZero() {
 			email.Date = env.Date
@@ -164,7 +164,8 @@ func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.Fetc
 	return email
 }
 
-func convertIMAPAddresses(addrs []imapv2.Address) []types.Address {
+// ConvertIMAPAddresses converts go-imap/v2 addresses to core types.Address.
+func ConvertIMAPAddresses(addrs []imapv2.Address) []types.Address {
 	if len(addrs) == 0 {
 		return nil
 	}

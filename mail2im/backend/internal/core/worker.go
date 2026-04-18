@@ -2,27 +2,29 @@ package core
 
 import (
 	"bytes"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	appconfig "mail2im/internal/config"
 	"mail2im/internal/models"
-	"mime"
 	"regexp"
 	"strings"
 	"time"
 
 	imap "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
-	"github.com/emersion/go-message/mail"
 	nanoid "github.com/matoous/go-nanoid/v2"
+
+	corevimap "flymail-core/imap"
+	"flymail-core/parser"
+	"flymail-core/types"
 )
 
 type Worker struct {
 	Account         models.Account
-	Client          *imapclient.Client
+	Client          *imapclient.Client // convenience alias for session.Client
+	session         *corevimap.Session
 	StopChan        chan struct{}
 	IsRunning       bool
 	SupportsIDLE    bool
@@ -46,27 +48,8 @@ type ConnectionInfo struct {
 	SecurityMode string
 }
 
-func decodeMimeWord(val string) string {
-	dec := new(mime.WordDecoder)
-	s, err := dec.DecodeHeader(val)
-	if err != nil {
-		return val
-	}
-	return s
-}
-
 func formatAddresses(addrs []imap.Address) string {
-	var parts []string
-	for _, a := range addrs {
-		addr := fmt.Sprintf("%s@%s", a.Mailbox, a.Host)
-		name := strings.TrimSpace(decodeMimeWord(a.Name))
-		if name != "" {
-			parts = append(parts, fmt.Sprintf("%s <%s>", name, addr))
-		} else {
-			parts = append(parts, addr)
-		}
-	}
-	return strings.Join(parts, ", ")
+	return types.FormatAddressList(corevimap.ConvertIMAPAddresses(addrs))
 }
 
 func NewWorker(account models.Account) *Worker {
@@ -88,11 +71,6 @@ func isNoSelect(mb models.Mailbox) bool {
 	return strings.Contains(attrs, "\\noselect")
 }
 
-func is163Server(host string) bool {
-	h := strings.ToLower(host)
-	return strings.Contains(h, "163.com") || strings.Contains(h, "126.com") || strings.Contains(h, "yeah.net") || strings.Contains(h, "yeah.com")
-}
-
 func (w *Worker) pushIdleEvent(ev idleEvent) {
 	if w.idleUpdates == nil {
 		return
@@ -103,21 +81,6 @@ func (w *Worker) pushIdleEvent(ev idleEvent) {
 	default:
 		w.log("warn", StateIDLE, "IDLE update channel full, dropping event")
 	}
-}
-
-func sendIMAPID(conn *imapclient.Client) error {
-	if conn == nil {
-		return fmt.Errorf("imap client is nil")
-	}
-	if caps := conn.Caps(); caps != nil && !caps.Has(imap.CapID) {
-		return fmt.Errorf("server does not support ID")
-	}
-	_, err := conn.ID(&imap.IDData{
-		Name:    "Mail2IM",
-		Version: "1.0.0",
-		Vendor:  "Mail2IM",
-	}).Wait()
-	return err
 }
 
 func (w *Worker) MarkAsRead(uid uint) error {
@@ -181,67 +144,25 @@ func (w *Worker) Stop() {
 	}
 	close(w.StopChan)
 	w.IsRunning = false
-	if w.Client != nil {
-		if err := w.Client.Logout().Wait(); err != nil {
+	if w.session != nil {
+		if err := w.session.Close(); err != nil {
 			w.log("warn", StateDisconnected, fmt.Sprintf("Logout error: %v", err))
 		}
-		w.Client.Close()
+		w.session = nil
+		w.Client = nil
 	}
 	w.log("info", StateDisconnected, "Worker stopped")
 }
 
-func (w *Worker) dialAndLogin() (*imapclient.Client, *ConnectionInfo, error) {
-	addr := fmt.Sprintf("%s:%d", w.Account.IMAPServer, w.Account.IMAPPort)
-	dialer := NewProxyDialer(w.Account.Proxy)
-	rawConn, err := dialer.Dial("tcp", addr)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	mode := strings.ToLower(w.Account.SSLMode)
+// buildIMAPConfig converts the Account into a core IMAPConfig.
+func (w *Worker) buildIMAPConfig() types.IMAPConfig {
+	mode := types.SecurityMode(strings.ToLower(w.Account.SSLMode))
 	if mode == "" {
 		if w.Account.UseSSL {
-			mode = "ssl"
+			mode = types.SecuritySSL
 		} else {
-			mode = "none"
+			mode = types.SecurityNone
 		}
-	}
-
-	if w.idleUpdates == nil {
-		w.idleUpdates = make(chan idleEvent, 16)
-	}
-
-	opts := &imapclient.Options{
-		UnilateralDataHandler: &imapclient.UnilateralDataHandler{
-			Expunge: func(seqNum uint32) {
-				w.pushIdleEvent(idleEvent{kind: "expunge", seqNum: seqNum})
-			},
-			Mailbox: func(data *imapclient.UnilateralDataMailbox) {
-				w.pushIdleEvent(idleEvent{kind: "mailbox", mailbox: data})
-			},
-		},
-	}
-
-	info := &ConnectionInfo{SecurityMode: mode}
-	tlsConfig := &tls.Config{ServerName: w.Account.IMAPServer}
-	var c *imapclient.Client
-	switch mode {
-	case "ssl":
-		tlsConn := tls.Client(rawConn, tlsConfig)
-		if err := tlsConn.Handshake(); err != nil {
-			return nil, nil, err
-		}
-		c = imapclient.New(tlsConn, opts)
-	case "starttls":
-		optsWithTLS := *opts
-		optsWithTLS.TLSConfig = tlsConfig
-		c, err = imapclient.NewStartTLS(rawConn, &optsWithTLS)
-		if err != nil {
-			return nil, nil, fmt.Errorf("starttls failed: %w", err)
-		}
-		info.SecurityMode = "starttls"
-	default:
-		c = imapclient.New(rawConn, opts)
 	}
 
 	password := w.Account.Password
@@ -253,45 +174,55 @@ func (w *Worker) dialAndLogin() (*imapclient.Client, *ConnectionInfo, error) {
 		login = w.Account.Email
 	}
 
-	if err := c.WaitGreeting(); err != nil {
-		return nil, nil, err
+	cfg := types.IMAPConfig{
+		Host:         w.Account.IMAPServer,
+		Port:         w.Account.IMAPPort,
+		Username:     login,
+		Password:     password,
+		Security:     mode,
+		ClientName:   "Mail2IM",
+		ClientVendor: "Mail2IM",
 	}
 
-	if err := c.Login(login, password).Wait(); err != nil {
-		c.Close()
-		return nil, nil, err
-	}
-
-	if is163Server(w.Account.IMAPServer) {
-		if err := sendIMAPID(c); err != nil {
-			w.log("warn", StateConnecting, fmt.Sprintf("163 IMAP ID failed: %v", err))
-		} else {
-			w.log("info", StateConnecting, "163 IMAP ID sent")
+	if w.Account.Proxy != nil {
+		cfg.Proxy = &types.ProxyConfig{
+			Type:     w.Account.Proxy.Type,
+			Host:     w.Account.Proxy.Host,
+			Port:     w.Account.Proxy.Port,
+			Username: w.Account.Proxy.Username,
+			Password: w.Account.Proxy.Password,
 		}
 	}
 
-	if caps := c.Caps(); caps != nil {
-		for cap := range caps {
-			info.Capabilities = append(info.Capabilities, string(cap))
-		}
-		info.SupportsIDLE = caps.Has(imap.CapIdle) || caps.Has(imap.CapIMAP4rev2)
+	return cfg
+}
+
+func (w *Worker) dialAndLogin() (*corevimap.Session, error) {
+	cfg := w.buildIMAPConfig()
+	session, err := corevimap.Dial(cfg)
+	if err != nil {
+		return nil, err
 	}
 
-	return c, info, nil
+	// Register IDLE event handler to feed into our idleUpdates channel
+	session.SetIDLEHandler(func(ev corevimap.IDLEEvent) {
+		w.pushIdleEvent(idleEvent{kind: ev.Kind, seqNum: ev.SeqNum})
+	})
+
+	return session, nil
 }
 
 func (w *Worker) connect() error {
 	w.idleUpdates = make(chan idleEvent, 16)
-	conn, info, err := w.dialAndLogin()
+	session, err := w.dialAndLogin()
 	if err != nil {
 		return err
 	}
-	w.Client = conn
-	if info != nil {
-		w.SupportsIDLE = info.SupportsIDLE
-		w.Capabilities = info.Capabilities
-		w.SecurityMode = info.SecurityMode
-	}
+	w.session = session
+	w.Client = session.Client
+	w.SupportsIDLE = session.SupportsIDLE
+	w.Capabilities = session.Capabilities
+	w.SecurityMode = session.SecurityMode
 	return nil
 }
 
@@ -844,76 +775,34 @@ func (w *Worker) processFetchedMessage(buf *imapclient.FetchMessageBuffer, secti
 		}
 	}
 
-	mr, err := mail.CreateReader(bytes.NewReader(body))
-	if err != nil {
-		w.log("error", StateError, fmt.Sprintf("Failed to create mail reader: %v", err))
-		return false
-	}
+	// Use core/parser to parse the message body and envelope fallback
+	parsed := &types.ParsedEmail{}
 
+	// Fill envelope fields first (more reliable than header parsing)
 	env := buf.Envelope
-	subject := ""
-	messageID := ""
-	fromStr := ""
-	toStr := ""
 	receivedAt := buf.InternalDate
-
 	if env != nil {
-		subject = decodeMimeWord(env.Subject)
-		messageID = env.MessageID
-		fromStr = formatAddresses(env.From)
-		toStr = formatAddresses(env.To)
+		parsed.Subject = parser.DecodeMIMEHeader(env.Subject)
+		parsed.MessageID = env.MessageID
+		parsed.From = corevimap.ConvertIMAPAddresses(env.From)
+		parsed.To = corevimap.ConvertIMAPAddresses(env.To)
 		if receivedAt.IsZero() && !env.Date.IsZero() {
 			receivedAt = env.Date
 		}
 	}
 
-	// Fallback to headers if envelope missing
-	if subject == "" {
-		if hdrSubject, _ := mr.Header.Text("Subject"); hdrSubject != "" {
-			subject = decodeMimeWord(hdrSubject)
-		}
-	}
-	if messageID == "" {
-		messageID, _ = mr.Header.Text("Message-ID")
-	}
-	if fromStr == "" {
-		if from, _ := mr.Header.AddressList("From"); len(from) > 0 {
-			fromStr = decodeMimeWord(from[0].String())
-		}
-	}
-	if toStr == "" {
-		if to, _ := mr.Header.AddressList("To"); len(to) > 0 {
-			toStr = decodeMimeWord(to[0].String())
-		}
+	// Parse body (with fallback headers for missing envelope fields)
+	if err := parser.ParseBody(bytes.NewReader(body), parsed, true); err != nil {
+		w.log("error", StateError, fmt.Sprintf("Failed to parse mail body: %v", err))
+		return false
 	}
 
-	subject = decodeMimeWord(subject)
-	fromStr = decodeMimeWord(fromStr)
-	toStr = decodeMimeWord(toStr)
-
-	var textBody, htmlBody string
-	for {
-		p, err := mr.NextPart()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Printf("Failed to read part: %v", err)
-			break
-		}
-
-		switch h := p.Header.(type) {
-		case *mail.InlineHeader:
-			b, _ := io.ReadAll(p.Body)
-			contentType, _, _ := h.ContentType()
-			if contentType == "text/plain" {
-				textBody = string(b)
-			} else if contentType == "text/html" {
-				htmlBody = string(b)
-			}
-		case *mail.AttachmentHeader:
-			// TODO: handle attachment meta if needed
-		}
-	}
+	subject := parsed.Subject
+	messageID := parsed.MessageID
+	fromStr := parsed.FromString()
+	toStr := parsed.ToString()
+	textBody := parsed.TextBody
+	htmlBody := parsed.HTMLBody
 
 	pid, _ := nanoid.New()
 

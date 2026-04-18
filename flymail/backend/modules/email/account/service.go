@@ -2,16 +2,15 @@ package account
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/emersion/go-imap"
-	"github.com/emersion/go-imap/client"
 	"go.uber.org/zap"
 
+	corevimap "flymail-core/imap"
 	"flymail-core/logger"
+	"flymail-core/types"
 )
 
 var (
@@ -317,89 +316,40 @@ func (s *service) testAndUpdateCapabilities(ctx context.Context, account *EmailA
 
 // testIMAPConnection tests IMAP connection and returns capabilities
 func (s *service) testIMAPConnection(account *EmailAccount) ([]string, bool, error) {
-	// Connect to IMAP server
-	var c *client.Client
-	var err error
-
-	addr := fmt.Sprintf("%s:%d", account.ImapServer, account.ImapPort)
-	if account.ImapSSL {
-		c, err = client.DialTLS(addr, &tls.Config{InsecureSkipVerify: true})
-	} else {
-		c, err = client.Dial(addr)
-	}
-
+	cfg := buildIMAPConfigFromAccount(account)
+	session, err := corevimap.Dial(cfg)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to connect to IMAP server: %w", err)
 	}
-	defer c.Logout()
+	defer session.Close()
 
-	// Login
-	if err := c.Login(account.Username, account.Password); err != nil {
-		return nil, false, fmt.Errorf("failed to login: %w", err)
-	}
-
-	// Get capabilities
-	capabilities, err := c.Capability()
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to get capabilities: %w", err)
-	}
-
-	var capList []string
-	supportsIDLE := false
-	for cap := range capabilities {
-		capList = append(capList, cap)
-		if cap == "IDLE" {
-			supportsIDLE = true
-		}
-	}
-
-	return capList, supportsIDLE, nil
+	return session.Capabilities, session.SupportsIDLE, nil
 }
 
 // syncFolders syncs the folder structure for the account
 func (s *service) syncFolders(ctx context.Context, account *EmailAccount) error {
-	// Connect to IMAP server
-	var c *client.Client
-	var err error
-
-	addr := fmt.Sprintf("%s:%d", account.ImapServer, account.ImapPort)
-	if account.ImapSSL {
-		c, err = client.DialTLS(addr, &tls.Config{InsecureSkipVerify: true})
-	} else {
-		c, err = client.Dial(addr)
-	}
-
+	cfg := buildIMAPConfigFromAccount(account)
+	session, err := corevimap.Dial(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to connect to IMAP server: %w", err)
 	}
-	defer c.Logout()
+	defer session.Close()
 
-	// Login
-	if err := c.Login(account.Username, account.Password); err != nil {
-		return fmt.Errorf("failed to login: %w", err)
+	// List all folders via core/imap
+	folderInfos, err := session.ListFolders()
+	if err != nil {
+		return fmt.Errorf("failed to list folders: %w", err)
 	}
-
-	// List all folders
-	mailboxes := make(chan *imap.MailboxInfo, 100)
-	done := make(chan error, 1)
-
-	go func() {
-		done <- c.List("", "*", mailboxes)
-	}()
 
 	var folders []*Folder
-	for mbox := range mailboxes {
+	for _, fi := range folderInfos {
 		folder := &Folder{
 			AccountID: account.AccountID,
-			Name:      mbox.Name,
-			RawName:   mbox.Name,
-			Delimiter: mbox.Delimiter,
+			Name:      fi.Name,
+			RawName:   fi.Path,
+			Delimiter: fi.Delimiter,
 		}
 		folders = append(folders, folder)
-	}
-
-	if err := <-done; err != nil {
-		return fmt.Errorf("failed to list folders: %w", err)
 	}
 
 	// Sync folders to database
@@ -429,5 +379,21 @@ func (s *service) updateSyncError(ctx context.Context, account *EmailAccount, er
 		logger.Error("Failed to update account sync error",
 			zap.Uint("account_id", account.AccountID),
 			zap.Error(updateErr))
+	}
+}
+
+func buildIMAPConfigFromAccount(account *EmailAccount) types.IMAPConfig {
+	security := types.SecurityNone
+	if account.ImapSSL {
+		security = types.SecuritySSL
+	}
+	return types.IMAPConfig{
+		Host:         account.ImapServer,
+		Port:         account.ImapPort,
+		Username:     account.Username,
+		Password:     account.Password,
+		Security:     security,
+		ClientName:   "FlyMail",
+		ClientVendor: "FlyMail",
 	}
 }

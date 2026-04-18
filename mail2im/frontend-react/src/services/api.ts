@@ -62,4 +62,14 @@ http.interceptors.response.use(
   }
 )
 
+/** Extract array data from API response, handles both unwrapped and raw formats */
+export function extractList<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data
+  if (data && typeof data === 'object' && 'data' in data) {
+    const inner = (data as Record<string, unknown>).data
+    if (Array.isArray(inner)) return inner
+  }
+  return []
+}
+
 export default http

@@ -37,7 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import api from '@/services/api'
+import api, { extractList } from '@/services/api'
 
 interface LogEntry {
   id?: number
@@ -204,7 +204,7 @@ export function LogsPage() {
     queryKey: ['logs'],
     queryFn: async () => {
       const res = await api.get<LogEntry[]>('/logs')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 

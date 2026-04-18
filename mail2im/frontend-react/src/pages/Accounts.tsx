@@ -12,7 +12,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 
-import http from '@/services/api'
+import http, { extractList } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -627,7 +627,7 @@ export function AccountsPage() {
     queryKey: ['accounts'],
     queryFn: async () => {
       const res = await http.get('/accounts')
-      return res.data ?? []
+      return extractList<Account>(res.data)
     },
   })
 
@@ -643,7 +643,7 @@ export function AccountsPage() {
     queryKey: ['proxies'],
     queryFn: async () => {
       const res = await http.get('/proxies')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 
@@ -739,7 +739,7 @@ export function AccountsPage() {
     setMailboxesLoading(true)
     try {
       const res = await http.get(`/accounts/${accountId}/mailboxes`)
-      setMailboxes(res.data ?? [])
+      setMailboxes(extractList(res.data))
     } catch {
       toast.error(t('accounts.load_folders_error'))
     } finally {
@@ -752,7 +752,7 @@ export function AccountsPage() {
     setMailboxesLoading(true)
     try {
       const res = await http.post(`/accounts/${form.id}/mailboxes/sync`)
-      setMailboxes(res.data ?? [])
+      setMailboxes(extractList(res.data))
       toast.success(t('accounts.sync_folders_success'))
     } catch {
       toast.error(t('accounts.sync_folders_error'))

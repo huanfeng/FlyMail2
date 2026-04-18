@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Plus, RefreshCw, Pencil, Trash2, TriangleAlert, FileText, Loader2 } from 'lucide-react'
 
-import http from '@/services/api'
+import http, { extractList } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -343,7 +343,7 @@ export function TemplatesPage() {
     queryKey: ['templates'],
     queryFn: async () => {
       const res = await http.get('/templates')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 
@@ -351,7 +351,7 @@ export function TemplatesPage() {
     queryKey: ['templates-variables'],
     queryFn: async () => {
       const res = await http.get('/templates/variables')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 
@@ -359,7 +359,7 @@ export function TemplatesPage() {
     queryKey: ['templates-defaults'],
     queryFn: async () => {
       const res = await http.get('/templates/defaults')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 

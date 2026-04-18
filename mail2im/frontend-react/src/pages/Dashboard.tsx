@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { RefreshCw, Mail, Users, Globe, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import api from '@/services/api'
+import api, { extractList } from '@/services/api'
 
 interface LogEntry {
   id?: number
@@ -103,7 +103,7 @@ export function DashboardPage() {
         queryKey: ['logs-recent'],
         queryFn: async () => {
           const res = await api.get<LogEntry[]>('/logs')
-          return (res.data ?? []).slice(0, 5)
+          return extractList(res.data).slice(0, 5)
         },
       },
     ],

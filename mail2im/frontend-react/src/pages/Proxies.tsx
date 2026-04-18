@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Plus, RefreshCw, Pencil, Trash2, TriangleAlert } from 'lucide-react'
 
-import http from '@/services/api'
+import http, { extractList } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -230,7 +230,7 @@ export function ProxiesPage() {
     queryKey: ['proxies'],
     queryFn: async () => {
       const res = await http.get('/proxies')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 

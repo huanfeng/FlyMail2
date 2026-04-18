@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import api from '@/services/api'
+import api, { extractList } from '@/services/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ export function NotificationPolicyPage() {
     queryKey: ['notification-policy'],
     queryFn: async () => {
       const res = await api.get<PolicyItem[]>('/notification-policy')
-      return res.data ?? []
+      return extractList(res.data)
     },
   })
 

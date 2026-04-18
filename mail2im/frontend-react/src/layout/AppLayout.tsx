@@ -18,6 +18,7 @@ import {
   LogOut, User,
 } from 'lucide-react'
 import { useState } from 'react'
+import { ProfileDialog } from '@/components/ProfileDialog'
 
 const menuGroups = [
   {
@@ -104,6 +105,7 @@ function UserMenu() {
   const clear = useAuthStore((s) => s.clear)
   const navigate = useNavigate()
   const [dark, setDark] = useState(document.documentElement.classList.contains('dark'))
+  const [profileOpen, setProfileOpen] = useState(false)
 
   const toggleDark = () => {
     document.documentElement.classList.toggle('dark')
@@ -129,6 +131,10 @@ function UserMenu() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={() => setProfileOpen(true)}>
+            <User className="mr-2 h-4 w-4" />
+            {t('profile.title')}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={toggleDark}>
             {dark ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
             {dark ? t('settings.light_mode') : t('settings.dark_mode')}
@@ -139,6 +145,7 @@ function UserMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
   )
 }

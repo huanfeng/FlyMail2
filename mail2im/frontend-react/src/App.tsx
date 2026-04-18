@@ -6,6 +6,7 @@ import { DashboardPage } from '@/pages/Dashboard'
 import { AccountsPage } from '@/pages/Accounts'
 import { EmailsPage } from '@/pages/Emails'
 import { EmailDetailPage } from '@/pages/EmailDetail'
+import { EmailStandalonePage, SharePage } from '@/pages/EmailStandalone'
 import { LogsPage } from '@/pages/Logs'
 import { ChannelsPage } from '@/pages/Channels'
 import { ProxiesPage } from '@/pages/Proxies'
@@ -34,6 +35,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+      <Route path="/email-view/:id" element={<ProtectedRoute><EmailStandalonePage /></ProtectedRoute>} />
+      <Route path="/share/:token" element={<SharePage />} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
         <Route path="accounts" element={<AccountsPage />} />

@@ -40,6 +40,11 @@ $trayProc = $null
 $backendJob = $null
 $frontendProc = $null
 
+# Kill leftover dev processes from previous runs
+Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object {
+    $_.MainWindowTitle -eq "" -and $_.Path -and $_.Path -match "frontend-react"
+} | Stop-Process -Force -ErrorAction SilentlyContinue
+
 # Prepare log directory (clean up stale files from previous runs)
 $logDir = Join-Path (Get-Location) ".dev-logs"
 Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -189,16 +194,19 @@ try {
     }
 } finally {
     Write-Host "`nStopping services..." -ForegroundColor Yellow
+    # Kill process trees (taskkill /T kills child processes too)
     if ($trayProc -and -not $trayProc.HasExited) {
-        Stop-Process -Id $trayProc.Id -Force -ErrorAction SilentlyContinue
+        & taskkill /F /T /PID $trayProc.Id 2>$null | Out-Null
     }
     if ($backendJob) {
         Stop-Job $backendJob -ErrorAction SilentlyContinue
         Remove-Job $backendJob -Force -ErrorAction SilentlyContinue
     }
     if ($frontendProc -and -not $frontendProc.HasExited) {
-        Stop-Process -Id $frontendProc.Id -Force -ErrorAction SilentlyContinue
+        & taskkill /F /T /PID $frontendProc.Id 2>$null | Out-Null
     }
+    # Wait briefly for processes to release file handles
+    Start-Sleep -Milliseconds 500
     # Clean up
     Remove-Item ".\mail2im-tray.exe" -ErrorAction SilentlyContinue
     Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue

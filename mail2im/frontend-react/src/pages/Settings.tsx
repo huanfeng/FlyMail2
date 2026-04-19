@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { ThemePicker } from '@/components/ThemePicker'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -186,9 +187,6 @@ export function SettingsPage() {
 
   // ── local form state ──
   const [lang, setLang] = useState(i18n.language ?? 'zh')
-  const [darkMode, setDarkMode] = useState(() =>
-    document.documentElement.classList.contains('dark')
-  )
   const [timezone, setTimezone] = useState('UTC')
   const [quietEnabled, setQuietEnabled] = useState(false)
   const [quietStart, setQuietStart] = useState('')
@@ -264,15 +262,6 @@ export function SettingsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang])
-
-  // ── dark mode effect ──
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-  }, [darkMode])
 
   // ── save mutation ──
   const saveMutation = useMutation({
@@ -488,16 +477,15 @@ export function SettingsPage() {
             </SelectContent>
           </Select>
         </SettingRow>
-        <SettingRow label="Dark Mode">
-          <div className="flex items-center gap-2 pt-1">
-            <Switch
-              checked={darkMode}
-              onCheckedChange={setDarkMode}
-              id="dark-mode"
-            />
-            <Label htmlFor="dark-mode" className="text-sm text-muted-foreground cursor-pointer">
-              {darkMode ? 'Dark' : 'Light'}
-            </Label>
+        <SettingRow label={t('settings.theme') || '主题'}>
+          <div style={{
+            border: '1px solid var(--rule, rgba(0,0,0,0.08))',
+            borderRadius: 12,
+            overflow: 'hidden',
+            background: 'var(--surface, #fff)',
+            maxWidth: 320,
+          }}>
+            <ThemePicker />
           </div>
         </SettingRow>
       </Section>

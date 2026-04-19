@@ -124,7 +124,7 @@ export function DashboardPage() {
     { label: t('dashboard.channels'), value: channelsQ.data ?? '-', icon: Bell },
   ]
 
-  const recentLogs: LogEntry[] = logsQ.data ?? []
+  const recentLogs = (logsQ.data ?? []) as LogEntry[]
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">

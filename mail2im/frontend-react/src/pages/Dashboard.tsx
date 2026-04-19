@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import { RefreshCw, Mail, Users, Globe, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 import api, { extractList } from '@/services/api'
 
 interface LogEntry {
@@ -128,21 +129,20 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t('dashboard.title')}</h1>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={refetchAll}
-          disabled={isLoading}
-          aria-label={t('common.refresh')}
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
+      <PageHeader
+        title={t('dashboard.title')}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={refetchAll}
+            disabled={isLoading}
+            aria-label={t('common.refresh')}
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

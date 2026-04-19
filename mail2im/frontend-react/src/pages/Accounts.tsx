@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { PageHeader } from '@/components/PageHeader'
 import {
   Table,
   TableBody,
@@ -866,29 +867,27 @@ export function AccountsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Page header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold">{t('menu.accounts')}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            管理邮箱账户的连接与监听配置
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetchAccounts()}
-            disabled={accountsLoading}
-          >
-            <RefreshCw className={`h-4 w-4 ${accountsLoading ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            {t('accounts.add')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('menu.accounts')}
+        subtitle="管理邮箱账户的连接与监听配置"
+        className="px-6 py-4 border-b"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchAccounts()}
+              disabled={accountsLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${accountsLoading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              {t('accounts.add')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Table */}
       <div className="flex-1 overflow-auto">

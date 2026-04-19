@@ -13,6 +13,7 @@ import { RefreshCw, Trash2, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 import {
   Table,
   TableBody,
@@ -331,33 +332,34 @@ export function LogsPage() {
 
   return (
     <div className="flex flex-col gap-4 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">{t('logs.title')}</h1>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => refetch()}
-            disabled={isLoading}
-            aria-label={t('common.refresh')}
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setShowClearDialog(true)}
-            aria-label={t('logs.clear')}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('logs.title')}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => refetch()}
+              disabled={isLoading}
+              aria-label={t('common.refresh')}
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setShowClearDialog(true)}
+              aria-label={t('logs.clear')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
       {/* Table */}
-      <div className="rounded-xl border bg-card overflow-hidden flex flex-col flex-1 min-h-0">
+      <div className="flex flex-col flex-1 min-h-0">
         <div className="overflow-auto flex-1">
           <Table>
             <TableHeader>

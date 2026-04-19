@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import api, { extractList } from '@/services/api'
+import { PageHeader } from '@/components/PageHeader'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -162,25 +163,24 @@ export function NotificationPolicyPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t('policy.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{t('policy.subtitle')}</p>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => queryClient.invalidateQueries({ queryKey: ['notification-policy'] })}
-          disabled={isFetching}
-          aria-label={t('common.refresh')}
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
+      <PageHeader
+        title={t('policy.title')}
+        subtitle={t('policy.subtitle')}
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['notification-policy'] })}
+            disabled={isFetching}
+            aria-label={t('common.refresh')}
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        }
+      />
 
-      {/* Table card */}
-      <div className="rounded-xl border bg-card overflow-x-auto">
+      {/* Table */}
+      <div className="overflow-x-auto">
         {isFetching && items.length === 0 ? (
           <div className="flex items-center justify-center p-12 text-muted-foreground">
             <RefreshCw className="h-5 w-5 animate-spin mr-2" />

@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 
 type Email = {
   id: number
@@ -236,20 +237,12 @@ export function EmailsPage() {
   const sortableColumns = ['subject', 'from', 'mailbox', 'mail_type', 'received_at']
 
   return (
-    <div className="flex flex-col h-full gap-4 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('common.emails')}</h1>
-          {total > 0 && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {total} {t('common.emails')}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="flex items-center gap-2">
+    <div className="flex flex-col h-full gap-4">
+      <PageHeader
+        title={t('common.emails')}
+        subtitle={total > 0 ? `${total} ${t('common.emails')}` : undefined}
+        actions={
+          <>
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
@@ -260,28 +253,27 @@ export function EmailsPage() {
             <Button variant="outline" size="sm" onClick={handleSearch}>
               {t('common.search')}
             </Button>
-          </div>
-          {/* Actions */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ['emails'] })}
-            title={t('common.refresh')}
-          >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setShowDeleteAll(true)}
-            disabled={total === 0 || isLoading}
-            title={t('emails_view.delete_all')}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['emails'] })}
+              title={t('common.refresh')}
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setShowDeleteAll(true)}
+              disabled={total === 0 || isLoading}
+              title={t('emails_view.delete_all')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
       {/* Table */}
       <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-border">

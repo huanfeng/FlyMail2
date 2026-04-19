@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
@@ -427,35 +428,33 @@ export function TemplatesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold">{t('templates.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            管理消息推送模板，支持变量替换与实时预览
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            {t('templates.add')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('templates.title')}
+        subtitle="管理消息推送模板，支持变量替换与实时预览"
+        className="px-6 py-4 border-b"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              {t('templates.add')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Table */}
       <div className="flex-1 overflow-auto px-6 py-4">
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
+        <Table>
+          <TableHeader>
+            <TableRow>
                 <TableHead>{t('templates.name')}</TableHead>
                 <TableHead className="w-32">{t('templates.channel_type')}</TableHead>
                 <TableHead>{t('templates.description')}</TableHead>
@@ -516,7 +515,6 @@ export function TemplatesPage() {
             </TableBody>
           </Table>
         </div>
-      </div>
 
       {/* Template Editor Dialog */}
       <TemplateEditorDialog

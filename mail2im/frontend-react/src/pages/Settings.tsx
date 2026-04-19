@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import i18n from '@/i18n'
 import api from '@/services/api'
+import { PageHeader } from '@/components/PageHeader'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -430,35 +431,34 @@ export function SettingsPage() {
   const isSaving = saveMutation.isPending
 
   return (
-    <div className="flex flex-col gap-6 max-w-3xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t('settings.title')}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            aria-label={t('common.refresh')}
-          >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => saveMutation.reset()}
-            disabled={isSaving}
-          >
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={() => saveMutation.mutate()} disabled={isSaving}>
-            <Save className="h-4 w-4 mr-1.5" />
-            {t('settings.save')}
-          </Button>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title={t('settings.title')}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              aria-label={t('common.refresh')}
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => saveMutation.reset()}
+              disabled={isSaving}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => saveMutation.mutate()} disabled={isSaving}>
+              <Save className="h-4 w-4 mr-1.5" />
+              {t('settings.save')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Appearance */}
       <Section

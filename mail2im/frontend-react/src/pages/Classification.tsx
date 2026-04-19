@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 import {
   Table,
   TableBody,
@@ -489,14 +490,11 @@ export function ClassificationPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold">{t('classification.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            管理邮件分类规则与文件夹匹配策略
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title={t('classification.title')}
+        subtitle="管理邮件分类规则与文件夹匹配策略"
+        className="px-6 py-4 border-b"
+        actions={
           <Button
             variant="outline"
             size="sm"
@@ -505,8 +503,8 @@ export function ClassificationPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
@@ -526,7 +524,7 @@ export function ClassificationPage() {
                 {t('classification.add_mail_type')}
               </Button>
             </div>
-            <div className="rounded-xl border bg-card overflow-auto flex-1">
+            <div className="overflow-auto flex-1">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -607,7 +605,7 @@ export function ClassificationPage() {
                 {t('classification.add_folder_rule')}
               </Button>
             </div>
-            <div className="rounded-xl border bg-card overflow-auto flex-1">
+            <div className="overflow-auto flex-1">
               <Table>
                 <TableHeader>
                   <TableRow>

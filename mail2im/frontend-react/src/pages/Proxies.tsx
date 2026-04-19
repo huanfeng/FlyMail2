@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { PageHeader } from '@/components/PageHeader'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -305,26 +306,26 @@ export function ProxiesPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold">{t('menu.proxies')}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            {t('common.new')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('menu.proxies')}
+        className="px-6 py-4 border-b"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              {t('common.new')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Table */}
       <div className="flex-1 overflow-auto">

@@ -94,7 +94,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
                 position: 'relative',
                 cursor: 'pointer',
                 border: isActive
-                  ? '2px solid var(--accent, #4a86c2)'
+                  ? '2px solid var(--mm-accent, #4a86c2)'
                   : '1px solid var(--rule, rgba(0,0,0,0.08))',
                 overflow: 'hidden',
                 background: 'none',

@@ -157,7 +157,7 @@ export function EmailDetailPage() {
           </div>
 
           {/* iframe email content */}
-          <div className="flex-1 min-h-0 rounded-lg border border-border overflow-hidden bg-white">
+          <div className="flex-1 min-h-0 rounded-lg border border-border overflow-hidden bg-card">
             {htmlSrc ? (
               <iframe
                 src={htmlSrc}

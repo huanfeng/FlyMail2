@@ -76,6 +76,7 @@ const CHANNEL_TYPES = [
   { label: 'All', value: 'all' },
   { label: 'Telegram', value: 'telegram' },
   { label: 'Discord', value: 'discord' },
+  { label: 'Feishu', value: 'feishu' },
 ]
 
 const DEFAULT_FORM: TemplateForm = {
@@ -99,6 +100,8 @@ function getChannelVariant(type: string): 'default' | 'secondary' | 'destructive
       return 'default'
     case 'discord':
       return 'secondary'
+    case 'feishu':
+      return 'outline'
     default:
       return 'outline'
   }

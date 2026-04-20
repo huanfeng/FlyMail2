@@ -164,6 +164,26 @@ func (d *Dispatcher) ReloadChannels() {
 			} else {
 				logger.Error("Failed to parse config for channel", zap.String("channel", dbCh.Name), zap.Error(err))
 			}
+
+		case "feishu":
+			var config struct {
+				WebhookURL string `json:"webhook_url"`
+				SignSecret string `json:"sign_secret"`
+			}
+			if err := json.Unmarshal([]byte(dbCh.Config), &config); err == nil {
+				d.channels = append(d.channels, channelEntry{
+					id:              &dbCh.ID,
+					name:            dbCh.Name,
+					channelType:     "feishu",
+					sender:          channels.NewFeishuChannel(config.WebhookURL, config.SignSecret, core.EventPriority(dbCh.MinPriority), tmplContent),
+					quiet:           quietCfg,
+					subscribedTypes: subs,
+					templateContent: tmplContent,
+				})
+				logger.Info("Loaded Feishu channel", zap.String("channel", dbCh.Name))
+			} else {
+				logger.Error("Failed to parse config for channel", zap.String("channel", dbCh.Name), zap.Error(err))
+			}
 		}
 	}
 }
@@ -306,10 +326,17 @@ func renderForChannel(entry channelEntry, data TemplateData) string {
 		return ""
 	}
 
+	// Apply channel-specific body content truncation
+	limit := BodyLimitForChannel(entry.channelType)
+	data.BodyContent = truncate(data.BodyContent, limit)
+
 	switch entry.channelType {
 	case "telegram":
 		// Telegram uses HTML — escape data fields before rendering
 		return RenderTemplateHTML(entry.templateContent, data, DefaultFallbackHTML(data))
+	case "feishu":
+		// Feishu uses Lark Markdown — render as-is
+		return RenderTemplate(entry.templateContent, data, DefaultFallbackMessage(data))
 	case "discord":
 		// Discord uses Markdown — render as-is
 		return RenderTemplate(entry.templateContent, data, DefaultFallbackMessage(data))

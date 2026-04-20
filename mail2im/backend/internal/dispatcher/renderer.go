@@ -6,10 +6,65 @@ import (
 	"html"
 	"mail2im/internal/core"
 	"mail2im/internal/models"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
 )
+
+// Channel-specific maximum body lengths.
+const (
+	BodyLimitTelegram = 3500
+	BodyLimitFeishu   = 2500
+	BodyLimitDiscord  = 3500
+	BodyLimitDefault  = 2000
+	BodyLimitMax      = 10000 // safety cap stored in TemplateData
+)
+
+// BodyLimitForChannel returns the max body content length for a given channel type.
+func BodyLimitForChannel(channelType string) int {
+	switch channelType {
+	case "telegram":
+		return BodyLimitTelegram
+	case "feishu":
+		return BodyLimitFeishu
+	case "discord":
+		return BodyLimitDiscord
+	default:
+		return BodyLimitDefault
+	}
+}
+
+// Verification code regex patterns (pre-compiled for performance).
+var verificationCodePatterns []*regexp.Regexp
+
+func init() {
+	rawPatterns := []string{
+		// Chinese patterns: 验证码为：385724 / 验证码 385724 / 验证码:385724
+		`(?i)(?:验证码|校验码|确认码|动态码)\s*(?:为|是)?\s*[:\x{ff1a}]?\s*([A-Za-z0-9]{4,8})`,
+		// English keyword patterns: verification code is 123456 / OTP: AB1234
+		`(?i)(?:verification\s*code|verify\s*code|auth(?:entication)?\s*code|confirmation\s*code|security\s*code|one[- ]time\s*(?:password|code|passcode)|OTP)\s*(?:is|:|：)\s*([A-Za-z0-9]{4,8})`,
+		// "code is XXXX" / "code: XXXX" (must NOT capture "Your" etc.)
+		`(?i)\bcode\s+(?:is|:)\s*([A-Za-z0-9]{4,8})\b`,
+		// PIN: 8842 / passcode: 1234
+		`(?i)(?:PIN|passcode)\s*(?::|：)\s*([0-9]{4,8})`,
+	}
+	for _, p := range rawPatterns {
+		verificationCodePatterns = append(verificationCodePatterns, regexp.MustCompile(p))
+	}
+}
+
+// extractVerificationCode attempts to extract a verification/OTP code from email subject and body.
+func extractVerificationCode(subject, body string) (string, bool) {
+	combined := subject + "\n" + body
+	for _, re := range verificationCodePatterns {
+		matches := re.FindStringSubmatch(combined)
+		if len(matches) >= 2 {
+			return matches[1], true
+		}
+	}
+	return "", false
+}
 
 // TemplateData is the unified data structure passed to all notification templates.
 // All channels share this same data for consistent rendering.
@@ -21,6 +76,7 @@ type TemplateData struct {
 	FromEmail   string // Sender email address
 	To          string // Recipient
 	BodyPreview string // Plain text first 200 chars
+	BodyContent string // Full email body (truncated per channel at render time)
 
 	// Metadata
 	Mailbox    string // Folder name
@@ -35,6 +91,10 @@ type TemplateData struct {
 	Priority  string // Low/Normal/High/Critical
 	EventType string
 	ViewLink  string // Online view link (requires base_url config)
+
+	// Verification code
+	VerificationCode   string // Extracted code (e.g., "123456"), empty if none found
+	IsVerificationCode bool   // true if a code was extracted
 }
 
 // BuildTemplateData constructs a TemplateData from an Event.
@@ -65,16 +125,20 @@ func BuildTemplateData(event core.Event) TemplateData {
 		data.ReceivedAt = time.Now().In(core.GetSystemLocation()).Format("2006-01-02 15:04:05")
 	}
 
-	// Body preview — fetch from DB if we have email_id
+	// Body content — fetch from DB if we have email_id
 	if emailID, ok := payload["email_id"].(string); ok && emailID != "" {
 		var email models.Email
 		if err := core.DB.Select("text_body, `to`").First(&email, "id = ?", emailID).Error; err == nil {
 			data.BodyPreview = truncate(email.TextBody, 200)
+			data.BodyContent = truncate(email.TextBody, BodyLimitMax)
 			if data.To == "" {
 				data.To = email.To
 			}
 		}
 	}
+
+	// Extract verification code from subject + body
+	data.VerificationCode, data.IsVerificationCode = extractVerificationCode(data.Subject, data.BodyContent)
 
 	// Account info
 	if accountID, ok := extractUint(payload, "account_id"); ok && accountID > 0 {
@@ -133,6 +197,8 @@ func RenderTemplateHTML(tmplContent string, data TemplateData, fallback string) 
 	escaped.FromEmail = html.EscapeString(data.FromEmail)
 	escaped.To = html.EscapeString(data.To)
 	escaped.BodyPreview = html.EscapeString(data.BodyPreview)
+	escaped.BodyContent = html.EscapeString(data.BodyContent)
+	escaped.VerificationCode = html.EscapeString(data.VerificationCode)
 	escaped.Mailbox = html.EscapeString(data.Mailbox)
 	escaped.AccountName = html.EscapeString(data.AccountName)
 	escaped.AccountEmail = html.EscapeString(data.AccountEmail)
@@ -180,20 +246,23 @@ func DefaultFallbackHTML(data TemplateData) string {
 // SampleTemplateData returns example data for template preview.
 func SampleTemplateData() TemplateData {
 	return TemplateData{
-		Subject:      "Your order #12345 has been shipped",
-		From:         "Amazon <noreply@amazon.com>",
-		FromName:     "Amazon",
-		FromEmail:    "noreply@amazon.com",
-		To:           "user@example.com",
-		BodyPreview:  "Your package is on its way! Track your delivery at...",
-		Mailbox:      "INBOX",
-		MailType:     "primary",
-		ReceivedAt:   time.Now().Format("2006-01-02 15:04:05"),
-		AccountName:  "My Gmail",
-		AccountEmail: "user@gmail.com",
-		Priority:     "Normal",
-		EventType:    "email_received",
-		ViewLink:     "https://mail2im.example.com/emails/abc123",
+		Subject:            "Your order #12345 has been shipped",
+		From:               "Amazon <noreply@amazon.com>",
+		FromName:           "Amazon",
+		FromEmail:          "noreply@amazon.com",
+		To:                 "user@example.com",
+		BodyPreview:        "Your package is on its way! Track your delivery at...",
+		BodyContent:        "Your package is on its way! Track your delivery at https://example.com/track/12345. Expected delivery: Tomorrow between 2-6 PM.",
+		Mailbox:            "INBOX",
+		MailType:           "primary",
+		ReceivedAt:         time.Now().Format("2006-01-02 15:04:05"),
+		AccountName:        "My Gmail",
+		AccountEmail:       "user@gmail.com",
+		Priority:           "Normal",
+		EventType:          "email_received",
+		ViewLink:           "https://mail2im.example.com/emails/abc123",
+		VerificationCode:   "385724",
+		IsVerificationCode: true,
 	}
 }
 
@@ -214,6 +283,7 @@ func GetTemplateVariables() []TemplateVariableInfo {
 		{Name: "FromEmail", Description: "Sender email address", Example: sample.FromEmail},
 		{Name: "To", Description: "Recipient email", Example: sample.To},
 		{Name: "BodyPreview", Description: "Plain text preview (first 200 chars)", Example: sample.BodyPreview},
+		{Name: "BodyContent", Description: "Full email body (truncated per channel limit)", Example: sample.BodyContent},
 		{Name: "Mailbox", Description: "Folder name", Example: sample.Mailbox},
 		{Name: "MailType", Description: "Classification (primary, bill, spam, etc.)", Example: sample.MailType},
 		{Name: "ReceivedAt", Description: "Formatted receive time", Example: sample.ReceivedAt},
@@ -222,6 +292,8 @@ func GetTemplateVariables() []TemplateVariableInfo {
 		{Name: "Priority", Description: "Event priority (Low/Normal/High/Critical)", Example: sample.Priority},
 		{Name: "EventType", Description: "Event type (email_received, auth_failed, etc.)", Example: sample.EventType},
 		{Name: "ViewLink", Description: "Link to view email online (requires base_url)", Example: sample.ViewLink},
+		{Name: "VerificationCode", Description: "Extracted verification/OTP code from email", Example: sample.VerificationCode},
+		{Name: "IsVerificationCode", Description: "Whether a verification code was found (true/false)", Example: "true"},
 	}
 }
 

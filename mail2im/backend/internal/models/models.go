@@ -265,6 +265,8 @@ From: {{.From}}
 To: {{.AccountEmail}}
 Folder: {{.Mailbox}} ({{.MailType}})
 Time: {{.ReceivedAt}}
+{{if .IsVerificationCode}}
+🔑 Code: <code>{{.VerificationCode}}</code>{{end}}
 {{if .BodyPreview}}
 {{.BodyPreview}}{{end}}{{if .ViewLink}}
 
@@ -280,6 +282,24 @@ Time: {{.ReceivedAt}}
 **To:** {{.AccountEmail}}
 **Folder:** {{.Mailbox}} ({{.MailType}})
 **Time:** {{.ReceivedAt}}
+{{if .IsVerificationCode}}
+🔑 **Code:** ` + "`{{.VerificationCode}}`" + `{{end}}
+{{if .BodyPreview}}
+> {{.BodyPreview}}{{end}}{{if .ViewLink}}
+[View Email]({{.ViewLink}}){{end}}`,
+		},
+		{
+			Name:        "Feishu Default",
+			ChannelType: "feishu",
+			IsDefault:   true,
+			Description: "Default template for Feishu (Lark Markdown format)",
+			Content: `**{{.Subject}}**
+**From:** {{.From}}
+**To:** {{.AccountEmail}}
+**Folder:** {{.Mailbox}} ({{.MailType}})
+**Time:** {{.ReceivedAt}}
+{{if .IsVerificationCode}}
+🔑 **Code:** ` + "`{{.VerificationCode}}`" + `{{end}}
 {{if .BodyPreview}}
 > {{.BodyPreview}}{{end}}{{if .ViewLink}}
 [View Email]({{.ViewLink}}){{end}}`,
@@ -294,6 +314,8 @@ From: {{.From}}
 To: {{.AccountEmail}}
 Folder: {{.Mailbox}} ({{.MailType}})
 Time: {{.ReceivedAt}}
+{{if .IsVerificationCode}}
+🔑 Code: {{.VerificationCode}}{{end}}
 {{if .BodyPreview}}
 {{.BodyPreview}}{{end}}`,
 		},

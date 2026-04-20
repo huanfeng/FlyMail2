@@ -95,6 +95,16 @@ func TestChannel(c *gin.Context) {
 			return
 		}
 		channel = channels.NewTelegramChannelWithConfig(config.Token, config.ChatID, core.PriorityNormal, "")
+	case "feishu":
+		var config struct {
+			WebhookURL string `json:"webhook_url"`
+			SignSecret string `json:"sign_secret"`
+		}
+		if err := json.Unmarshal([]byte(input.Config), &config); err != nil {
+			httputil.BadRequest(c, "Invalid config format", nil)
+			return
+		}
+		channel = channels.NewFeishuChannel(config.WebhookURL, config.SignSecret, core.PriorityNormal, "")
 	default:
 		httputil.BadRequest(c, "Unsupported channel type", nil)
 		return

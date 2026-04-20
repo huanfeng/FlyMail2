@@ -86,6 +86,11 @@ interface TelegramConfig {
   chat_id: string
 }
 
+interface FeishuConfig {
+  webhook_url: string
+  sign_secret: string
+}
+
 interface ChannelForm {
   id: number | null
   name: string
@@ -103,7 +108,10 @@ interface ChannelForm {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CHANNEL_TYPES = [{ label: 'Telegram', value: 'telegram' }]
+const CHANNEL_TYPES = [
+  { label: 'Telegram', value: 'telegram' },
+  { label: 'Feishu', value: 'feishu' },
+]
 
 const SUBSCRIPTION_TYPES = [
   'primary',
@@ -147,6 +155,7 @@ const DEFAULT_FORM: ChannelForm = {
 }
 
 const DEFAULT_TELEGRAM: TelegramConfig = { token: '', chat_id: '' }
+const DEFAULT_FEISHU: FeishuConfig = { webhook_url: '', sign_secret: '' }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -177,6 +186,17 @@ function parseTelegramConfig(config: string | Record<string, unknown>): Telegram
   }
 }
 
+function parseFeishuConfig(config: string | Record<string, unknown>): FeishuConfig {
+  try {
+    if (typeof config === 'string') {
+      return JSON.parse(config) as FeishuConfig
+    }
+    return config as unknown as FeishuConfig
+  } catch {
+    return { webhook_url: '', sign_secret: '' }
+  }
+}
+
 function parseSubscribedTypes(raw: string | undefined): string[] {
   if (!raw) return []
   try {
@@ -196,6 +216,8 @@ interface ChannelDialogProps {
   setForm: React.Dispatch<React.SetStateAction<ChannelForm>>
   telegramConfig: TelegramConfig
   setTelegramConfig: React.Dispatch<React.SetStateAction<TelegramConfig>>
+  feishuConfig: FeishuConfig
+  setFeishuConfig: React.Dispatch<React.SetStateAction<FeishuConfig>>
   templates: Template[]
   onSave: () => void
   onTest: (eventType: string) => void
@@ -211,6 +233,8 @@ function ChannelDialog({
   setForm,
   telegramConfig,
   setTelegramConfig,
+  feishuConfig,
+  setFeishuConfig,
   templates,
   onSave,
   onTest,
@@ -316,6 +340,28 @@ function ChannelDialog({
                     onChange={(e) =>
                       setTelegramConfig((c) => ({ ...c, chat_id: e.target.value }))
                     }
+                  />
+                </FormRow>
+              </>
+            )}
+            {form.type === 'feishu' && (
+              <>
+                <FormRow label="Webhook URL">
+                  <Input
+                    value={feishuConfig.webhook_url}
+                    onChange={(e) =>
+                      setFeishuConfig((c) => ({ ...c, webhook_url: e.target.value }))
+                    }
+                    placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                  />
+                </FormRow>
+                <FormRow label={t('channels.feishu_sign_secret')}>
+                  <Input
+                    value={feishuConfig.sign_secret}
+                    onChange={(e) =>
+                      setFeishuConfig((c) => ({ ...c, sign_secret: e.target.value }))
+                    }
+                    placeholder={t('channels.feishu_sign_hint')}
                   />
                 </FormRow>
               </>
@@ -506,6 +552,7 @@ export function ChannelsPage() {
   const [isEdit, setIsEdit] = useState(false)
   const [form, setForm] = useState<ChannelForm>(DEFAULT_FORM)
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>(DEFAULT_TELEGRAM)
+  const [feishuConfig, setFeishuConfig] = useState<FeishuConfig>(DEFAULT_FEISHU)
   const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
 
@@ -546,6 +593,7 @@ export function ChannelsPage() {
     setIsEdit(false)
     setForm(DEFAULT_FORM)
     setTelegramConfig(DEFAULT_TELEGRAM)
+    setFeishuConfig(DEFAULT_FEISHU)
     setDialogOpen(true)
   }
 
@@ -568,10 +616,16 @@ export function ChannelsPage() {
       template_id: templateId,
     })
     const rawConfig = ch.config || ch.Config
-    if (rawConfig && getChannelType(ch) === 'telegram') {
+    const chType = getChannelType(ch)
+    if (rawConfig && chType === 'telegram') {
       setTelegramConfig(parseTelegramConfig(rawConfig as string))
+      setFeishuConfig(DEFAULT_FEISHU)
+    } else if (rawConfig && chType === 'feishu') {
+      setFeishuConfig(parseFeishuConfig(rawConfig as string))
+      setTelegramConfig(DEFAULT_TELEGRAM)
     } else {
       setTelegramConfig(DEFAULT_TELEGRAM)
+      setFeishuConfig(DEFAULT_FEISHU)
     }
     setDialogOpen(true)
   }
@@ -584,7 +638,9 @@ export function ChannelsPage() {
     setIsSaving(true)
     try {
       const configStr =
-        form.type === 'telegram' ? JSON.stringify(telegramConfig) : '{}'
+        form.type === 'telegram' ? JSON.stringify(telegramConfig)
+        : form.type === 'feishu' ? JSON.stringify(feishuConfig)
+        : '{}'
       const payload = {
         ...form,
         config: configStr,
@@ -611,7 +667,9 @@ export function ChannelsPage() {
     setIsTesting(true)
     try {
       const configStr =
-        form.type === 'telegram' ? JSON.stringify(telegramConfig) : '{}'
+        form.type === 'telegram' ? JSON.stringify(telegramConfig)
+        : form.type === 'feishu' ? JSON.stringify(feishuConfig)
+        : '{}'
       await http.post('/channels/test', {
         type: form.type,
         config: configStr,
@@ -756,6 +814,8 @@ export function ChannelsPage() {
         setForm={setForm}
         telegramConfig={telegramConfig}
         setTelegramConfig={setTelegramConfig}
+        feishuConfig={feishuConfig}
+        setFeishuConfig={setFeishuConfig}
         templates={templates}
         onSave={handleSave}
         onTest={handleTest}

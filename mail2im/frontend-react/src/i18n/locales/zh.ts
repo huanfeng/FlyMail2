@@ -334,7 +334,9 @@ export default {
     section_config: '配置参数',
     section_sub: '订阅规则',
     test_type_system: '系统通知',
-    test_type_email: '邮件通知'
+    test_type_email: '邮件通知',
+    feishu_sign_secret: '签名密钥',
+    feishu_sign_hint: '可选，未配置则留空',
   },
   proxies: {
     name: '名称',

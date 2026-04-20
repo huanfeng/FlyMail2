@@ -334,7 +334,9 @@ export default {
     section_config: 'Configuration',
     section_sub: 'Subscription Rules',
     test_type_system: 'System Notification',
-    test_type_email: 'Email Notification'
+    test_type_email: 'Email Notification',
+    feishu_sign_secret: 'Sign Secret',
+    feishu_sign_hint: 'Optional, leave empty if not configured',
   },
   proxies: {
     name: 'Name',

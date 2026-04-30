@@ -414,3 +414,38 @@
     margin: 0;
   }
 }
+
+/* ===================================================================
+   侧边栏导航按钮
+   =================================================================== */
+.mm-side-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background 0.1s, color 0.1s;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.mm-side-btn:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.mm-side-btn--active {
+  background: var(--bg-active);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.mm-side-btn--active:hover {
+  background: var(--bg-active);
+}

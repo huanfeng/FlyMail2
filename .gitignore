@@ -36,3 +36,14 @@ dist/
 
 # Build
 bin/
+
+# Environment
+.env
+.env.local
+
+# Runtime data
+*_data/
+
+# Screenshots / temp images
+*.png
+*.jpg

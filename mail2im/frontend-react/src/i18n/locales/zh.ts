@@ -439,6 +439,7 @@ export default {
     oauth_error: 'Google 授权失败',
     oauth_timeout: '授权超时，请重试',
     oauth_cancelled: '授权已取消',
+    oauth_token_expiring: 'OAuth Token 即将过期，请重新授权',
   },
   debug: {
     title: '系统调试面板',

@@ -275,28 +275,47 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 		}
 
 		go func(entry channelEntry, e core.Event, data TemplateData) {
+			delays := []time.Duration{5 * time.Second, 15 * time.Second}
+			maxAttempts := 1 + len(delays) // 3 次
+
 			var reqDetail, respDetail string
 			var err error
 
-			// Render template and send via TemplateAwareChannel if supported
 			rendered := renderForChannel(entry, data)
 
-			if rendered != "" {
-				if dtc, ok := entry.sender.(core.DetailedTemplateChannel); ok {
-					reqDetail, respDetail, err = dtc.SendRenderedWithDetails(rendered, e)
-				} else if tc, ok := entry.sender.(core.TemplateAwareChannel); ok {
-					err = tc.SendRendered(rendered, e)
-				} else if ds, ok := entry.sender.(core.DetailedSender); ok {
-					reqDetail, respDetail, err = ds.SendWithDetails(e)
-				} else {
-					err = entry.sender.Send(e)
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				if attempt > 0 {
+					time.Sleep(delays[attempt-1])
 				}
-			} else {
-				// No template — use legacy send
-				if ds, ok := entry.sender.(core.DetailedSender); ok {
-					reqDetail, respDetail, err = ds.SendWithDetails(e)
+
+				reqDetail, respDetail = "", ""
+				if rendered != "" {
+					if dtc, ok := entry.sender.(core.DetailedTemplateChannel); ok {
+						reqDetail, respDetail, err = dtc.SendRenderedWithDetails(rendered, e)
+					} else if tc, ok := entry.sender.(core.TemplateAwareChannel); ok {
+						err = tc.SendRendered(rendered, e)
+					} else if ds, ok := entry.sender.(core.DetailedSender); ok {
+						reqDetail, respDetail, err = ds.SendWithDetails(e)
+					} else {
+						err = entry.sender.Send(e)
+					}
 				} else {
-					err = entry.sender.Send(e)
+					if ds, ok := entry.sender.(core.DetailedSender); ok {
+						reqDetail, respDetail, err = ds.SendWithDetails(e)
+					} else {
+						err = entry.sender.Send(e)
+					}
+				}
+
+				if err == nil {
+					break
+				}
+				if attempt < maxAttempts-1 {
+					logger.Warn("Send failed, retrying",
+						zap.String("channel", entry.name),
+						zap.Int("attempt", attempt+1),
+						zap.Error(err),
+					)
 				}
 			}
 
@@ -306,7 +325,7 @@ func (d *Dispatcher) handleEvent(event core.Event) {
 			}
 
 			if err != nil {
-				logger.Error("Failed to send to channel", zap.String("channel", channelName), zap.Error(err))
+				logger.Error("Failed to send to channel after retries", zap.String("channel", channelName), zap.Error(err))
 				if accountID > 0 {
 					core.RecordForwardLog(accountID, "push", "failed", entry.id, channelName, messageID, subject, from, receivedAt, int(e.Priority), reqDetail, respDetail, err.Error())
 				}

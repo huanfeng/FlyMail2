@@ -439,6 +439,7 @@ export default {
     oauth_error: 'Google authorization failed',
     oauth_timeout: 'Authorization timed out, please try again',
     oauth_cancelled: 'Authorization cancelled',
+    oauth_token_expiring: 'OAuth token expiring soon, please re-authorize',
   },
   debug: {
     title: 'System Debug Dashboard',

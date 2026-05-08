@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -146,7 +148,7 @@ func (w *Worker) Stop() {
 }
 
 // buildIMAPConfig converts the Account into a core IMAPConfig.
-func (w *Worker) buildIMAPConfig() types.IMAPConfig {
+func (w *Worker) buildIMAPConfig() (types.IMAPConfig, error) {
 	mode := types.SecurityMode(strings.ToLower(w.Account.SSLMode))
 	if mode == "" {
 		if w.Account.UseSSL {
@@ -185,11 +187,46 @@ func (w *Worker) buildIMAPConfig() types.IMAPConfig {
 		}
 	}
 
-	return cfg
+	if w.Account.AuthType == "oauth2" {
+		tokenData, err := ParseOAuthToken(w.Account)
+		if err != nil {
+			return cfg, fmt.Errorf("parse oauth token: %w", err)
+		}
+		if IsTokenExpired(tokenData) {
+			refreshed, err := RefreshAccessToken(context.Background(), tokenData)
+			if err != nil {
+				DB.Model(&models.Account{}).Where("id = ?", w.Account.ID).Update("status", "error")
+				return cfg, fmt.Errorf("oauth token refresh failed: %w", err)
+			}
+			if err := SaveOAuthToken(w.Account.ID, refreshed); err != nil {
+				return cfg, fmt.Errorf("save refreshed token: %w", err)
+			}
+			tokenData = refreshed
+			if raw, err := json.Marshal(tokenData); err == nil {
+				if enc, err := Encrypt(string(raw)); err == nil {
+					w.Account.OAuthToken = enc
+				}
+			}
+		}
+		cfg.AccessToken = tokenData.AccessToken
+		cfg.Password = ""
+		if cfg.Username == "" || !strings.Contains(cfg.Username, "@") {
+			if tokenData.Email != "" {
+				cfg.Username = tokenData.Email
+			} else {
+				cfg.Username = w.Account.Email
+			}
+		}
+	}
+
+	return cfg, nil
 }
 
 func (w *Worker) dialAndLogin() (*corevimap.Session, error) {
-	cfg := w.buildIMAPConfig()
+	cfg, err := w.buildIMAPConfig()
+	if err != nil {
+		return nil, err
+	}
 	session, err := corevimap.Dial(cfg)
 	if err != nil {
 		return nil, err

@@ -29,6 +29,7 @@ type IMAPConfig struct {
 	Port         int           `json:"port"`
 	Username     string        `json:"username"`
 	Password     string        `json:"-"`
+	AccessToken  string        `json:"-"` // when non-empty, use XOAUTH2 instead of password
 	Security     SecurityMode  `json:"security"`
 	Proxy        *ProxyConfig  `json:"proxy,omitempty"`
 	ClientName   string        `json:"client_name,omitempty"`   // for IMAP ID extension (e.g. "Mail2IM", "FlyMail")

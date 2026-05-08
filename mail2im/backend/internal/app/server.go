@@ -217,6 +217,7 @@ func (s *Server) setupRouter() *gin.Engine {
 	apiGroup := r.Group("/api")
 
 	apiGroup.GET("/public/emails/:token", api.GetSharedEmail)
+	apiGroup.GET("/oauth/google/callback", api.GoogleOAuthCallback)
 
 	authGroup := apiGroup.Group("/auth")
 	authGroup.POST("/setup", api.SetupUser)
@@ -291,6 +292,10 @@ func (s *Server) setupRouter() *gin.Engine {
 	protected.POST("/templates/preview", api.PreviewTemplate)
 	protected.GET("/templates/variables", api.GetTemplateVariables)
 	protected.GET("/templates/defaults", api.GetDefaultTemplates)
+
+	protected.GET("/oauth/google/url", api.GoogleOAuthURL)
+	protected.GET("/oauth/google/status", api.GoogleOAuthStatus)
+	protected.POST("/oauth/google/revoke", api.GoogleOAuthRevoke)
 
 	return r
 }

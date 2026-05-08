@@ -98,9 +98,17 @@ func Dial(cfg types.IMAPConfig) (*Session, error) {
 	}
 
 	// Login
-	if err := s.Client.Login(cfg.Username, cfg.Password).Wait(); err != nil {
-		s.Client.Close()
-		return nil, fmt.Errorf("login failed: %w", err)
+	if cfg.AccessToken != "" {
+		saslClient := newXOAuth2Client(cfg.Username, cfg.AccessToken)
+		if err := s.Client.Authenticate(saslClient); err != nil {
+			s.Client.Close()
+			return nil, fmt.Errorf("XOAUTH2 auth failed: %w", err)
+		}
+	} else {
+		if err := s.Client.Login(cfg.Username, cfg.Password).Wait(); err != nil {
+			s.Client.Close()
+			return nil, fmt.Errorf("login failed: %w", err)
+		}
 	}
 
 	// Send IMAP ID for 163/126/yeah servers

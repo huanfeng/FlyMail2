@@ -19,6 +19,10 @@ func GetSettings(c *gin.Context) {
 	nightStart := core.GetSystemSettingWithDefault("night_start", "")
 	nightEnd := core.GetSystemSettingWithDefault("night_end", "")
 
+	clientID, _ := core.GetSystemSetting("oauth_google_client_id")
+	redirectURI, _ := core.GetSystemSetting("oauth_google_redirect_uri")
+	secretEnc, _ := core.GetSystemSetting("oauth_google_client_secret_enc")
+
 	response := gin.H{
 		"timezone":      timezone,
 		"server_time":   core.NowInSystemTZ().Format(time.RFC3339),
@@ -29,6 +33,11 @@ func GetSettings(c *gin.Context) {
 		"night_enabled": nightEnabled,
 		"night_start":   nightStart,
 		"night_end":     nightEnd,
+
+		"oauth_google_enabled":           clientID != "",
+		"oauth_google_client_id":         clientID,
+		"oauth_google_redirect_uri":      redirectURI,
+		"oauth_google_client_secret_set": secretEnc != "",
 	}
 
 	httputil.Success(c, response)
@@ -62,6 +71,17 @@ func UpdateSettings(c *gin.Context) {
 	}
 	if v, ok := input["night_end"]; ok {
 		core.SetSystemSetting("night_end", v.(string))
+	}
+	if v, ok := input["oauth_google_client_id"].(string); ok {
+		core.SetSystemSetting("oauth_google_client_id", v)
+	}
+	if v, ok := input["oauth_google_redirect_uri"].(string); ok {
+		core.SetSystemSetting("oauth_google_redirect_uri", v)
+	}
+	if v, ok := input["oauth_google_client_secret"].(string); ok && v != "" {
+		if enc, err := core.Encrypt(v); err == nil {
+			core.SetSystemSetting("oauth_google_client_secret_enc", enc)
+		}
 	}
 
 	httputil.NoContent(c, "ok")

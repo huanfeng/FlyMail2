@@ -510,11 +510,11 @@ export function ClassificationPage() {
 
       {/* Tabs */}
       <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
-        <Tabs defaultValue="mailTypes" className="flex-1 flex flex-col overflow-hidden">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'mailTypes' | 'folderRules')} className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <TabsList>
-              <TabsTrigger value="mailTypes" onClick={() => setActiveTab('mailTypes')}>{t('classification.mail_types_tab')}</TabsTrigger>
-              <TabsTrigger value="folderRules" onClick={() => setActiveTab('folderRules')}>{t('classification.folder_rules_tab')}</TabsTrigger>
+              <TabsTrigger value="mailTypes">{t('classification.mail_types_tab')}</TabsTrigger>
+              <TabsTrigger value="folderRules">{t('classification.folder_rules_tab')}</TabsTrigger>
             </TabsList>
             {activeTab === 'mailTypes' ? (
               <Button size="sm" onClick={openCreateMailType}>

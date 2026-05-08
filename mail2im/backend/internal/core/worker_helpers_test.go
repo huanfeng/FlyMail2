@@ -538,6 +538,130 @@ func TestClassifyMailboxType_WithFolderRules(t *testing.T) {
 	}
 }
 
+// TestApplyContentRules 验证邮件内容规则分类逻辑
+func TestApplyContentRules(t *testing.T) {
+	db := setupTestDB(t)
+
+	// 准备规则：order 越小越先执行
+	rules := []models.EmailContentRule{
+		{Name: "验证码主题", Field: "subject", Pattern: `(?i)(验证码|OTP|verification code)`, TargetType: "notification", Order: 10, Enabled: true},
+		{Name: "账单发件人", Field: "from", Pattern: `(?i)billing@`, TargetType: "bill", Order: 20, Enabled: true},
+		{Name: "收件人过滤", Field: "to", Pattern: `(?i)alert@`, TargetType: "important", Order: 30, Enabled: true},
+		{Name: "正文关键词", Field: "body", Pattern: `(?i)your order has shipped`, TargetType: "notification", Order: 40, Enabled: true},
+		// 禁用规则：order 最小，但不应参与匹配
+		// 注意：GORM Create 会因 default:true 标签跳过零值 false，需用 Select("*") 强制写入
+		{Name: "禁用规则", Field: "subject", Pattern: `(?i)invoice`, TargetType: "bill", Order: 5, Enabled: true},
+	}
+	for i := range rules {
+		db.Create(&rules[i])
+	}
+	// 显式将禁用规则设为 false（绕过 GORM 零值跳过行为）
+	db.Model(&rules[4]).Update("enabled", false)
+
+	tests := []struct {
+		name     string
+		from     string
+		subject  string
+		to       string
+		body     string
+		expected string
+	}{
+		{
+			name:     "主题匹配验证码 → notification",
+			subject:  "您的验证码是 123456",
+			expected: "notification",
+		},
+		{
+			name:     "主题英文 OTP 匹配",
+			subject:  "Your OTP code is 789",
+			expected: "notification",
+		},
+		{
+			name:     "发件人匹配 billing@ → bill",
+			from:     "billing@example.com",
+			subject:  "Monthly statement",
+			expected: "bill",
+		},
+		{
+			name:     "收件人匹配 alert@ → important",
+			to:       "alert@mycompany.com",
+			subject:  "Server down",
+			expected: "important",
+		},
+		{
+			name:     "正文匹配发货 → notification",
+			subject:  "Order update",
+			body:     "Hi, your order has shipped today.",
+			expected: "notification",
+		},
+		{
+			name:     "禁用规则不参与匹配 — 即使 order 最小",
+			subject:  "Invoice #1001",
+			expected: "",
+		},
+		{
+			name:     "多规则时 order 最小的先命中",
+			from:     "billing@example.com",
+			subject:  "您的验证码", // 两条都能匹配，order=10 的先命中
+			expected: "notification",
+		},
+		{
+			name:     "无任何匹配返回空字符串",
+			from:     "newsletter@news.com",
+			subject:  "Weekly Digest",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyContentRules(tt.from, tt.subject, tt.to, tt.body)
+			if result != tt.expected {
+				t.Errorf("applyContentRules(from=%q, subject=%q, to=%q, body=%q) = %q, 期望 %q",
+					tt.from, tt.subject, tt.to, tt.body, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestApplyContentRules_InvalidRegex 验证无效正则不崩溃
+func TestApplyContentRules_InvalidRegex(t *testing.T) {
+	db := setupTestDB(t)
+
+	db.Create(&models.EmailContentRule{
+		Name:       "无效正则",
+		Field:      "subject",
+		Pattern:    `[invalid(`,
+		TargetType: "notification",
+		Order:      10,
+		Enabled:    true,
+	})
+	db.Create(&models.EmailContentRule{
+		Name:       "后续有效规则",
+		Field:      "subject",
+		Pattern:    `(?i)hello`,
+		TargetType: "primary",
+		Order:      20,
+		Enabled:    true,
+	})
+
+	// 无效正则被跳过，后续有效规则仍然命中
+	result := applyContentRules("", "Hello world", "", "")
+	if result != "primary" {
+		t.Errorf("无效正则应被跳过，期望命中后续规则 primary，实际得到 %q", result)
+	}
+}
+
+// TestApplyContentRules_EmptyRules 验证无规则时直接返回空
+func TestApplyContentRules_EmptyRules(t *testing.T) {
+	setupTestDB(t) // AutoMigrate 会清空，无规则
+
+	result := applyContentRules("from@example.com", "Test Subject", "to@example.com", "body text")
+	if result != "" {
+		t.Errorf("无规则时期望返回空字符串，实际得到 %q", result)
+	}
+}
+
 // TestGetPriorityByType 验证邮件类型到优先级的映射
 func TestGetPriorityByType(t *testing.T) {
 	setupTestDB(t)

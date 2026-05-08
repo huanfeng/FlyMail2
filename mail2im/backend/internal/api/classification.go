@@ -138,11 +138,13 @@ func GetContentRules(c *gin.Context) {
 
 func CreateContentRule(c *gin.Context) {
 	var rule models.EmailContentRule
+	rule.Enabled = true // application-level default before JSON binding
 	if err := c.ShouldBindJSON(&rule); err != nil {
 		httputil.BadRequest(c, err.Error(), err)
 		return
 	}
-	if err := core.DB.Create(&rule).Error; err != nil {
+	// Select("*") forces GORM to include zero-value bool fields (e.g. enabled=false)
+	if err := core.DB.Select("*").Create(&rule).Error; err != nil {
 		httputil.InternalError(c, err.Error(), err)
 		return
 	}

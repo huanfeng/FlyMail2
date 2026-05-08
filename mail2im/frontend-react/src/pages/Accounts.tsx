@@ -622,6 +622,7 @@ export function AccountsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null)
+  const [oauthLoading, setOauthLoading] = useState(false)
 
   // ── Queries ──
   const { data: accounts = [], isLoading: accountsLoading, refetch: refetchAccounts } = useQuery<Account[]>({
@@ -863,6 +864,59 @@ export function AccountsPage() {
     if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
   }
 
+  const handleGoogleOAuth = async () => {
+    setOauthLoading(true)
+    try {
+      const state = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      const res = await http.get(`/oauth/google/url?state=${state}`)
+      const { url } = res.data
+
+      const popup = window.open(url, 'gmail_oauth', 'width=520,height=620,scrollbars=yes')
+
+      let done = false
+      const finish = (success: boolean, errMsg?: string) => {
+        if (done) return
+        done = true
+        clearInterval(pollTimer)
+        window.removeEventListener('message', onMessage)
+        setOauthLoading(false)
+        if (success) {
+          toast.success(t('accounts.oauth_success'))
+          queryClient.invalidateQueries({ queryKey: ['accounts'] })
+        } else {
+          toast.error(errMsg || t('accounts.oauth_error'))
+        }
+        popup?.close()
+      }
+
+      // postMessage 即时信号
+      const onMessage = (e: MessageEvent) => {
+        if (e.data?.type === 'oauth_done' && e.data?.state === state) {
+          finish(e.data.status === 'done', e.data.status === 'error' ? t('accounts.oauth_error') : undefined)
+        }
+      }
+      window.addEventListener('message', onMessage)
+
+      // 轮询兜底（每秒，最多 120 次 = 2 分钟）
+      let attempts = 0
+      const pollTimer = setInterval(async () => {
+        attempts++
+        if (attempts > 120 || popup?.closed) {
+          finish(false, attempts > 120 ? t('accounts.oauth_timeout') : t('accounts.oauth_cancelled'))
+          return
+        }
+        try {
+          const r = await http.get(`/oauth/google/status?state=${state}`)
+          if (r.data.status === 'done') finish(true)
+          else if (r.data.status === 'error') finish(false, r.data.error)
+        } catch { /* ignore */ }
+      }, 1000)
+    } catch {
+      toast.error(t('accounts.oauth_error'))
+      setOauthLoading(false)
+    }
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -880,6 +934,24 @@ export function AccountsPage() {
               disabled={accountsLoading}
             >
               <RefreshCw className={`h-4 w-4 ${accountsLoading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGoogleOAuth}
+              disabled={oauthLoading}
+            >
+              {oauthLoading ? (
+                <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <svg className="h-4 w-4 mr-1.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+              )}
+              {t('accounts.oauth_google')}
             </Button>
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1.5" />

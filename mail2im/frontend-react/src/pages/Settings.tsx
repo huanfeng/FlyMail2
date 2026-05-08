@@ -10,6 +10,7 @@ import {
   Sun,
   Moon,
   Database,
+  Key,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -198,6 +199,14 @@ export function SettingsPage() {
   const [tzOptions, setTzOptions] = useState<Array<{ value: string; label: string }>>([])
   const [serverTime, setServerTime] = useState('')
 
+  // ── OAuth state ──
+  const [oauthMode, setOauthModeState] = useState<'proxy' | 'custom'>('proxy')
+  const [oauthProxyURL, setOauthProxyURL] = useState('https://oauth.mail2im.app')
+  const [instanceBaseURL, setInstanceBaseURL] = useState('')
+  const [oauthClientID, setOauthClientID] = useState('')
+  const [oauthClientSecretSet, setOauthClientSecretSet] = useState(false)
+  const [oauthClientSecret, setOauthClientSecret] = useState('')
+
   // ── export dialog state ──
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPassword, setExportPassword] = useState('')
@@ -252,6 +261,16 @@ export function SettingsPage() {
       setNightEnd(data.night_end ?? '')
       const raw = data.timezones?.length ? data.timezones : [data.timezone ?? 'UTC', 'UTC']
       setTzOptions(buildTimezoneOptions(raw, lang))
+      // OAuth settings
+      const mode = (data as Record<string, unknown>).oauth_mode as string
+      setOauthModeState(mode === 'custom' ? 'custom' : 'proxy')
+      const proxyURL = (data as Record<string, unknown>).oauth_proxy_base_url as string
+      if (proxyURL) setOauthProxyURL(proxyURL)
+      const instanceURL = (data as Record<string, unknown>).instance_base_url as string
+      if (instanceURL) setInstanceBaseURL(instanceURL)
+      const clientID = (data as Record<string, unknown>).oauth_google_client_id as string
+      if (clientID) setOauthClientID(clientID)
+      setOauthClientSecretSet(!!(data as Record<string, unknown>).oauth_google_client_secret_set)
     },
   } as Parameters<typeof useQuery>[0])
 
@@ -276,6 +295,21 @@ export function SettingsPage() {
         night_start: nightStart,
         night_end: nightEnd,
       })
+      // 保存 OAuth 配置
+      const oauthPayload: Record<string, string> = {
+        oauth_proxy_base_url: oauthProxyURL,
+        instance_base_url: instanceBaseURL,
+      }
+      if (oauthMode === 'custom') {
+        oauthPayload.oauth_google_client_id = oauthClientID
+        if (oauthClientSecret) {
+          oauthPayload.oauth_google_client_secret = oauthClientSecret
+        }
+      } else {
+        // 代理模式：清空自定义 Client ID
+        oauthPayload.oauth_google_client_id = ''
+      }
+      await api.post('/config', oauthPayload)
       // apply language
       await i18n.changeLanguage(lang)
       localStorage.setItem('mail2im_ui_language', lang)
@@ -491,6 +525,80 @@ export function SettingsPage() {
             <ThemePicker />
           </div>
         </SettingRow>
+      </Section>
+
+      {/* Google OAuth */}
+      <Section
+        icon={Key}
+        title={t('settings.oauth_title')}
+        description={t('settings.oauth_desc')}
+      >
+        <SettingRow label={t('settings.oauth_mode_label')}>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={oauthMode === 'proxy' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setOauthModeState('proxy')}
+            >
+              {t('settings.oauth_mode_proxy')}
+            </Button>
+            <Button
+              type="button"
+              variant={oauthMode === 'custom' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setOauthModeState('custom')}
+            >
+              {t('settings.oauth_mode_custom')}
+            </Button>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {oauthMode === 'proxy' ? t('settings.oauth_mode_proxy_hint') : t('settings.oauth_mode_custom_hint')}
+          </span>
+        </SettingRow>
+
+        <SettingRow label={t('settings.oauth_proxy_url')}>
+          <Input
+            value={oauthProxyURL}
+            onChange={(e) => setOauthProxyURL(e.target.value)}
+            placeholder="https://oauth.mail2im.app"
+            className="max-w-sm"
+          />
+          <span className="text-xs text-muted-foreground">{t('settings.oauth_proxy_url_hint')}</span>
+        </SettingRow>
+
+        <SettingRow label={t('settings.oauth_instance_url')}>
+          <Input
+            value={instanceBaseURL}
+            onChange={(e) => setInstanceBaseURL(e.target.value)}
+            placeholder="https://your-mail2im.example.com"
+            className="max-w-sm"
+          />
+          <span className="text-xs text-muted-foreground">{t('settings.oauth_instance_url_hint')}</span>
+        </SettingRow>
+
+        {oauthMode === 'custom' && (
+          <>
+            <SettingRow label={t('settings.oauth_client_id')}>
+              <Input
+                value={oauthClientID}
+                onChange={(e) => setOauthClientID(e.target.value)}
+                placeholder="xxx.apps.googleusercontent.com"
+                className="max-w-sm"
+              />
+            </SettingRow>
+            <SettingRow label={t('settings.oauth_client_secret')}>
+              <Input
+                type="password"
+                value={oauthClientSecret}
+                onChange={(e) => setOauthClientSecret(e.target.value)}
+                placeholder={oauthClientSecretSet ? t('settings.oauth_secret_set') : t('settings.oauth_secret_empty')}
+                className="max-w-sm"
+              />
+              <span className="text-xs text-muted-foreground">{t('settings.oauth_redirect_hint', { url: instanceBaseURL ? `${instanceBaseURL}/api/oauth/google/callback` : '/api/oauth/google/callback' })}</span>
+            </SettingRow>
+          </>
+        )}
       </Section>
 
       {/* Delivery / Scheduling */}

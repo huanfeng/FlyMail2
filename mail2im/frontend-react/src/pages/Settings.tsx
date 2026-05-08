@@ -148,7 +148,7 @@ function Section({
 }) {
   return (
     <div className="rounded-xl border bg-card p-6 flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex items-start gap-3">
           <div className="h-9 w-9 rounded-lg bg-primary/8 flex items-center justify-center shrink-0 mt-0.5">
             <Icon className="h-4 w-4 text-primary" />
@@ -158,9 +158,9 @@ function Section({
             <div className="text-sm text-muted-foreground mt-0.5">{description}</div>
           </div>
         </div>
-        {action && <div className="shrink-0">{action}</div>}
+        {action && <div className="shrink-0 sm:ml-0 ml-12">{action}</div>}
       </div>
-      {children && <div className="flex flex-col gap-4 pl-12">{children}</div>}
+      {children && <div className="flex flex-col gap-4 sm:pl-12">{children}</div>}
     </div>
   )
 }
@@ -173,8 +173,8 @@ function SettingRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="grid grid-cols-[200px_1fr] gap-4 items-start">
-      <div className="font-medium text-sm pt-1.5">{label}</div>
+    <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[180px_1fr] sm:gap-4 sm:items-start">
+      <div className="font-medium text-sm sm:pt-1.5">{label}</div>
       <div className="flex flex-col gap-1.5">{children}</div>
     </div>
   )

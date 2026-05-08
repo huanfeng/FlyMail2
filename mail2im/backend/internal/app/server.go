@@ -218,6 +218,7 @@ func (s *Server) setupRouter() *gin.Engine {
 
 	apiGroup.GET("/public/emails/:token", api.GetSharedEmail)
 	apiGroup.GET("/oauth/google/callback", api.GoogleOAuthCallback)
+	apiGroup.GET("/oauth/google/finalize", api.GoogleOAuthFinalize)
 
 	authGroup := apiGroup.Group("/auth")
 	authGroup.POST("/setup", api.SetupUser)

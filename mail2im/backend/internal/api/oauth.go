@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -27,14 +29,28 @@ func GoogleOAuthURL(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid state"})
 		return
 	}
+
+	core.SetOAuthPending(state)
+
+	if core.IsUsingBuiltinProxy() {
+		instanceURL := getInstanceBaseURL(c)
+		statePayload := map[string]string{"instance": instanceURL, "nonce": state}
+		stateJSON, _ := json.Marshal(statePayload)
+		encodedState := base64.RawURLEncoding.EncodeToString(stateJSON)
+
+		proxyURL := core.GetProxyBaseURL()
+		authURL := fmt.Sprintf("%s/auth-url?state=%s&mode=redirect", strings.TrimRight(proxyURL, "/"), url.QueryEscape(encodedState))
+		c.JSON(200, gin.H{"url": authURL, "state": state, "mode": "proxy"})
+		return
+	}
+
 	cfg, err := core.GetOAuthConfig()
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	core.SetOAuthPending(state)
-	url := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-	c.JSON(200, gin.H{"url": url, "state": state})
+	authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	c.JSON(200, gin.H{"url": authURL, "state": state, "mode": "custom"})
 }
 
 // GET /api/oauth/google/callback?code=...&state=...
@@ -83,43 +99,49 @@ func GoogleOAuthCallback(c *gin.Context) {
 		Email:        email,
 	}
 
-	var account models.Account
-	result := core.DB.Where("email = ?", email).First(&account)
-	if result.Error != nil {
-		account = models.Account{
-			Email:      email,
-			Login:      email,
-			IMAPServer: "imap.gmail.com",
-			IMAPPort:   993,
-			SSLMode:    "ssl",
-			UseSSL:     true,
-			Provider:   "gmail",
-			AuthType:   "oauth2",
-			Enabled:    true,
-			UseIDLE:    true,
-			Status:     "Active",
-		}
-		account.DisplayName = strings.Split(email, "@")[0]
-		if err := core.DB.Create(&account).Error; err != nil {
-			core.SetOAuthError(state, "create account: "+err.Error())
-			c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Failed to create account")))
-			return
-		}
-	} else {
-		core.DB.Model(&account).Update("auth_type", "oauth2")
-	}
-
-	if err := core.SaveOAuthToken(account.ID, tokenData); err != nil {
-		core.SetOAuthError(state, "save token: "+err.Error())
-		c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Failed to save token")))
+	accountID, err := createOrUpdateOAuthAccount(tokenData)
+	if err != nil {
+		core.SetOAuthError(state, err.Error())
+		c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Failed to save account: "+err.Error())))
 		return
 	}
 
-	if core.Watcher != nil {
-		go core.Watcher.RestartWorker(account.ID)
+	core.SetOAuthDone(state, accountID)
+	c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "done", "Authorization successful! You can close this window.")))
+}
+
+// GET /api/oauth/google/finalize?claim=...&state=...  (proxy mode)
+func GoogleOAuthFinalize(c *gin.Context) {
+	state := c.Query("state")
+	claimCode := c.Query("claim")
+	errParam := c.Query("error")
+
+	if errParam != "" {
+		core.SetOAuthError(state, errParam)
+		c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Authorization failed: "+errParam)))
+		return
 	}
 
-	core.SetOAuthDone(state, account.ID)
+	if _, ok := core.GetOAuthState(state); !ok {
+		c.Data(400, "text/html; charset=utf-8", []byte("Invalid or expired state"))
+		return
+	}
+
+	tokenData, err := core.FetchTokensFromProxy(claimCode)
+	if err != nil {
+		core.SetOAuthError(state, err.Error())
+		c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Failed to retrieve tokens: "+err.Error())))
+		return
+	}
+
+	accountID, err := createOrUpdateOAuthAccount(tokenData)
+	if err != nil {
+		core.SetOAuthError(state, err.Error())
+		c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "error", "Failed to save account: "+err.Error())))
+		return
+	}
+
+	core.SetOAuthDone(state, accountID)
 	c.Data(200, "text/html; charset=utf-8", []byte(fmt.Sprintf(oauthCloseScript, state, "done", "Authorization successful! You can close this window.")))
 }
 
@@ -157,6 +179,56 @@ func GoogleOAuthRevoke(c *gin.Context) {
 		"auth_type":   "password",
 	})
 	c.JSON(200, gin.H{"ok": true})
+}
+
+func createOrUpdateOAuthAccount(tokenData *core.OAuthTokenData) (uint, error) {
+	email := tokenData.Email
+	if email == "" {
+		return 0, fmt.Errorf("missing email in token data")
+	}
+	var account models.Account
+	result := core.DB.Where("email = ?", email).First(&account)
+	if result.Error != nil {
+		account = models.Account{
+			Email:      email,
+			Login:      email,
+			IMAPServer: "imap.gmail.com",
+			IMAPPort:   993,
+			SSLMode:    "ssl",
+			UseSSL:     true,
+			Provider:   "gmail",
+			AuthType:   "oauth2",
+			Enabled:    true,
+			UseIDLE:    true,
+			Status:     "Active",
+		}
+		account.DisplayName = strings.Split(email, "@")[0]
+		if err := core.DB.Create(&account).Error; err != nil {
+			return 0, fmt.Errorf("create account: %w", err)
+		}
+	} else {
+		core.DB.Model(&account).Update("auth_type", "oauth2")
+	}
+
+	if err := core.SaveOAuthToken(account.ID, tokenData); err != nil {
+		return 0, fmt.Errorf("save token: %w", err)
+	}
+
+	if core.Watcher != nil {
+		go core.Watcher.RestartWorker(account.ID)
+	}
+	return account.ID, nil
+}
+
+func getInstanceBaseURL(c *gin.Context) string {
+	if v, _ := core.GetSystemSetting("instance_base_url"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 }
 
 func getGoogleUserEmail(accessToken string) (string, error) {

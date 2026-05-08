@@ -22,6 +22,12 @@ func GetSettings(c *gin.Context) {
 	clientID, _ := core.GetSystemSetting("oauth_google_client_id")
 	redirectURI, _ := core.GetSystemSetting("oauth_google_redirect_uri")
 	secretEnc, _ := core.GetSystemSetting("oauth_google_client_secret_enc")
+	proxyBaseURL := core.GetProxyBaseURL()
+	instanceBaseURL, _ := core.GetSystemSetting("instance_base_url")
+	oauthMode := "custom"
+	if core.IsUsingBuiltinProxy() {
+		oauthMode = "proxy"
+	}
 
 	response := gin.H{
 		"timezone":      timezone,
@@ -38,6 +44,9 @@ func GetSettings(c *gin.Context) {
 		"oauth_google_client_id":         clientID,
 		"oauth_google_redirect_uri":      redirectURI,
 		"oauth_google_client_secret_set": secretEnc != "",
+		"oauth_proxy_base_url":           proxyBaseURL,
+		"instance_base_url":              instanceBaseURL,
+		"oauth_mode":                     oauthMode,
 	}
 
 	httputil.Success(c, response)
@@ -82,6 +91,12 @@ func UpdateSettings(c *gin.Context) {
 		if enc, err := core.Encrypt(v); err == nil {
 			core.SetSystemSetting("oauth_google_client_secret_enc", enc)
 		}
+	}
+	if v, ok := input["oauth_proxy_base_url"].(string); ok {
+		core.SetSystemSetting("oauth_proxy_base_url", v)
+	}
+	if v, ok := input["instance_base_url"].(string); ok {
+		core.SetSystemSetting("instance_base_url", v)
 	}
 
 	httputil.NoContent(c, "ok")

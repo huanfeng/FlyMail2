@@ -1,0 +1,12 @@
+services:
+  oauth-proxy:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - PROXY_BASE_URL=${PROXY_BASE_URL:-https://oauth.mail2im.app}
+      - PORT=8090
+      - ALLOW_HTTP_INSTANCES=${ALLOW_HTTP_INSTANCES:-false}

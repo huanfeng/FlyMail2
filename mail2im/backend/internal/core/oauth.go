@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -11,6 +12,10 @@ import (
 
 	"mail2im/internal/models"
 )
+
+const DefaultProxyBaseURL = "https://oauth.mail2im.app"
+
+var ErrUseProxy = fmt.Errorf("use_proxy")
 
 type OAuthTokenData struct {
 	AccessToken  string    `json:"access_token"`
@@ -22,11 +27,11 @@ type OAuthTokenData struct {
 
 func GetOAuthConfig() (*oauth2.Config, error) {
 	clientID, _ := GetSystemSetting("oauth_google_client_id")
+	if clientID == "" {
+		return nil, ErrUseProxy
+	}
 	clientSecretEnc, _ := GetSystemSetting("oauth_google_client_secret_enc")
 	redirectURI, _ := GetSystemSetting("oauth_google_redirect_uri")
-	if clientID == "" {
-		return nil, fmt.Errorf("Google OAuth not configured")
-	}
 	secret := clientSecretEnc
 	if clientSecretEnc != "" {
 		if dec, err := Decrypt(clientSecretEnc); err == nil {
@@ -46,6 +51,38 @@ func GetOAuthConfig() (*oauth2.Config, error) {
 		},
 		Endpoint: google.Endpoint,
 	}, nil
+}
+
+func GetProxyBaseURL() string {
+	if v, _ := GetSystemSetting("oauth_proxy_base_url"); v != "" {
+		return v
+	}
+	return DefaultProxyBaseURL
+}
+
+func IsUsingBuiltinProxy() bool {
+	clientID, _ := GetSystemSetting("oauth_google_client_id")
+	return clientID == ""
+}
+
+func FetchTokensFromProxy(claimCode string) (*OAuthTokenData, error) {
+	if claimCode == "" {
+		return nil, fmt.Errorf("missing claim code")
+	}
+	proxyURL := GetProxyBaseURL()
+	resp, err := http.Get(fmt.Sprintf("%s/claim?code=%s", proxyURL, claimCode))
+	if err != nil {
+		return nil, fmt.Errorf("fetch from proxy: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("proxy returned %d", resp.StatusCode)
+	}
+	var data OAuthTokenData
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("decode proxy response: %w", err)
+	}
+	return &data, nil
 }
 
 func ParseOAuthToken(account models.Account) (*OAuthTokenData, error) {

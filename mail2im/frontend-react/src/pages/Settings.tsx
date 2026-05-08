@@ -431,9 +431,10 @@ export function SettingsPage() {
   const isSaving = saveMutation.isPending
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col h-full">
       <PageHeader
         title={t('settings.title')}
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <>
             <Button
@@ -460,7 +461,9 @@ export function SettingsPage() {
         }
       />
 
-      {/* Appearance */}
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6">
+        <div className="flex flex-col gap-6 max-w-2xl">
+          {/* Appearance */}
       <Section
         icon={Sun}
         title={t('settings.appearance')}
@@ -612,6 +615,8 @@ export function SettingsPage() {
       >
         <p className="text-sm text-muted-foreground -mt-2">{t('settings.data_transfer_hint')}</p>
       </Section>
+        </div>
+      </div>
 
       {/* ── Export Dialog ── */}
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>

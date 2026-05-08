@@ -237,10 +237,11 @@ export function EmailsPage() {
   const sortableColumns = ['subject', 'from', 'mailbox', 'mail_type', 'received_at']
 
   return (
-    <div className="flex flex-col h-full gap-4">
+    <div className="flex flex-col h-full">
       <PageHeader
         title={t('common.emails')}
         subtitle={total > 0 ? `${total} ${t('common.emails')}` : undefined}
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <>
             <Input
@@ -275,8 +276,9 @@ export function EmailsPage() {
         }
       />
 
+      <div className="flex-1 min-h-0 flex flex-col gap-4 px-4 md:px-6 py-4">
       {/* Table */}
-      <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-border">
+      <div className="flex-1 min-h-0 overflow-auto overflow-x-auto rounded-lg border border-border">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -381,6 +383,7 @@ export function EmailsPage() {
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+      </div>
       </div>
 
       {/* Delete single email dialog */}

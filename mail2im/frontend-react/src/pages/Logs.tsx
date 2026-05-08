@@ -331,10 +331,11 @@ export function LogsPage() {
   const to = Math.min((pageIndex + 1) * pageSize, totalRows)
 
   return (
-    <div className="flex flex-col gap-4 h-full">
+    <div className="flex flex-col h-full">
       <PageHeader
         title={t('logs.title')}
         subtitle={t('logs.subtitle')}
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <>
             <Button
@@ -360,12 +361,13 @@ export function LogsPage() {
       />
 
       {/* Table */}
-      <div className="flex flex-col flex-1 min-h-0">
-        <div className="overflow-auto flex-1">
+      <div className="flex flex-col flex-1 min-h-0 px-4 md:px-6 py-4">
+        <div className="flex flex-col flex-1 min-h-0 rounded-lg border border-border overflow-hidden">
+        <div className="overflow-auto overflow-x-auto flex-1">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((hg) => (
-                <TableRow key={hg.id}>
+                <TableRow key={hg.id} className="bg-muted/40 hover:bg-muted/40">
                   {hg.headers.map((header) => (
                     <TableHead key={header.id}>
                       {header.isPlaceholder
@@ -445,6 +447,7 @@ export function LogsPage() {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
+        </div>
         </div>
       </div>
 

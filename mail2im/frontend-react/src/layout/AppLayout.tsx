@@ -272,17 +272,6 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
 
         {/* 主题切换按钮 */}
         <ThemePopover />
-
-        {/* 设置按钮 */}
-        <NavLink to="/settings" title={t('nav.settings')} style={({ isActive }) => ({
-          width: 28, height: 28, borderRadius: 6,
-          display: 'grid', placeItems: 'center',
-          color: isActive ? 'var(--ink)' : 'var(--ink-3)',
-          background: isActive ? 'var(--bg-active)' : 'none',
-          flexShrink: 0,
-        })}>
-          <Settings size={15} />
-        </NavLink>
       </div>
 
       <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
@@ -322,7 +311,7 @@ export function AppLayout() {
         </header>
 
         {/* 主内容 */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
       </div>

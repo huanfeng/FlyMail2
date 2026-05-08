@@ -870,7 +870,7 @@ export function AccountsPage() {
       <PageHeader
         title={t('menu.accounts')}
         subtitle="管理邮箱账户的连接与监听配置"
-        className="px-6 py-4 border-b"
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <>
             <Button
@@ -890,10 +890,11 @@ export function AccountsPage() {
       />
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
+        <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
               <TableHead>{t('accounts.display_name')}</TableHead>
               <TableHead>{t('accounts.email')}</TableHead>
               <TableHead>{t('accounts.provider')}</TableHead>
@@ -966,6 +967,7 @@ export function AccountsPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {/* Account Dialog */}

@@ -94,7 +94,7 @@ export function DebugPage() {
       <PageHeader
         title={t('menu.debug')}
         subtitle={t('debug.subtitle')}
-        className="px-6 py-4 border-b"
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading || isFetching}>
             <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
@@ -103,7 +103,7 @@ export function DebugPage() {
       />
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6 space-y-6">
         {/* Summary card */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="rounded-xl border bg-card p-5 flex items-start gap-4 shadow-xs">

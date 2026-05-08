@@ -495,7 +495,7 @@ export function ClassificationPage() {
       <PageHeader
         title={t('classification.title')}
         subtitle="管理邮件分类规则与文件夹匹配策略"
-        className="px-6 py-4 border-b"
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <Button
             variant="outline"
@@ -509,7 +509,7 @@ export function ClassificationPage() {
       />
 
       {/* Tabs */}
-      <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
+      <div className="flex-1 overflow-hidden flex flex-col px-4 md:px-6 py-4">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'mailTypes' | 'folderRules')} className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <TabsList>
@@ -531,10 +531,10 @@ export function ClassificationPage() {
 
           {/* ── Mail Types Tab ── */}
           <TabsContent value="mailTypes" className="flex-1 flex flex-col overflow-hidden mt-0">
-            <div className="overflow-auto flex-1">
+            <div className="overflow-auto flex-1 rounded-lg border border-border overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>{t('classification.mail_type_key')}</TableHead>
                     <TableHead>{t('classification.mail_type_name')}</TableHead>
                     <TableHead>{t('classification.mail_type_priority')}</TableHead>
@@ -606,10 +606,10 @@ export function ClassificationPage() {
 
           {/* ── Folder Rules Tab ── */}
           <TabsContent value="folderRules" className="flex-1 flex flex-col overflow-hidden mt-0">
-            <div className="overflow-auto flex-1">
+            <div className="overflow-auto flex-1 rounded-lg border border-border overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>{t('classification.rule_name')}</TableHead>
                     <TableHead>{t('classification.rule_folder_pattern')}</TableHead>
                     <TableHead>{t('classification.rule_mail_type')}</TableHead>

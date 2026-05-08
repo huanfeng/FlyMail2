@@ -309,7 +309,7 @@ export function ProxiesPage() {
       <PageHeader
         title={t('menu.proxies')}
         subtitle={t('proxies.subtitle')}
-        className="px-6 py-4 border-b"
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <>
             <Button
@@ -329,10 +329,11 @@ export function ProxiesPage() {
       />
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
+        <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
               <TableHead>{t('proxies.name')}</TableHead>
               <TableHead>{t('proxies.type')}</TableHead>
               <TableHead>{t('proxies.host')}</TableHead>
@@ -390,6 +391,7 @@ export function ProxiesPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {/* Proxy Dialog */}

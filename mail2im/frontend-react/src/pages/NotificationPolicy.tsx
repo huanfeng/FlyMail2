@@ -27,6 +27,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import api, { extractList } from '@/services/api'
 import { PageHeader } from '@/components/PageHeader'
 
@@ -162,10 +170,11 @@ export function NotificationPolicyPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl">
+    <div className="flex flex-col h-full">
       <PageHeader
         title={t('policy.title')}
         subtitle={t('policy.subtitle')}
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <Button
             variant="ghost"
@@ -179,114 +188,107 @@ export function NotificationPolicyPage() {
         }
       />
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
         {isFetching && items.length === 0 ? (
           <div className="flex items-center justify-center p-12 text-muted-foreground">
             <RefreshCw className="h-5 w-5 animate-spin mr-2" />
             {t('dashboard.loading')}
           </div>
         ) : (
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">
-                  {t('policy.mail_type')}
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-24">
-                  {t('policy.priority')}
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                  {t('policy.channels')}
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">
-                  {t('policy.action')}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr
-                  key={item.key}
-                  className={`border-b last:border-0 transition-opacity ${
-                    item.action === 'ignore' || item.action === 'silent' ? 'opacity-50' : ''
-                  }`}
-                >
-                  {/* Mail type */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <TypeIcon mailKey={item.key} />
-                      <span className="font-medium">{item.name}</span>
-                      {item.is_system && (
-                        <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                          System
-                        </Badge>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Priority */}
-                  <td className="px-4 py-3">
-                    <Badge variant={priorityVariant(item.priority)} className="text-xs">
-                      {priorityLabel(item.priority)}
-                    </Badge>
-                  </td>
-
-                  {/* Channels checkboxes */}
-                  <td className="px-4 py-3">
-                    {item.action === 'notify' ? (
-                      <div className="flex flex-wrap gap-3">
-                        {item.channels.length === 0 ? (
-                          <span className="text-muted-foreground text-xs">
-                            {t('policy.no_channels')}
-                          </span>
-                        ) : (
-                          item.channels.map((ch) => (
-                            <label
-                              key={ch.id}
-                              className="flex items-center gap-1.5 cursor-pointer select-none"
-                            >
-                              <Checkbox
-                                checked={ch.selected}
-                                onCheckedChange={() => handleToggleChannel(item, ch.id)}
-                                disabled={saving === item.key}
-                              />
-                              <span className="text-sm">{ch.name}</span>
-                            </label>
-                          ))
+          <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-44">{t('policy.mail_type')}</TableHead>
+                  <TableHead className="w-24">{t('policy.priority')}</TableHead>
+                  <TableHead>{t('policy.channels')}</TableHead>
+                  <TableHead className="w-44">{t('policy.action')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow
+                    key={item.key}
+                    className={`transition-opacity ${
+                      item.action === 'ignore' || item.action === 'silent' ? 'opacity-50' : ''
+                    }`}
+                  >
+                    {/* Mail type */}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <TypeIcon mailKey={item.key} />
+                        <span className="font-medium">{item.name}</span>
+                        {item.is_system && (
+                          <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                            System
+                          </Badge>
                         )}
                       </div>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </td>
+                    </TableCell>
 
-                  {/* Action select */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={item.action}
-                        onValueChange={(v) => handleActionChange(item, v)}
-                        disabled={saving === item.key}
-                      >
-                        <SelectTrigger className="w-32 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="notify">{t('policy.action_notify')}</SelectItem>
-                          <SelectItem value="silent">{t('policy.action_silent')}</SelectItem>
-                          <SelectItem value="ignore">{t('policy.action_ignore')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {saving === item.key && (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    {/* Priority */}
+                    <TableCell>
+                      <Badge variant={priorityVariant(item.priority)} className="text-xs">
+                        {priorityLabel(item.priority)}
+                      </Badge>
+                    </TableCell>
+
+                    {/* Channels checkboxes */}
+                    <TableCell>
+                      {item.action === 'notify' ? (
+                        <div className="flex flex-wrap gap-3">
+                          {item.channels.length === 0 ? (
+                            <span className="text-muted-foreground text-xs">
+                              {t('policy.no_channels')}
+                            </span>
+                          ) : (
+                            item.channels.map((ch) => (
+                              <label
+                                key={ch.id}
+                                className="flex items-center gap-1.5 cursor-pointer select-none"
+                              >
+                                <Checkbox
+                                  checked={ch.selected}
+                                  onCheckedChange={() => handleToggleChannel(item, ch.id)}
+                                  disabled={saving === item.key}
+                                />
+                                <span className="text-sm">{ch.name}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </TableCell>
+
+                    {/* Action select */}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={item.action}
+                          onValueChange={(v) => handleActionChange(item, v)}
+                          disabled={saving === item.key}
+                        >
+                          <SelectTrigger className="w-32 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="notify">{t('policy.action_notify')}</SelectItem>
+                            <SelectItem value="silent">{t('policy.action_silent')}</SelectItem>
+                            <SelectItem value="ignore">{t('policy.action_ignore')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {saving === item.key && (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </div>
     </div>

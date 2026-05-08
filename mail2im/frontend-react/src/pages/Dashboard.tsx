@@ -128,9 +128,10 @@ export function DashboardPage() {
   const recentLogs = (logsQ.data ?? []) as LogEntry[]
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl">
+    <div className="flex flex-col h-full">
       <PageHeader
         title={t('dashboard.title')}
+        className="px-4 md:px-6 py-4 border-b"
         actions={
           <Button
             variant="ghost"
@@ -144,47 +145,49 @@ export function DashboardPage() {
         }
       />
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((s) => (
-          <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} />
-        ))}
-      </div>
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6">
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+          {stats.map((s) => (
+            <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} />
+          ))}
+        </div>
 
-      {/* Recent Logs */}
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-          {t('dashboard.recent_logs')}
-        </h2>
+        {/* Recent Logs */}
+        <div className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            {t('dashboard.recent_logs')}
+          </h2>
 
-        {logsQ.isLoading ? (
-          <p className="text-sm text-muted-foreground">{t('dashboard.loading')}</p>
-        ) : recentLogs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('dashboard.no_logs')}</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {recentLogs.map((log, i) => {
-              const dateStr = log.received_at ?? log.forwarded_at
-              return (
-                <div
-                  key={log.id ?? log.ID ?? i}
-                  className="rounded-xl border bg-card px-4 py-3 flex flex-col gap-1"
-                >
-                  <div className="flex items-center gap-2">
-                    <Badge variant={getStatusVariant(log.status)}>{log.status}</Badge>
-                    {dateStr && (
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(dateStr), 'yyyy-MM-dd HH:mm:ss')}
-                      </span>
-                    )}
+          {logsQ.isLoading ? (
+            <p className="text-sm text-muted-foreground">{t('dashboard.loading')}</p>
+          ) : recentLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('dashboard.no_logs')}</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recentLogs.map((log, i) => {
+                const dateStr = log.received_at ?? log.forwarded_at
+                return (
+                  <div
+                    key={log.id ?? log.ID ?? i}
+                    className="rounded-xl border bg-card px-4 py-3 flex flex-col gap-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant={getStatusVariant(log.status)}>{log.status}</Badge>
+                      {dateStr && (
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(dateStr), 'yyyy-MM-dd HH:mm:ss')}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium truncate">{log.subject || '-'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{log.from || ''}</p>
                   </div>
-                  <p className="text-sm font-medium truncate">{log.subject || '-'}</p>
-                  <p className="text-xs text-muted-foreground truncate">{log.from || ''}</p>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

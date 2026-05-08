@@ -334,6 +334,7 @@ export function LogsPage() {
     <div className="flex flex-col gap-4 h-full">
       <PageHeader
         title={t('logs.title')}
+        subtitle={t('logs.subtitle')}
         actions={
           <>
             <Button

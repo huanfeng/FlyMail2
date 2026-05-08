@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { RefreshCw, X } from 'lucide-react'
+import { RefreshCw, X, Activity } from 'lucide-react'
 
 import http from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/PageHeader'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -90,34 +91,36 @@ export function DebugPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold">{t('menu.debug')}</h1>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading || isFetching}
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
+      <PageHeader
+        title={t('menu.debug')}
+        subtitle={t('debug.subtitle')}
+        className="px-6 py-4 border-b"
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading || isFetching}>
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        }
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {/* Summary card */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">{t('debug.total_workers')}</p>
-            <p className="text-3xl font-bold mt-1">{stats.total}</p>
+          <div className="rounded-xl border bg-card p-5 flex items-start gap-4 shadow-xs">
+            <div className="h-10 w-10 rounded-lg bg-primary/8 flex items-center justify-center shrink-0">
+              <Activity className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm text-muted-foreground">{t('debug.total_workers')}</span>
+              <span className="text-2xl font-semibold tabular-nums">{stats.total}</span>
+            </div>
           </div>
         </div>
 
         {/* Worker grid */}
         <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-8 gap-2">
           {stats.workers.length === 0 ? (
-            <div className="col-span-full text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
+            <div className="col-span-full text-center py-12 text-muted-foreground border rounded-xl">
               {t('debug.no_workers')}
             </div>
           ) : (

@@ -27,6 +27,7 @@ export default {
   },
   settings: {
     title: 'System Settings',
+    theme: 'Theme',
     light_mode: 'Light Mode',
     dark_mode: 'Dark Mode',
     appearance: 'Appearance',
@@ -92,6 +93,7 @@ export default {
   },
   logs: {
     title: 'Logs',
+    subtitle: 'View mail forwarding and notification delivery records',
     status: 'Status',
     time: 'Time',
     from: 'From',
@@ -135,7 +137,7 @@ export default {
   },
   policy: {
     title: 'Notification Policy',
-    subtitle: 'Configure which channels receive notifications for each mail type.',
+    subtitle: 'Configure notification channels and actions for each mail type',
     mail_type: 'Mail Type',
     priority: 'Priority',
     channels: 'Channels',
@@ -289,6 +291,7 @@ export default {
   },
   channels: {
     title: 'Notification Channels',
+    subtitle: 'Manage IM notification channels and routing',
     add: 'Add Channel',
     name: 'Name',
     type: 'Type',
@@ -339,6 +342,7 @@ export default {
     feishu_sign_hint: 'Optional, leave empty if not configured',
   },
   proxies: {
+    subtitle: 'Manage outbound proxies for email accounts',
     name: 'Name',
     type: 'Type',
     host: 'Host',
@@ -417,6 +421,7 @@ export default {
   },
   debug: {
     title: 'System Debug Dashboard',
+    subtitle: 'Monitor account worker status in real time',
     total_workers: 'Total Workers',
     no_workers: 'No active workers',
     logs_for: 'Logs for {{email}}',

@@ -308,6 +308,7 @@ export function ProxiesPage() {
     <div className="flex flex-col h-full">
       <PageHeader
         title={t('menu.proxies')}
+        subtitle={t('proxies.subtitle')}
         className="px-6 py-4 border-b"
         actions={
           <>

@@ -329,6 +329,8 @@ export function ClassificationPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
+  const [activeTab, setActiveTab] = useState<'mailTypes' | 'folderRules'>('mailTypes')
+
   // ── Mail Type state ──
   const [mailTypeDialogOpen, setMailTypeDialogOpen] = useState(false)
   const [isEditMailType, setIsEditMailType] = useState(false)
@@ -511,19 +513,24 @@ export function ClassificationPage() {
         <Tabs defaultValue="mailTypes" className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <TabsList>
-              <TabsTrigger value="mailTypes">{t('classification.mail_types_tab')}</TabsTrigger>
-              <TabsTrigger value="folderRules">{t('classification.folder_rules_tab')}</TabsTrigger>
+              <TabsTrigger value="mailTypes" onClick={() => setActiveTab('mailTypes')}>{t('classification.mail_types_tab')}</TabsTrigger>
+              <TabsTrigger value="folderRules" onClick={() => setActiveTab('folderRules')}>{t('classification.folder_rules_tab')}</TabsTrigger>
             </TabsList>
-          </div>
-
-          {/* ── Mail Types Tab ── */}
-          <TabsContent value="mailTypes" className="flex-1 flex flex-col overflow-hidden mt-0">
-            <div className="flex items-center justify-end mb-3">
+            {activeTab === 'mailTypes' ? (
               <Button size="sm" onClick={openCreateMailType}>
                 <Plus className="h-4 w-4 mr-1.5" />
                 {t('classification.add_mail_type')}
               </Button>
-            </div>
+            ) : (
+              <Button size="sm" onClick={openCreateFolderRule}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                {t('classification.add_folder_rule')}
+              </Button>
+            )}
+          </div>
+
+          {/* ── Mail Types Tab ── */}
+          <TabsContent value="mailTypes" className="flex-1 flex flex-col overflow-hidden mt-0">
             <div className="overflow-auto flex-1">
               <Table>
                 <TableHeader>
@@ -599,12 +606,6 @@ export function ClassificationPage() {
 
           {/* ── Folder Rules Tab ── */}
           <TabsContent value="folderRules" className="flex-1 flex flex-col overflow-hidden mt-0">
-            <div className="flex items-center justify-end mb-3">
-              <Button size="sm" onClick={openCreateFolderRule}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                {t('classification.add_folder_rule')}
-              </Button>
-            </div>
             <div className="overflow-auto flex-1">
               <Table>
                 <TableHeader>

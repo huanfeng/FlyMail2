@@ -27,6 +27,7 @@ export default {
   },
   settings: {
     title: '系统设置',
+    theme: '主题',
     light_mode: '浅色模式',
     dark_mode: '深色模式',
     appearance: '界面与主题',
@@ -92,6 +93,7 @@ export default {
   },
   logs: {
     title: '日志',
+    subtitle: '查看邮件转发与通知发送记录',
     status: '状态',
     time: '时间',
     from: '发件人',
@@ -135,7 +137,7 @@ export default {
   },
   policy: {
     title: '通知策略',
-    subtitle: '配置每种邮件类型的通知渠道和处理方式。',
+    subtitle: '配置每种邮件类型的通知渠道和处理方式',
     mail_type: '邮件分类',
     priority: '优先级',
     channels: '通知渠道',
@@ -289,6 +291,7 @@ export default {
   },
   channels: {
     title: '通知渠道',
+    subtitle: '管理 IM 通知渠道的配置与路由',
     add: '添加渠道',
     name: '名称',
     type: '类型',
@@ -339,6 +342,7 @@ export default {
     feishu_sign_hint: '可选，未配置则留空',
   },
   proxies: {
+    subtitle: '管理出口代理，供邮件账户使用',
     name: '名称',
     type: '类型',
     host: '主机',
@@ -417,6 +421,7 @@ export default {
   },
   debug: {
     title: '系统调试面板',
+    subtitle: '实时监控账户 Worker 状态',
     total_workers: '工作线程总数',
     no_workers: '暂无运行中的线程',
     logs_for: '{{email}} 的日志',

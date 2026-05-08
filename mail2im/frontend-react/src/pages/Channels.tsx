@@ -705,6 +705,7 @@ export function ChannelsPage() {
       {/* Header */}
       <PageHeader
         title={t('channels.title')}
+        subtitle={t('channels.subtitle')}
         className="px-6 py-4 border-b"
         actions={
           <>

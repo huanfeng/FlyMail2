@@ -770,7 +770,6 @@ func (w *Worker) processFetchedMessage(buf *imapclient.FetchMessageBuffer, secti
 	if mailType == "" {
 		mailType = classifyMailboxType(w.Account.Provider, mailbox.Name, mailbox.Path)
 	}
-	priority := getPriorityByType(mailType)
 
 	if buf.UID > 0 {
 		var count int64
@@ -808,6 +807,12 @@ func (w *Worker) processFetchedMessage(buf *imapclient.FetchMessageBuffer, secti
 	toStr := parsed.ToString()
 	textBody := parsed.TextBody
 	htmlBody := parsed.HTMLBody
+
+	// Second-pass: content rules can override folder-based classification
+	if override := applyContentRules(fromStr, subject, toStr, textBody); override != "" {
+		mailType = override
+	}
+	priority := getPriorityByType(mailType)
 
 	pid, _ := nanoid.New()
 
@@ -889,6 +894,34 @@ func classifyMailboxType(providerID, name, path string) string {
 	}
 
 	return "unknown"
+}
+
+// applyContentRules matches from/subject/to/body against EmailContentRule patterns.
+// Returns the target_type of the first matching enabled rule, or "" if none match.
+func applyContentRules(from, subject, to, body string) string {
+	var rules []models.EmailContentRule
+	if err := DB.Where("enabled = ?", true).Order("`order` asc").Find(&rules).Error; err != nil {
+		return ""
+	}
+	for _, rule := range rules {
+		var target string
+		switch rule.Field {
+		case "from":
+			target = from
+		case "subject":
+			target = subject
+		case "to":
+			target = to
+		case "body":
+			target = body
+		default:
+			continue
+		}
+		if matched, _ := regexp.MatchString(rule.Pattern, target); matched {
+			return rule.TargetType
+		}
+	}
+	return ""
 }
 
 func getPriorityByType(t string) EventPriority {

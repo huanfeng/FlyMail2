@@ -142,6 +142,16 @@ type FolderRule struct {
 	Order      int    `json:"order"`       // Execution order (lower first)
 }
 
+type EmailContentRule struct {
+	gorm.Model
+	Name       string `json:"name"`
+	Field      string `json:"field"`       // "from", "subject", "to", "body"
+	Pattern    string `json:"pattern"`     // Regex to match against the field value
+	TargetType string `json:"target_type"` // Key from MailType
+	Order      int    `json:"order"`       // Execution order (lower first)
+	Enabled    bool   `gorm:"default:true" json:"enabled"`
+}
+
 type NotificationTemplate struct {
 	gorm.Model
 	Name        string `json:"name"`
@@ -190,6 +200,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&RefreshToken{},
 		&MailType{},
 		&FolderRule{},
+		&EmailContentRule{},
 		&NotificationTemplate{},
 	)
 	if err != nil {

@@ -283,6 +283,11 @@ func (s *Server) setupRouter() *gin.Engine {
 	protected.PUT("/rules/:id", api.UpdateFolderRule)
 	protected.DELETE("/rules/:id", api.DeleteFolderRule)
 
+	protected.GET("/content-rules", api.GetContentRules)
+	protected.POST("/content-rules", api.CreateContentRule)
+	protected.PUT("/content-rules/:id", api.UpdateContentRule)
+	protected.DELETE("/content-rules/:id", api.DeleteContentRule)
+
 	protected.GET("/notification-policy", api.GetNotificationPolicy)
 	protected.PUT("/notification-policy/:key", api.UpdateNotificationPolicy)
 

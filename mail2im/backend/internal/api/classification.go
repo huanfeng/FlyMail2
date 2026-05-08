@@ -124,3 +124,54 @@ func DeleteFolderRule(c *gin.Context) {
 	}
 	httputil.NoContent(c, "deleted")
 }
+
+// --- EmailContentRule CRUD ---
+
+func GetContentRules(c *gin.Context) {
+	var rules []models.EmailContentRule
+	if err := core.DB.Order("`order` asc").Find(&rules).Error; err != nil {
+		httputil.InternalError(c, err.Error(), err)
+		return
+	}
+	c.JSON(200, rules)
+}
+
+func CreateContentRule(c *gin.Context) {
+	var rule models.EmailContentRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		httputil.BadRequest(c, err.Error(), err)
+		return
+	}
+	if err := core.DB.Create(&rule).Error; err != nil {
+		httputil.InternalError(c, err.Error(), err)
+		return
+	}
+	c.JSON(200, rule)
+}
+
+func UpdateContentRule(c *gin.Context) {
+	id := c.Param("id")
+	var rule models.EmailContentRule
+	if err := core.DB.First(&rule, id).Error; err != nil {
+		httputil.NotFound(c, "Not found", nil)
+		return
+	}
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		httputil.BadRequest(c, err.Error(), err)
+		return
+	}
+	if err := core.DB.Save(&rule).Error; err != nil {
+		httputil.InternalError(c, err.Error(), err)
+		return
+	}
+	c.JSON(200, rule)
+}
+
+func DeleteContentRule(c *gin.Context) {
+	id := c.Param("id")
+	if err := core.DB.Delete(&models.EmailContentRule{}, id).Error; err != nil {
+		httputil.InternalError(c, err.Error(), err)
+		return
+	}
+	httputil.NoContent(c, "deleted")
+}

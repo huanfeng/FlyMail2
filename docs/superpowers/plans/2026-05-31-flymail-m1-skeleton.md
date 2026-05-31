@@ -152,33 +152,34 @@ git rm -r flymail/backend/cmd flymail/backend/internal flymail/backend/modules f
 
 （历史可恢复；保留 `go.mod`/`go.sum`/`data/`/`api/`/`Makefile`。）
 
-- [ ] **Step 3: 写最小 main.go（暂时占位，让模块可编译）**
+- [ ] **Step 3: 写最小 main.go（占位，保证模块可编译/可 tidy）**
 
-`flymail/backend/main.go`:
+`flymail/backend/main.go`（暂时为空 main，Task 6 建好 cmd 包后再接线 `cmd.Execute()`）：
 
 ```go
 package main
 
-import (
-	"fmt"
-	"os"
-
-	"flymail/cmd"
-)
-
-func main() {
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
+func main() {}
 ```
 
-- [ ] **Step 4: 提交**
+> 用空 main 而非 import 尚不存在的 `flymail/cmd`，确保 Task 1 后 `go build ./...` 与 `go mod tidy` 都能通过；Task 6 会把它改成调用 `cmd.Execute()`。
+
+- [ ] **Step 4: 清理 flymail/backend go.mod（完成 glebarez 迁移收尾）**
+
+旧骨架删除后，flymail/backend/go.mod 仍残留 mattn/`gorm.io/driver/sqlite` 间接依赖（Task 0 遗留，因当时不动 flymail）。现在收尾：
 
 ```bash
-git add flymail/backend/main.go
-git commit -m "chore(flymail): 清理旧骨架，建立重写起点"
+cd flymail/backend
+CGO_ENABLED=0 go mod tidy
+CGO_ENABLED=0 go build ./...
+```
+确认 go.mod 中不再有 `mattn/go-sqlite3` / `gorm.io/driver/sqlite`，且空骨架（仅 main.go）能无 CGO 编译通过。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add flymail/backend/main.go flymail/backend/go.mod flymail/backend/go.sum
+git commit -m "chore(flymail): 清理旧骨架 + go.mod 收尾 glebarez 迁移"
 ```
 
 ---
@@ -837,6 +838,26 @@ func init() {
 }
 
 func Execute() error { return rootCmd.Execute() }
+```
+
+并把 `flymail/backend/main.go` 由空 main 改为调用 cmd：
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"flymail/cmd"
+)
+
+func main() {
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 ```
 
 - [ ] **Step 2: 写失败测试**

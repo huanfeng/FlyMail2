@@ -5,7 +5,7 @@ import (
 	"mail2im/internal/models"
 	"testing"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -262,7 +262,7 @@ func TestNewWorker(t *testing.T) {
 			},
 		},
 		{
-			name: "空账户",
+			name:    "空账户",
 			account: models.Account{},
 		},
 	}
@@ -308,9 +308,9 @@ func TestBuildIMAPConfig(t *testing.T) {
 	InitCrypto("test-secret-key-32bytes-long!!")
 
 	tests := []struct {
-		name     string
-		account  models.Account
-		check    func(t *testing.T, cfg types.IMAPConfig)
+		name    string
+		account models.Account
+		check   func(t *testing.T, cfg types.IMAPConfig)
 	}{
 		{
 			name: "基本配置",

@@ -1,9 +1,12 @@
 package server
 
 import (
+	"io/fs"
 	"net/http"
+	"strings"
 
 	"flymail/modules/auth"
+	"flymail/web"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -26,7 +29,26 @@ func New(deps Deps) http.Handler {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// 注意：auth 路由将在 Task 8 接入（auth.RegisterRoutes）。
+	if deps.Auth != nil {
+		auth.RegisterRoutes(api, deps.Auth)
+	}
+
+	// SPA 静态资源 + history fallback（非 /api 路径回退到 index.html）
+	if sub, err := web.DistFS(); err == nil {
+		fileServer := http.FileServer(http.FS(sub))
+		r.NoRoute(func(c *gin.Context) {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			if _, statErr := fs.Stat(sub, strings.TrimPrefix(c.Request.URL.Path, "/")); statErr == nil && c.Request.URL.Path != "/" {
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+			c.Request.URL.Path = "/"
+			fileServer.ServeHTTP(c.Writer, c.Request)
+		})
+	}
 
 	return r
 }

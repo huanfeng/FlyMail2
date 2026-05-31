@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"flymail/internal/config"
+	"flymail/internal/crypto"
 	"flymail/internal/database"
 	"flymail/internal/server"
 	"flymail/modules/auth"
+	"flymail/modules/email/account"
 )
 
 type App struct {
@@ -33,7 +35,12 @@ func New(cfg *config.Config) (*App, error) {
 		AccessTTLMin:   cfg.Auth.AccessTokenTTL,
 		RefreshTTLHour: cfg.Auth.RefreshTokenTTL,
 	})
-	handler := server.New(server.Deps{Auth: authSvc})
+	enc, err := crypto.New(cfg.Crypto.EncryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	accountSvc := account.NewService(account.NewRepository(db), enc)
+	handler := server.New(server.Deps{Auth: authSvc, Account: accountSvc})
 	return &App{cfg: cfg, srv: &http.Server{Handler: handler}}, nil
 }
 

@@ -19,10 +19,15 @@ type AuthConfig struct {
 	RefreshTokenTTL int    `mapstructure:"refresh_token_ttl"` // 小时
 }
 
+type CryptoConfig struct {
+	EncryptionKey string `mapstructure:"encryption_key"` // 账户凭证 AES 加密密钥；生产环境务必覆盖并保持稳定
+}
+
 type Config struct {
 	DataDir string       `mapstructure:"-"`
 	Server  ServerConfig `mapstructure:"server"`
 	Auth    AuthConfig   `mapstructure:"auth"`
+	Crypto  CryptoConfig `mapstructure:"crypto"`
 }
 
 func (c *Config) DBPath() string         { return filepath.Join(c.DataDir, "flymail.db") }
@@ -44,6 +49,7 @@ func Load(opts LoadOptions) (*Config, error) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("auth.access_token_ttl", 15)
 	v.SetDefault("auth.refresh_token_ttl", 168)
+	v.SetDefault("crypto.encryption_key", "flymail-default-insecure-key-change-me")
 
 	v.SetEnvPrefix("FLYMAIL")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

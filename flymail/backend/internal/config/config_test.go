@@ -54,3 +54,23 @@ func TestLoadMissingConfigFileIgnored(t *testing.T) {
 		t.Errorf("port = %d, want default 8080", cfg.Server.Port)
 	}
 }
+
+func TestCryptoKeyDefaultAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(LoadOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Crypto.EncryptionKey == "" {
+		t.Error("默认加密密钥不应为空")
+	}
+
+	t.Setenv("FLYMAIL_CRYPTO_ENCRYPTION_KEY", "my-custom-key-1234567890")
+	cfg2, err := Load(LoadOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg2.Crypto.EncryptionKey != "my-custom-key-1234567890" {
+		t.Errorf("env 覆盖密钥失败，得到 %q", cfg2.Crypto.EncryptionKey)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"flymail/modules/auth"
+	"flymail/modules/email/account"
 )
 
 func TestOpenAndMigrate(t *testing.T) {
@@ -25,5 +26,21 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 	if !db.Migrator().HasTable(&auth.AdminUser{}) {
 		t.Error("admin_users 表未创建")
+	}
+}
+
+func TestMigrateCreatesAccounts(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if sqlDB, e := db.DB(); e == nil {
+		t.Cleanup(func() { sqlDB.Close() })
+	}
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if !db.Migrator().HasTable(&account.Account{}) {
+		t.Error("accounts 表未创建")
 	}
 }

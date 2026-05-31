@@ -2,6 +2,9 @@ package auth
 
 import (
 	"errors"
+	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 
 	coreauth "flymail-core/auth"
 )
@@ -53,4 +56,88 @@ func (s *Service) Authenticate(username, password string) (*AdminUser, error) {
 		return nil, ErrInvalidCredentials
 	}
 	return u, nil
+}
+
+// TokenPair 包含 access token 和 refresh token。
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Claims 是 JWT 载荷。
+type Claims struct {
+	Username string `json:"username"`
+	Type     string `json:"type"` // "access" | "refresh"
+	jwt.RegisteredClaims
+}
+
+// Login 校验密码并签发双 token。
+func (s *Service) Login(username, password string) (*TokenPair, error) {
+	u, err := s.Authenticate(username, password)
+	if err != nil {
+		return nil, err
+	}
+	return s.issuePair(u.Username)
+}
+
+func (s *Service) issuePair(username string) (*TokenPair, error) {
+	access, err := s.signToken(username, "access", time.Duration(s.opts.AccessTTLMin)*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := s.signToken(username, "refresh", time.Duration(s.opts.RefreshTTLHour)*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
+}
+
+func (s *Service) signToken(username, typ string, ttl time.Duration) (string, error) {
+	claims := Claims{
+		Username: username,
+		Type:     typ,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.opts.JWTSecret))
+}
+
+func (s *Service) parseToken(tokenStr string) (*Claims, error) {
+	var c Claims
+	_, err := jwt.ParseWithClaims(tokenStr, &c, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(s.opts.JWTSecret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// VerifyAccessToken 解析并校验 access token，返回 Claims。
+func (s *Service) VerifyAccessToken(tokenStr string) (*Claims, error) {
+	c, err := s.parseToken(tokenStr)
+	if err != nil {
+		return nil, err
+	}
+	if c.Type != "access" {
+		return nil, errors.New("not an access token")
+	}
+	return c, nil
+}
+
+// Refresh 用 refresh token 签发新的 token pair。
+func (s *Service) Refresh(refreshToken string) (*TokenPair, error) {
+	c, err := s.parseToken(refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	if c.Type != "refresh" {
+		return nil, errors.New("not a refresh token")
+	}
+	return s.issuePair(c.Username)
 }

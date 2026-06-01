@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, ConnectionTestResult, Folder, MessageListItem, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, ConnectionTestResult, Folder, MessageDetail, MessageListItem, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -99,6 +99,44 @@ export function useTestConnection() {
     mutationFn: async (input: AccountInput): Promise<ConnectionTestResult> => {
       const { data } = await api.post<ConnectionTestResult>('/accounts/test', input)
       return data
+    },
+  })
+}
+
+export function useMessageDetail(messageId: number | null) {
+  return useQuery({
+    queryKey: ['message', messageId],
+    enabled: messageId != null,
+    queryFn: async (): Promise<MessageDetail> => {
+      const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
+      return data
+    },
+  })
+}
+
+export function useMarkRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, read }: { id: number; read: boolean }) => {
+      await api.post(`/messages/${id}/read`, { read })
+    },
+    onSuccess: (_d, { id }) => {
+      void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['message', id] })
+    },
+  })
+}
+
+export function useToggleFlag() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, flagged }: { id: number; flagged: boolean }) => {
+      await api.post(`/messages/${id}/flag`, { flagged })
+    },
+    onSuccess: (_d, { id }) => {
+      void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['message', id] })
     },
   })
 }

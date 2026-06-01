@@ -13,5 +13,17 @@
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
     "messages": "Syncing messages…", "done": "Sync complete", "error": "Sync failed: {{error}}"
   },
-  "reader": { "welcome": "Select a message to read", "notReady": "Message reading comes in a later version" }
+  "reader": { "welcome": "Select a message to read", "notReady": "Message reading comes in a later version" },
+  "account": {
+    "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",
+    "name": "Name", "email": "Email", "username": "Username (optional)",
+    "password": "Password", "passwordKeep": "Leave blank to keep current",
+    "imapSection": "Incoming Server (IMAP)", "smtpSection": "Outgoing Server (SMTP)",
+    "host": "Server Host", "port": "Port", "security": "Security",
+    "test": "Test Connection", "testing": "Testing…", "save": "Save", "cancel": "Cancel",
+    "imapOk": "IMAP connection successful", "imapFail": "IMAP connection failed",
+    "smtpOk": "SMTP connection successful", "smtpFail": "SMTP connection failed",
+    "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
+    "nameRequired": "Name and email are required", "passwordRequired": "Password is required"
+  }
 }

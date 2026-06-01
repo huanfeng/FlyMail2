@@ -56,6 +56,10 @@ func (s *Service) CountByAccount(accountID uint) (int64, error) {
 
 func (s *Service) FindInbox(accountID uint) (*Folder, error) { return s.repo.FindInbox(accountID) }
 
+func (s *Service) FindByType(accountID uint, folderType string) (*Folder, error) {
+	return s.repo.FindByType(accountID, folderType)
+}
+
 func (s *Service) GetByID(id uint) (*Folder, error) { return s.repo.GetByID(id) }
 
 func (s *Service) UpdateSyncState(id uint, uidValidity, uidNext uint32, total, unread int, syncedAt time.Time) error {

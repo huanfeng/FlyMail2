@@ -82,9 +82,9 @@ func (r *Repository) GetByPath(accountID uint, path string) (*Folder, error) {
 	return &f, nil
 }
 
-func (r *Repository) FindInbox(accountID uint) (*Folder, error) {
+func (r *Repository) FindByType(accountID uint, folderType string) (*Folder, error) {
 	var f Folder
-	err := r.db.Where("account_id = ? AND type = ?", accountID, "inbox").First(&f).Error
+	err := r.db.Where("account_id = ? AND type = ?", accountID, folderType).First(&f).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -92,6 +92,10 @@ func (r *Repository) FindInbox(accountID uint) (*Folder, error) {
 		return nil, err
 	}
 	return &f, nil
+}
+
+func (r *Repository) FindInbox(accountID uint) (*Folder, error) {
+	return r.FindByType(accountID, "inbox")
 }
 
 func (r *Repository) UpdateSyncState(id uint, uidValidity, uidNext uint32, total, unread int, syncedAt time.Time) error {

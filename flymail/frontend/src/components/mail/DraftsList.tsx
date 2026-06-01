@@ -64,8 +64,8 @@ export function DraftsList({ accountId, onOpenDraft }: Props) {
               </button>
               <button
                 type="button"
-                title={t('account.delete')}
-                aria-label={t('account.delete')}
+                title={t('compose.deleteDraft')}
+                aria-label={t('compose.deleteDraft')}
                 onClick={(e) => {
                   e.stopPropagation()
                   deleteDraft.mutate({ id: d.id, accountId })

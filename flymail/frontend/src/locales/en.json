@@ -56,7 +56,8 @@
     "addrHint": "Separate multiple addresses with commas",
     "draftsBox": "Drafts (Local)",
     "noDrafts": "No drafts",
-    "sendDraft": "Send"
+    "sendDraft": "Send",
+    "deleteDraft": "Delete draft"
   },
   "settings": {
     "title": "Settings",

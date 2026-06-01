@@ -216,6 +216,9 @@ func (s *Service) Detail(messageID uint) (*MessageDetail, error) {
 		MessageListItem: item,
 		BodySynced:      m.BodySynced,
 		Attachments:     []Attachment{},
+		MessageID:       m.MessageID,
+		InReplyTo:       m.InReplyTo,
+		References:      m.References,
 	}
 	if b, _ := s.bodyRepo.GetByMessageID(messageID); b != nil {
 		d.TextBody = b.TextBody

@@ -8,6 +8,9 @@ import { AccountDialog } from '@/components/mail/AccountDialog'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { MailList } from '@/components/mail/MailList'
 import { Reader } from '@/components/mail/Reader'
+import { ComposeDialog } from '@/components/mail/ComposeDialog'
+import type { ComposeInitial } from '@/components/mail/ComposeDialog'
+import { buildReply, buildForward } from '@/lib/compose-prefill'
 import {
   useAccounts,
   useFolders,
@@ -18,7 +21,7 @@ import {
   useMarkRead,
   useToggleFlag,
 } from '@/lib/queries'
-import type { Account } from '@/lib/types'
+import type { Account, MessageDetail } from '@/lib/types'
 
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
@@ -59,6 +62,11 @@ export function ShellPage() {
 
   // ── 设置对话框 state ─────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // ── 撰写/回复/转发 state ──────────────────────────────────────────────────────
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [composeInitial, setComposeInitial] = useState<ComposeInitial | undefined>(undefined)
+  const [composeDraftId, setComposeDraftId] = useState<number | null>(null)
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -127,6 +135,18 @@ export function ShellPage() {
     setDialogOpen(true)
   }
 
+  function onReply(d: MessageDetail) {
+    setComposeInitial(buildReply(d))
+    setComposeDraftId(null)
+    setComposeOpen(true)
+  }
+
+  function onForward(d: MessageDetail) {
+    setComposeInitial(buildForward(d))
+    setComposeDraftId(null)
+    setComposeOpen(true)
+  }
+
   function onDeleteAccount(a: Account) {
     if (window.confirm(t('account.deleteConfirm'))) {
       deleteAccount.mutate(a.id)
@@ -169,7 +189,13 @@ export function ShellPage() {
             onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
           />
         }
-        reader={<Reader messageId={messageId} />}
+        reader={
+          <Reader
+            messageId={messageId}
+            onReply={onReply}
+            onForward={onForward}
+          />
+        }
       />
       <AccountDialog
         open={dialogOpen}
@@ -177,6 +203,13 @@ export function ShellPage() {
         onOpenChange={setDialogOpen}
       />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ComposeDialog
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        accountId={accountId}
+        initial={composeInitial}
+        draftId={composeDraftId}
+      />
     </>
   )
 }

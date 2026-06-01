@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Paperclip, Star } from 'lucide-react'
+import { Forward, Paperclip, Reply, Star } from 'lucide-react'
 import { useMessageDetail, useToggleFlag } from '@/lib/queries'
-import type { Address, Attachment } from '@/lib/types'
+import type { Address, Attachment, MessageDetail } from '@/lib/types'
 
 // ── 工具函数 ─────────────────────────────────────────────
 
@@ -79,13 +79,15 @@ function AttachmentItem({ attachment, noDownloadLabel }: AttachmentItemProps) {
 
 interface ReaderProps {
   messageId: number | null
+  onReply?: (d: MessageDetail) => void
+  onForward?: (d: MessageDetail) => void
 }
 
 function getRemoteImageDefault(): boolean {
   return localStorage.getItem('flymail_load_remote_images') === 'true'
 }
 
-export function Reader({ messageId }: ReaderProps) {
+export function Reader({ messageId, onReply, onForward }: ReaderProps) {
   const { t } = useTranslation()
   const [showImages, setShowImages] = useState(() => getRemoteImageDefault())
 
@@ -166,29 +168,69 @@ export function Reader({ messageId }: ReaderProps) {
           position: 'relative',
         }}
       >
-        {/* 星标按钮 */}
-        <button
-          onClick={() =>
-            toggleFlag.mutate({ id: messageId, flagged: !detail.flagged })
-          }
-          title={detail.flagged ? 'Unstar' : 'Star'}
+        {/* 操作按钮区（右上角）：回复、转发、星标 */}
+        <div
           style={{
             position: 'absolute',
             top: 20,
             right: 20,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 4,
-            lineHeight: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
           }}
         >
-          <Star
-            size={18}
-            fill={detail.flagged ? 'var(--accent-color)' : 'none'}
-            stroke={detail.flagged ? 'var(--accent-color)' : 'var(--ink-3)'}
-          />
-        </button>
+          {onReply && (
+            <button
+              onClick={() => onReply(detail)}
+              title={t('compose.reply')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 4,
+                lineHeight: 0,
+                color: 'var(--ink-3)',
+              }}
+            >
+              <Reply size={18} />
+            </button>
+          )}
+          {onForward && (
+            <button
+              onClick={() => onForward(detail)}
+              title={t('compose.forward')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 4,
+                lineHeight: 0,
+                color: 'var(--ink-3)',
+              }}
+            >
+              <Forward size={18} />
+            </button>
+          )}
+          <button
+            onClick={() =>
+              toggleFlag.mutate({ id: messageId, flagged: !detail.flagged })
+            }
+            title={detail.flagged ? 'Unstar' : 'Star'}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              lineHeight: 0,
+            }}
+          >
+            <Star
+              size={18}
+              fill={detail.flagged ? 'var(--accent-color)' : 'none'}
+              stroke={detail.flagged ? 'var(--accent-color)' : 'var(--ink-3)'}
+            />
+          </button>
+        </div>
 
         {/* 主题 */}
         <p

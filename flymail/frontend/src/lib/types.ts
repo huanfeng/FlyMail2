@@ -102,6 +102,9 @@ export interface MessageDetail extends MessageListItem {
   html_body: string
   attachments: Attachment[]
   body_synced: boolean
+  message_id?: string
+  in_reply_to?: string
+  references?: string
 }
 
 export interface SendRequest {

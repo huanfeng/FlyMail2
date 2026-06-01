@@ -18,6 +18,7 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	g.PUT("/:id", h.update)
 	g.DELETE("/:id", h.delete)
 	g.POST("/test", h.testConnection)
+	g.POST("/:id/enabled", h.setEnabled)
 }
 
 type handler struct{ svc *Service }
@@ -103,6 +104,30 @@ func (h *handler) delete(c *gin.Context) {
 		return
 	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) setEnabled(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	err := h.svc.SetEnabled(id, body.Enabled)
+	if errors.Is(err, ErrAccountNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "账户不存在"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "操作失败"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"errors"
 	"path/filepath"
 	gosync "sync"
 	"testing"
@@ -113,12 +114,16 @@ func (f *fakeSession) hasMarkRead(uid imapv2.UID) bool {
 	return false
 }
 
-type fakeAccounts struct{ touched bool }
+type fakeAccounts struct {
+	touched bool
+	enabled bool // 默认零值 false，需在 newSyncService 中显式设为 true
+}
 
 func (f *fakeAccounts) IMAPConfig(id uint) (types.IMAPConfig, error) {
 	return types.IMAPConfig{Host: "h"}, nil
 }
 func (f *fakeAccounts) TouchLastSync(id uint, t time.Time) error { f.touched = true; return nil }
+func (f *fakeAccounts) IsEnabled(id uint) (bool, error)          { return f.enabled, nil }
 
 // newSyncService 构建带临时 SQLite 数据库的测试用 Service，dial 注入共享 fakeSession。
 func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Service, *fakeSession) {
@@ -137,7 +142,7 @@ func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Serv
 	})
 	fsvc := folder.NewService(folder.NewRepository(db))
 	msvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
-	accts := &fakeAccounts{}
+	accts := &fakeAccounts{enabled: true}
 	sess := &fakeSession{}
 	svc := syncmod.NewService(accts, fsvc, msvc)
 	svc.SetDial(func(cfg types.IMAPConfig) (syncmod.Session, error) { return sess, nil })
@@ -244,6 +249,19 @@ func TestMessageDetailFetchesBodyWhenNotSynced(t *testing.T) {
 	}
 	if !detail2.BodySynced {
 		t.Errorf("expected BodySynced=true after fetch, got false")
+	}
+}
+
+// TestTriggerRejectsDisabled 验证停用账户触发同步时返回 ErrAccountDisabled。
+func TestTriggerRejectsDisabled(t *testing.T) {
+	svc, accts, _, _ := newSyncService(t)
+	accts.enabled = false
+	err := svc.Trigger(1)
+	if err == nil {
+		t.Fatal("expected ErrAccountDisabled, got nil")
+	}
+	if !errors.Is(err, syncmod.ErrAccountDisabled) {
+		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}
 }
 

@@ -30,6 +30,7 @@ type Session interface {
 type AccountConfigProvider interface {
 	IMAPConfig(id uint) (types.IMAPConfig, error)
 	TouchLastSync(id uint, t time.Time) error
+	IsEnabled(id uint) (bool, error)
 }
 
 // Phase 表示同步所处阶段。
@@ -55,6 +56,9 @@ type Status struct {
 
 // ErrSyncRunning 表示该账户已有同步在运行。
 var ErrSyncRunning = errors.New("sync already running for this account")
+
+// ErrAccountDisabled 表示账户已停用，拒绝同步。
+var ErrAccountDisabled = errors.New("account is disabled")
 
 // Service 编排单账户的首次同步（文件夹 → 收件箱消息），并通过内存 map 对外暴露进度。
 type Service struct {
@@ -100,8 +104,16 @@ func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(c
 // SetDial 覆盖拨号函数（测试注入用）。
 func (s *Service) SetDial(d func(types.IMAPConfig) (Session, error)) { s.dial = d }
 
-// Trigger 启动一次后台首同步；同账户已在运行则返回 ErrSyncRunning。
+// Trigger 启动一次后台首同步；账户已停用返回 ErrAccountDisabled；同账户已在运行则返回 ErrSyncRunning。
 func (s *Service) Trigger(accountID uint) error {
+	enabled, err := s.accounts.IsEnabled(accountID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrAccountDisabled
+	}
+
 	s.mu.Lock()
 	if s.running[accountID] {
 		s.mu.Unlock()

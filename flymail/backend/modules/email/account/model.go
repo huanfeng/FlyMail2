@@ -27,6 +27,7 @@ type Account struct {
 	ProxyUsername    string
 	ProxyPasswordEnc string `json:"-"`
 
+	Enabled    bool   `gorm:"not null;default:true" json:"-"`
 	Status     string `gorm:"default:new"`
 	LastSyncAt *time.Time
 

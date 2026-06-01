@@ -13,6 +13,9 @@ import (
 	"flymail/internal/server"
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/folder"
+	"flymail/modules/email/message"
+	syncmod "flymail/modules/email/sync"
 )
 
 type App struct {
@@ -40,7 +43,16 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	accountSvc := account.NewService(account.NewRepository(db), enc)
-	handler := server.New(server.Deps{Auth: authSvc, Account: accountSvc})
+	folderSvc := folder.NewService(folder.NewRepository(db))
+	messageSvc := message.NewService(message.NewRepository(db))
+	syncSvc := syncmod.NewService(accountSvc, folderSvc, messageSvc)
+	handler := server.New(server.Deps{
+		Auth:    authSvc,
+		Account: accountSvc,
+		Folder:  folderSvc,
+		Message: messageSvc,
+		Sync:    syncSvc,
+	})
 	return &App{cfg: cfg, srv: &http.Server{Handler: handler}}, nil
 }
 

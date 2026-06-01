@@ -7,6 +7,9 @@ import (
 
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/folder"
+	"flymail/modules/email/message"
+	syncmod "flymail/modules/email/sync"
 	"flymail/web"
 
 	"github.com/gin-contrib/cors"
@@ -17,6 +20,9 @@ import (
 type Deps struct {
 	Auth    *auth.Service
 	Account *account.Service
+	Folder  *folder.Service
+	Message *message.Service
+	Sync    *syncmod.Service
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -39,6 +45,15 @@ func New(deps Deps) http.Handler {
 		protected := api.Group("")
 		protected.Use(auth.Middleware(deps.Auth))
 		account.RegisterRoutes(protected, deps.Account)
+		if deps.Folder != nil {
+			folder.RegisterRoutes(protected, deps.Folder)
+		}
+		if deps.Message != nil {
+			message.RegisterRoutes(protected, deps.Message)
+		}
+		if deps.Sync != nil {
+			syncmod.RegisterRoutes(protected, deps.Sync)
+		}
 	}
 
 	// SPA 静态资源 + history fallback（非 /api 路径回退到 index.html）

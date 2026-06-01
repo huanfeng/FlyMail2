@@ -1,5 +1,7 @@
 package account
 
+import "time"
+
 // ProxyDTO 可选代理配置（请求/响应共用，密码仅入站）。
 type ProxyDTO struct {
 	Type     string `json:"type"`
@@ -38,19 +40,20 @@ type UpdateAccountRequest struct {
 }
 
 type AccountResponse struct {
-	ID           uint      `json:"id"`
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	Username     string    `json:"username,omitempty"`
-	AuthType     string    `json:"auth_type"`
-	IMAPHost     string    `json:"imap_host"`
-	IMAPPort     int       `json:"imap_port"`
-	IMAPSecurity string    `json:"imap_security"`
-	SMTPHost     string    `json:"smtp_host"`
-	SMTPPort     int       `json:"smtp_port"`
-	SMTPSecurity string    `json:"smtp_security"`
-	Proxy        *ProxyDTO `json:"proxy,omitempty"`
-	Status       string    `json:"status"`
+	ID           uint       `json:"id"`
+	Name         string     `json:"name"`
+	Email        string     `json:"email"`
+	Username     string     `json:"username,omitempty"`
+	AuthType     string     `json:"auth_type"`
+	IMAPHost     string     `json:"imap_host"`
+	IMAPPort     int        `json:"imap_port"`
+	IMAPSecurity string     `json:"imap_security"`
+	SMTPHost     string     `json:"smtp_host"`
+	SMTPPort     int        `json:"smtp_port"`
+	SMTPSecurity string     `json:"smtp_security"`
+	Proxy        *ProxyDTO  `json:"proxy,omitempty"`
+	Status       string     `json:"status"`
+	LastSyncAt   *time.Time `json:"last_sync_at,omitempty"`
 }
 
 func toResponse(a *Account) AccountResponse {
@@ -59,7 +62,8 @@ func toResponse(a *Account) AccountResponse {
 		AuthType: a.AuthType,
 		IMAPHost: a.IMAPHost, IMAPPort: a.IMAPPort, IMAPSecurity: a.IMAPSecurity,
 		SMTPHost: a.SMTPHost, SMTPPort: a.SMTPPort, SMTPSecurity: a.SMTPSecurity,
-		Status: a.Status,
+		Status:     a.Status,
+		LastSyncAt: a.LastSyncAt,
 	}
 	if a.ProxyHost != "" {
 		resp.Proxy = &ProxyDTO{Type: a.ProxyType, Host: a.ProxyHost, Port: a.ProxyPort, Username: a.ProxyUsername}

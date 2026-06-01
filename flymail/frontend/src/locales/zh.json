@@ -1,0 +1,17 @@
+{
+  "app": { "name": "FlyMail" },
+  "sidebar": { "compose": "写邮件", "accounts": "账户", "settings": "设置" },
+  "folder": {
+    "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
+    "trash": "已删除", "junk": "垃圾邮件", "archive": "归档", "custom": "文件夹"
+  },
+  "list": {
+    "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
+    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标"
+  },
+  "sync": {
+    "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",
+    "messages": "正在同步邮件…", "done": "同步完成", "error": "同步失败：{{error}}"
+  },
+  "reader": { "welcome": "选择一封邮件以阅读", "notReady": "邮件阅读将在后续版本提供" }
+}

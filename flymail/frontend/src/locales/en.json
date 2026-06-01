@@ -1,0 +1,17 @@
+{
+  "app": { "name": "FlyMail" },
+  "sidebar": { "compose": "Compose", "accounts": "Accounts", "settings": "Settings" },
+  "folder": {
+    "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
+    "trash": "Trash", "junk": "Junk", "archive": "Archive", "custom": "Folder"
+  },
+  "list": {
+    "search": "Search mail", "unreadCount": "{{count}} unread",
+    "empty": "No messages", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged"
+  },
+  "sync": {
+    "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
+    "messages": "Syncing messages…", "done": "Sync complete", "error": "Sync failed: {{error}}"
+  },
+  "reader": { "welcome": "Select a message to read", "notReady": "Message reading comes in a later version" }
+}

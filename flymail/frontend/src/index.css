@@ -88,6 +88,23 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+
+  /* FlyMail 暗色主题变量 */
+  --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --sidebar-w: 248px;
+  --list-w: 380px;
+  --bg: #1f1d18;
+  --bg-alt: #26231d;
+  --surface: #26231d;
+  --ink: #ece7dc;
+  --ink-2: #b8b3a6;
+  --ink-3: #8a857a;
+  --rule: rgba(255, 255, 255, 0.08);
+  --rule-strong: rgba(255, 255, 255, 0.14);
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --accent-color: #d2a482;
+  --accent-wash: #3a322a;
+  --accent-ink: #e0c0a0;
 }
 
 @layer base {

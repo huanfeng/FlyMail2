@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Plus,
   Pencil,
+  Settings,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Account, Folder } from '@/lib/types'
@@ -35,6 +36,7 @@ interface Props {
   onAddAccount: () => void
   onEditAccount: (account: Account) => void
   onDeleteAccount: (account: Account) => void
+  onOpenSettings: () => void
 }
 
 export function AccountSidebar({
@@ -49,6 +51,7 @@ export function AccountSidebar({
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
+  onOpenSettings,
 }: Props) {
   const { t } = useTranslation()
   return (
@@ -154,6 +157,19 @@ export function AccountSidebar({
                 })}
           </div>
         ))}
+      </div>
+
+      {/* 底部设置入口 */}
+      <div style={{ borderTop: '1px solid var(--rule)' }}>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="flex w-full items-center gap-2 px-4 py-3 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-[var(--bg-hover)]"
+          style={{ color: 'var(--ink-2)' }}
+        >
+          <Settings size={15} />
+          <span>{t('settings.title')}</span>
+        </button>
       </div>
     </div>
   )

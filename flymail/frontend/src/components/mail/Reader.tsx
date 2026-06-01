@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Paperclip, Star } from 'lucide-react'
 import { useMessageDetail, useToggleFlag } from '@/lib/queries'
@@ -81,9 +81,18 @@ interface ReaderProps {
   messageId: number | null
 }
 
+function getRemoteImageDefault(): boolean {
+  return localStorage.getItem('flymail_load_remote_images') === 'true'
+}
+
 export function Reader({ messageId }: ReaderProps) {
   const { t } = useTranslation()
-  const [showImages, setShowImages] = useState(false)
+  const [showImages, setShowImages] = useState(() => getRemoteImageDefault())
+
+  // messageId 切换时，将 showImages 重置为 localStorage 中的默认值
+  useEffect(() => {
+    setShowImages(getRemoteImageDefault())
+  }, [messageId])
 
   const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
   const toggleFlag = useToggleFlag()

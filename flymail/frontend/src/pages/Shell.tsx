@@ -148,7 +148,7 @@ export function ShellPage() {
             onSelectMessage={selectMessage}
           />
         }
-        reader={<Reader />}
+        reader={<Reader messageId={messageId} />}
       />
       <AccountDialog
         open={dialogOpen}

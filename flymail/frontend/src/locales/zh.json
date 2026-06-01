@@ -13,7 +13,17 @@
     "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",
     "messages": "正在同步邮件…", "done": "同步完成", "error": "同步失败：{{error}}"
   },
-  "reader": { "welcome": "选择一封邮件以阅读", "notReady": "邮件阅读将在后续版本提供" },
+  "reader": {
+    "welcome": "选择一封邮件以阅读",
+    "notReady": "邮件阅读将在后续版本提供",
+    "loading": "加载中…",
+    "to": "收件人",
+    "showImages": "此邮件包含未加载的远程图片",
+    "showImagesBtn": "显示图片",
+    "attachments": "附件",
+    "attachmentNoDownload": "（暂不支持下载，后续版本提供）",
+    "noBody": "（无正文）"
+  },
   "account": {
     "add": "添加账户", "edit": "编辑账户", "delete": "删除账户",
     "name": "名称", "email": "邮箱", "username": "用户名（可选）",

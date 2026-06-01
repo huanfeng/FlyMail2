@@ -102,6 +102,19 @@ func (s *Service) fetchRangeBatched(accountID, folderID uint, from, end imapv2.U
 	return nil
 }
 
+// List 返回文件夹内的邮件列表项（UID 游标分页）。
+func (s *Service) List(folderID uint, beforeUID uint32, limit int) ([]MessageListItem, error) {
+	rows, err := s.repo.ListByFolder(folderID, beforeUID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageListItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, toListItem(&rows[i]))
+	}
+	return out, nil
+}
+
 func toMessage(accountID, folderID uint, e *types.ParsedEmail) *Message {
 	m := &Message{
 		AccountID: accountID,

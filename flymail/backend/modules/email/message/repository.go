@@ -49,6 +49,12 @@ func (r *Repository) CountByFolder(folderID uint) (int64, error) {
 	return n, err
 }
 
+func (r *Repository) CountByAccount(accountID uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&Message{}).Where("account_id = ?", accountID).Count(&n).Error
+	return n, err
+}
+
 // MaxUID 返回文件夹内最大的 UID（无邮件返回 0）。用于服务商不报 UIDNEXT 时推导锚点。
 func (r *Repository) MaxUID(folderID uint) (uint32, error) {
 	var maxUID *uint32

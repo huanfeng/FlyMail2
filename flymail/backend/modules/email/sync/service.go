@@ -223,6 +223,24 @@ func (s *Service) fail(accountID uint, err error) {
 	})
 }
 
+// AccountStats 汇总账户下的邮件数与文件夹数。
+type AccountStats struct {
+	MessageCount int64 `json:"message_count"`
+	FolderCount  int64 `json:"folder_count"`
+}
+
+func (s *Service) AccountStats(accountID uint) (AccountStats, error) {
+	mc, err := s.messages.CountByAccount(accountID)
+	if err != nil {
+		return AccountStats{}, err
+	}
+	fc, err := s.folders.CountByAccount(accountID)
+	if err != nil {
+		return AccountStats{}, err
+	}
+	return AccountStats{MessageCount: mc, FolderCount: fc}, nil
+}
+
 // MessageDetail 返回邮件详情；若正文尚未同步则先从 IMAP 按需抓取后落库。
 func (s *Service) MessageDetail(messageID uint) (*message.MessageDetail, error) {
 	m, err := s.messages.GetByID(messageID)

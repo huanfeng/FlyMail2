@@ -252,6 +252,39 @@ func TestMessageDetailFetchesBodyWhenNotSynced(t *testing.T) {
 	}
 }
 
+// TestAccountStats 验证 AccountStats 在同步完成后返回正确的邮件数与文件夹数。
+func TestAccountStats(t *testing.T) {
+	svc, _, _, _ := newSyncService(t)
+
+	// 触发同步：fakeSession.ListFolders 返回 2 个文件夹，FetchByUIDRange 返回 2 封邮件（INBOX）
+	if err := svc.Trigger(1); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := svc.StatusOf(1)
+		if st.Phase == syncmod.PhaseDone || st.Phase == syncmod.PhaseError {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st, _ := svc.StatusOf(1); st.Phase != syncmod.PhaseDone {
+		t.Fatalf("sync not done: %+v", st)
+	}
+
+	stats, err := svc.AccountStats(1)
+	if err != nil {
+		t.Fatalf("AccountStats: %v", err)
+	}
+	// fakeSession 同步了 2 封邮件（INBOX uid=1,2）和 2 个文件夹（INBOX + Sent）
+	if stats.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", stats.MessageCount)
+	}
+	if stats.FolderCount != 2 {
+		t.Errorf("FolderCount = %d, want 2", stats.FolderCount)
+	}
+}
+
 // TestTriggerRejectsDisabled 验证停用账户触发同步时返回 ErrAccountDisabled。
 func TestTriggerRejectsDisabled(t *testing.T) {
 	svc, accts, _, _ := newSyncService(t)

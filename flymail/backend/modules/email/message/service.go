@@ -230,6 +230,11 @@ func (s *Service) Detail(messageID uint) (*MessageDetail, error) {
 	return d, nil
 }
 
+// CountByAccount 返回账户下全部邮件数量。
+func (s *Service) CountByAccount(accountID uint) (int64, error) {
+	return s.repo.CountByAccount(accountID)
+}
+
 // GetByID 透传单封邮件原始记录。
 func (s *Service) GetByID(id uint) (*Message, error) { return s.repo.GetByID(id) }
 

@@ -17,7 +17,7 @@ func (r *Repository) UpsertByPath(f *Folder) error {
 	var existing Folder
 	err := r.db.Where("account_id = ? AND path = ?", f.AccountID, f.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return r.db.Create(f).Error
+		return r.db.Select("*").Create(f).Error
 	}
 	if err != nil {
 		return err

@@ -12,7 +12,7 @@ type Folder struct {
 	Delimiter   string `json:"delimiter"`
 	Type        string `gorm:"not null;default:custom" json:"type"`
 	Attributes  string `json:"attributes"`
-	Selectable  bool   `gorm:"not null;default:true" json:"selectable"`
+	Selectable  bool   `gorm:"not null" json:"selectable"`
 
 	UIDValidity   uint32     `json:"uid_validity"`
 	UIDNext       uint32     `json:"uid_next"`

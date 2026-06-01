@@ -53,7 +53,10 @@
     "sent": "已发送",
     "toRequired": "请填写收件人",
     "draftSaved": "草稿已保存",
-    "addrHint": "多个地址用逗号分隔"
+    "addrHint": "多个地址用逗号分隔",
+    "draftsBox": "草稿箱(本地)",
+    "noDrafts": "暂无草稿",
+    "sendDraft": "发送"
   },
   "settings": {
     "title": "设置",

@@ -7,6 +7,7 @@ import { AccountSidebar } from '@/components/mail/AccountSidebar'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { MailList } from '@/components/mail/MailList'
+import { DraftsList } from '@/components/mail/DraftsList'
 import { Reader } from '@/components/mail/Reader'
 import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
@@ -21,7 +22,7 @@ import {
   useMarkRead,
   useToggleFlag,
 } from '@/lib/queries'
-import type { Account, MessageDetail } from '@/lib/types'
+import type { Account, Draft, MessageDetail } from '@/lib/types'
 
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
@@ -63,6 +64,9 @@ export function ShellPage() {
   // ── 设置对话框 state ─────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
 
+  // ── 中栏视图 state ───────────────────────────────────────────────────────────
+  const [view, setView] = useState<'messages' | 'drafts'>('messages')
+
   // ── 撰写/回复/转发 state ──────────────────────────────────────────────────────
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeInitial, setComposeInitial] = useState<ComposeInitial | undefined>(undefined)
@@ -100,6 +104,7 @@ export function ShellPage() {
   )
 
   function selectAccount(id: number) {
+    setView('messages')
     setParam((p) => {
       p.set('account', String(id))
       p.delete('folder')
@@ -108,6 +113,7 @@ export function ShellPage() {
   }
 
   function selectFolder(id: number) {
+    setView('messages')
     setParam((p) => {
       p.set('folder', String(id))
       p.delete('message')
@@ -147,6 +153,30 @@ export function ShellPage() {
     setComposeOpen(true)
   }
 
+  function onCompose() {
+    setComposeInitial(undefined)
+    setComposeDraftId(null)
+    setComposeOpen(true)
+  }
+
+  function onOpenDrafts(accountId: number) {
+    setParam((p) => p.set('account', String(accountId)), true)
+    setView('drafts')
+  }
+
+  function openDraft(d: Draft) {
+    setComposeInitial({
+      to: d.to,
+      cc: d.cc,
+      subject: d.subject,
+      bodyHtml: d.body_html,
+      inReplyTo: d.in_reply_to || undefined,
+      references: d.references || undefined,
+    })
+    setComposeDraftId(d.id)
+    setComposeOpen(true)
+  }
+
   function onDeleteAccount(a: Account) {
     if (window.confirm(t('account.deleteConfirm'))) {
       deleteAccount.mutate(a.id)
@@ -177,17 +207,23 @@ export function ShellPage() {
             onEditAccount={onEditAccount}
             onDeleteAccount={onDeleteAccount}
             onOpenSettings={() => setSettingsOpen(true)}
+            onCompose={onCompose}
+            onOpenDrafts={onOpenDrafts}
           />
         }
         list={
-          <MailList
-            folder={activeFolder}
-            messages={messages}
-            loading={messagesLoading}
-            activeMessageId={messageId}
-            onSelectMessage={selectMessage}
-            onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
-          />
+          view === 'drafts' && accountId != null ? (
+            <DraftsList accountId={accountId} onOpenDraft={openDraft} />
+          ) : (
+            <MailList
+              folder={activeFolder}
+              messages={messages}
+              loading={messagesLoading}
+              activeMessageId={messageId}
+              onSelectMessage={selectMessage}
+              onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
+            />
+          )
         }
         reader={
           <Reader

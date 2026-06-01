@@ -11,6 +11,7 @@ import {
   Plus,
   Pencil,
   Settings,
+  PenSquare,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Account, Folder } from '@/lib/types'
@@ -37,6 +38,8 @@ interface Props {
   onEditAccount: (account: Account) => void
   onDeleteAccount: (account: Account) => void
   onOpenSettings: () => void
+  onCompose: () => void
+  onOpenDrafts: (accountId: number) => void
 }
 
 export function AccountSidebar({
@@ -52,6 +55,8 @@ export function AccountSidebar({
   onEditAccount,
   onDeleteAccount,
   onOpenSettings,
+  onCompose,
+  onOpenDrafts,
 }: Props) {
   const { t } = useTranslation()
   return (
@@ -70,6 +75,18 @@ export function AccountSidebar({
           style={{ color: 'var(--ink-2)' }}
         >
           <Plus size={16} />
+        </button>
+      </div>
+      {/* 写邮件按钮 */}
+      <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--rule)' }}>
+        <button
+          type="button"
+          onClick={onCompose}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-90"
+          style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}
+        >
+          <PenSquare size={15} />
+          <span>{t('sidebar.compose')}</span>
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -126,35 +143,48 @@ export function AccountSidebar({
                 </button>
               </div>
             </div>
-            {acc.id === activeAccountId &&
-              folders
-                .filter((f) => f.selectable)
-                .map((f) => {
-                  const Icon: LucideIcon = folderIcon[f.type] ?? FolderIcon
-                  const label =
-                    f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => onSelectFolder(f.id)}
-                      className="flex w-full items-center gap-2 rounded-md py-1.5 pl-7 pr-2 text-[13px]"
-                      style={{
-                        color: f.id === activeFolderId ? 'var(--ink)' : 'var(--ink-2)',
-                        background:
-                          f.id === activeFolderId ? 'var(--accent-wash)' : 'transparent',
-                      }}
-                    >
-                      <Icon size={14} style={{ color: 'var(--ink-3)' }} />
-                      <span className="flex-1 truncate text-left">{label}</span>
-                      {f.unread_count > 0 && (
-                        <span className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
-                          {f.unread_count}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
+            {acc.id === activeAccountId && (
+              <>
+                {folders
+                  .filter((f) => f.selectable)
+                  .map((f) => {
+                    const Icon: LucideIcon = folderIcon[f.type] ?? FolderIcon
+                    const label =
+                      f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => onSelectFolder(f.id)}
+                        className="flex w-full items-center gap-2 rounded-md py-1.5 pl-7 pr-2 text-[13px]"
+                        style={{
+                          color: f.id === activeFolderId ? 'var(--ink)' : 'var(--ink-2)',
+                          background:
+                            f.id === activeFolderId ? 'var(--accent-wash)' : 'transparent',
+                        }}
+                      >
+                        <Icon size={14} style={{ color: 'var(--ink-3)' }} />
+                        <span className="flex-1 truncate text-left">{label}</span>
+                        {f.unread_count > 0 && (
+                          <span className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
+                            {f.unread_count}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                {/* 草稿箱(本地)入口 */}
+                <button
+                  type="button"
+                  onClick={() => onOpenDrafts(acc.id)}
+                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-7 pr-2 text-[13px]"
+                  style={{ color: 'var(--ink-2)', background: 'transparent' }}
+                >
+                  <FileText size={14} style={{ color: 'var(--ink-3)' }} />
+                  <span className="flex-1 truncate text-left">{t('compose.draftsBox')}</span>
+                </button>
+              </>
+            )}
           </div>
         ))}
       </div>

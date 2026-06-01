@@ -53,7 +53,10 @@
     "sent": "Sent",
     "toRequired": "Please fill in the recipient",
     "draftSaved": "Draft saved",
-    "addrHint": "Separate multiple addresses with commas"
+    "addrHint": "Separate multiple addresses with commas",
+    "draftsBox": "Drafts (Local)",
+    "noDrafts": "No drafts",
+    "sendDraft": "Send"
   },
   "settings": {
     "title": "Settings",

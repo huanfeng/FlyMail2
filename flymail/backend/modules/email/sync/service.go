@@ -8,6 +8,8 @@ import (
 	coreimap "flymail-core/imap"
 	"flymail-core/types"
 
+	imapv2 "github.com/emersion/go-imap/v2"
+
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
 )
@@ -16,6 +18,11 @@ import (
 type Session interface {
 	folder.IMAPLister
 	message.IMAPFetcher
+	FetchByUIDs(uids []imapv2.UID, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error)
+	MarkRead(uids ...imapv2.UID) error
+	MarkUnread(uids ...imapv2.UID) error
+	MarkStarred(uids ...imapv2.UID) error
+	MarkUnstarred(uids ...imapv2.UID) error
 	Close() error
 }
 
@@ -60,18 +67,23 @@ type Service struct {
 	mu       gosync.Mutex
 	statuses map[uint]*Status
 	running  map[uint]bool
+
+	wbCh chan wbOp
 }
 
 // NewService 创建 Sync 服务。
 func NewService(accounts AccountConfigProvider, folders *folder.Service, messages *message.Service) *Service {
-	return &Service{
+	s := &Service{
 		accounts: accounts,
 		folders:  folders,
 		messages: messages,
 		dial:     defaultDial,
 		statuses: map[uint]*Status{},
 		running:  map[uint]bool{},
+		wbCh:     make(chan wbOp, 256),
 	}
+	go s.writebackLoop()
+	return s
 }
 
 func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(cfg) }
@@ -183,4 +195,43 @@ func (s *Service) fail(accountID uint, err error) {
 		st.Phase = PhaseError
 		st.Error = err.Error()
 	})
+}
+
+// MessageDetail 返回邮件详情；若正文尚未同步则先从 IMAP 按需抓取后落库。
+func (s *Service) MessageDetail(messageID uint) (*message.MessageDetail, error) {
+	m, err := s.messages.GetByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if !m.BodySynced {
+		f, err := s.folders.GetByID(m.FolderID)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := s.accounts.IMAPConfig(m.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		sess, err := s.dial(cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer sess.Close()
+		if _, err := sess.SelectFolder(f.Path); err != nil {
+			return nil, err
+		}
+		emails, err := sess.FetchByUIDs(
+			[]imapv2.UID{imapv2.UID(m.UID)},
+			coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
+		)
+		if err != nil {
+			return nil, err
+		}
+		if len(emails) > 0 {
+			if err := s.messages.StoreParsedBody(messageID, emails[0]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.messages.Detail(messageID)
 }

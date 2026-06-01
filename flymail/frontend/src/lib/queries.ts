@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, Folder, MessageListItem, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, ConnectionTestResult, Folder, MessageListItem, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -55,6 +55,50 @@ export function useTriggerSync() {
     },
     onSuccess: (_data, accountId) => {
       void qc.invalidateQueries({ queryKey: ['sync-status', accountId] })
+    },
+  })
+}
+
+export function useCreateAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: AccountInput): Promise<Account> => {
+      const { data } = await api.post<Account>('/accounts', input)
+      return data
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['accounts'] }) },
+  })
+}
+
+export function useUpdateAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: number; input: AccountInput }): Promise<Account> => {
+      const { data } = await api.put<Account>(`/accounts/${id}`, input)
+      return data
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['accounts'] }) },
+  })
+}
+
+export function useDeleteAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number): Promise<void> => {
+      await api.delete(`/accounts/${id}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+    },
+  })
+}
+
+export function useTestConnection() {
+  return useMutation({
+    mutationFn: async (input: AccountInput): Promise<ConnectionTestResult> => {
+      const { data } = await api.post<ConnectionTestResult>('/accounts/test', input)
+      return data
     },
   })
 }

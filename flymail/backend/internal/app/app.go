@@ -13,6 +13,7 @@ import (
 	"flymail/internal/server"
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/draft"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
 	"flymail/modules/email/send"
@@ -51,6 +52,7 @@ func New(cfg *config.Config) (*App, error) {
 	settingSvc := setting.NewService(setting.NewRepository(db))
 	syncSvc.SetSyncDepthProvider(func() int { return settingSvc.GetInt(setting.KeySyncDepth, 1000) })
 	sendSvc := send.NewService(accountSvc, folderSvc)
+	draftSvc := draft.NewService(draft.NewRepository(db))
 	handler := server.New(server.Deps{
 		Auth:    authSvc,
 		Account: accountSvc,
@@ -59,6 +61,7 @@ func New(cfg *config.Config) (*App, error) {
 		Sync:    syncSvc,
 		Setting: settingSvc,
 		Send:    sendSvc,
+		Draft:   draftSvc,
 	})
 	return &App{cfg: cfg, srv: &http.Server{Handler: handler}}, nil
 }

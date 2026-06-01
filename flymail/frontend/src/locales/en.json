@@ -22,7 +22,8 @@
     "showImagesBtn": "Show images",
     "attachments": "Attachments",
     "attachmentNoDownload": "(Download not yet supported — coming in a future version)",
-    "noBody": "(No body)"
+    "noBody": "(No body)",
+    "loadError": "Failed to load message body"
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",

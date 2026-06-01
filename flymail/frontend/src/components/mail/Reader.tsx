@@ -85,7 +85,7 @@ export function Reader({ messageId }: ReaderProps) {
   const { t } = useTranslation()
   const [showImages, setShowImages] = useState(false)
 
-  const { data: detail, isLoading } = useMessageDetail(messageId)
+  const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
   const toggleFlag = useToggleFlag()
 
   // 当 messageId 变化时重置 showImages（依赖 messageId）
@@ -108,6 +108,17 @@ export function Reader({ messageId }: ReaderProps) {
         <p className="text-xs" style={{ color: 'var(--ink-3)' }}>
           {t('reader.notReady')}
         </p>
+      </div>
+    )
+  }
+
+  // ── 加载失败（抓正文需连 IMAP，失败时显示错误而非永久加载）──
+  if (isError) {
+    const msg = error instanceof Error ? error.message : String(error ?? '')
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+        <p className="text-sm" style={{ color: 'var(--ink)' }}>{t('reader.loadError')}</p>
+        <p className="text-xs" style={{ color: 'var(--ink-3)' }}>{msg}</p>
       </div>
     )
   }

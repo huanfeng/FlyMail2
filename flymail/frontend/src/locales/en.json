@@ -37,6 +37,24 @@
     "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
     "nameRequired": "Name and email are required", "passwordRequired": "Password is required"
   },
+  "compose": {
+    "title": "Compose",
+    "reply": "Reply",
+    "forward": "Forward",
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "subject": "Subject",
+    "body": "Body",
+    "send": "Send",
+    "saveDraft": "Save Draft",
+    "cancel": "Cancel",
+    "sending": "Sending…",
+    "sent": "Sent",
+    "toRequired": "Please fill in the recipient",
+    "draftSaved": "Draft saved",
+    "addrHint": "Separate multiple addresses with commas"
+  },
   "settings": {
     "title": "Settings",
     "navAccounts": "Accounts",

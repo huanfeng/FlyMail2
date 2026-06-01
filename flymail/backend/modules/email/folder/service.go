@@ -49,6 +49,11 @@ func (s *Service) SyncFolders(accountID uint, lister IMAPLister) error {
 
 func (s *Service) List(accountID uint) ([]Folder, error) { return s.repo.ListByAccount(accountID) }
 
+// CountByAccount 返回账户下全部文件夹数量。
+func (s *Service) CountByAccount(accountID uint) (int64, error) {
+	return s.repo.CountByAccount(accountID)
+}
+
 func (s *Service) FindInbox(accountID uint) (*Folder, error) { return s.repo.FindInbox(accountID) }
 
 func (s *Service) GetByID(id uint) (*Folder, error) { return s.repo.GetByID(id) }

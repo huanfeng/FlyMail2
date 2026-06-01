@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, ConnectionTestResult, Folder, MessageDetail, MessageListItem, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Folder, MessageDetail, MessageListItem, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -137,6 +137,55 @@ export function useToggleFlag() {
     onSuccess: (_d, { id }) => {
       void qc.invalidateQueries({ queryKey: ['messages'] })
       void qc.invalidateQueries({ queryKey: ['message', id] })
+    },
+  })
+}
+
+export function useSettings() {
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: async (): Promise<AppSettings> => {
+      const { data } = await api.get<{ settings: Record<string, string> }>('/settings')
+      return { sync_depth: Number(data.settings?.sync_depth ?? 1000) || 1000 }
+    },
+  })
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (settings: Record<string, string>) => {
+      await api.put('/settings', { settings })
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async ({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) => {
+      await api.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword })
+    },
+  })
+}
+
+export function useSetAccountEnabled() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
+      await api.post(`/accounts/${id}/enabled`, { enabled })
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['accounts'] }) },
+  })
+}
+
+export function useAccountStats(accountId: number | null) {
+  return useQuery({
+    queryKey: ['account-stats', accountId],
+    enabled: accountId != null,
+    queryFn: async (): Promise<AccountStats> => {
+      const { data } = await api.get<AccountStats>(`/accounts/${accountId}/stats`)
+      return data
     },
   })
 }

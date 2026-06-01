@@ -84,3 +84,29 @@ func TestUnreadCountByFolder(t *testing.T) {
 		t.Errorf("unread = %d, want 1", unread)
 	}
 }
+
+func TestCountByAccount(t *testing.T) {
+	repo := newRepo(t)
+	// account 1：folder 1 两封，folder 2 一封，共 3 封
+	_ = repo.Upsert(&message.Message{AccountID: 1, FolderID: 1, UID: 1, Date: time.Now()})
+	_ = repo.Upsert(&message.Message{AccountID: 1, FolderID: 1, UID: 2, Date: time.Now()})
+	_ = repo.Upsert(&message.Message{AccountID: 1, FolderID: 2, UID: 1, Date: time.Now()})
+	// account 2：一封，不应被计入 account 1
+	_ = repo.Upsert(&message.Message{AccountID: 2, FolderID: 3, UID: 1, Date: time.Now()})
+
+	n1, err := repo.CountByAccount(1)
+	if err != nil {
+		t.Fatalf("CountByAccount(1): %v", err)
+	}
+	if n1 != 3 {
+		t.Errorf("account 1: want 3, got %d", n1)
+	}
+
+	n2, err := repo.CountByAccount(2)
+	if err != nil {
+		t.Fatalf("CountByAccount(2): %v", err)
+	}
+	if n2 != 1 {
+		t.Errorf("account 2: want 1, got %d", n2)
+	}
+}

@@ -30,6 +30,7 @@ type Session interface {
 type AccountConfigProvider interface {
 	IMAPConfig(id uint) (types.IMAPConfig, error)
 	TouchLastSync(id uint, t time.Time) error
+	IsEnabled(id uint) (bool, error)
 }
 
 // Phase 表示同步所处阶段。
@@ -56,13 +57,17 @@ type Status struct {
 // ErrSyncRunning 表示该账户已有同步在运行。
 var ErrSyncRunning = errors.New("sync already running for this account")
 
+// ErrAccountDisabled 表示账户已停用，拒绝同步。
+var ErrAccountDisabled = errors.New("account is disabled")
+
 // Service 编排单账户的首次同步（文件夹 → 收件箱消息），并通过内存 map 对外暴露进度。
 type Service struct {
 	accounts AccountConfigProvider
 	folders  *folder.Service
 	messages *message.Service
 
-	dial func(types.IMAPConfig) (Session, error)
+	dial        func(types.IMAPConfig) (Session, error)
+	syncDepthFn func() int
 
 	mu       gosync.Mutex
 	statuses map[uint]*Status
@@ -74,16 +79,24 @@ type Service struct {
 // NewService 创建 Sync 服务。
 func NewService(accounts AccountConfigProvider, folders *folder.Service, messages *message.Service) *Service {
 	s := &Service{
-		accounts: accounts,
-		folders:  folders,
-		messages: messages,
-		dial:     defaultDial,
-		statuses: map[uint]*Status{},
-		running:  map[uint]bool{},
-		wbCh:     make(chan wbOp, 256),
+		accounts:    accounts,
+		folders:     folders,
+		messages:    messages,
+		dial:        defaultDial,
+		syncDepthFn: func() int { return 0 },
+		statuses:    map[uint]*Status{},
+		running:     map[uint]bool{},
+		wbCh:        make(chan wbOp, 256),
 	}
 	go s.writebackLoop()
 	return s
+}
+
+// SetSyncDepthProvider 注入同步深度提供函数；fn 返回 0 时使用 message 默认值。
+func (s *Service) SetSyncDepthProvider(fn func() int) {
+	if fn != nil {
+		s.syncDepthFn = fn
+	}
 }
 
 func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(cfg) }
@@ -91,8 +104,16 @@ func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(c
 // SetDial 覆盖拨号函数（测试注入用）。
 func (s *Service) SetDial(d func(types.IMAPConfig) (Session, error)) { s.dial = d }
 
-// Trigger 启动一次后台首同步；同账户已在运行则返回 ErrSyncRunning。
+// Trigger 启动一次后台首同步；账户已停用返回 ErrAccountDisabled；同账户已在运行则返回 ErrSyncRunning。
 func (s *Service) Trigger(accountID uint) error {
+	enabled, err := s.accounts.IsEnabled(accountID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return ErrAccountDisabled
+	}
+
 	s.mu.Lock()
 	if s.running[accountID] {
 		s.mu.Unlock()
@@ -154,6 +175,11 @@ func (s *Service) run(accountID uint) {
 	}
 	defer sess.Close()
 
+	// 2.5 注入可配置同步深度（0 表示不覆盖，保持 message.Service 默认值）
+	if d := s.syncDepthFn(); d > 0 {
+		s.messages.SetSyncDepth(d)
+	}
+
 	// 3. 同步文件夹列表
 	if err := s.folders.SyncFolders(accountID, sess); err != nil {
 		s.fail(accountID, err)
@@ -195,6 +221,24 @@ func (s *Service) fail(accountID uint, err error) {
 		st.Phase = PhaseError
 		st.Error = err.Error()
 	})
+}
+
+// AccountStats 汇总账户下的邮件数与文件夹数。
+type AccountStats struct {
+	MessageCount int64 `json:"message_count"`
+	FolderCount  int64 `json:"folder_count"`
+}
+
+func (s *Service) AccountStats(accountID uint) (AccountStats, error) {
+	mc, err := s.messages.CountByAccount(accountID)
+	if err != nil {
+		return AccountStats{}, err
+	}
+	fc, err := s.folders.CountByAccount(accountID)
+	if err != nil {
+		return AccountStats{}, err
+	}
+	return AccountStats{MessageCount: mc, FolderCount: fc}, nil
 }
 
 // MessageDetail 返回邮件详情；若正文尚未同步则先从 IMAP 按需抓取后落库。

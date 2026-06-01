@@ -10,11 +10,12 @@ import (
 	"flymail/modules/email/message"
 )
 
-// RegisterRoutes 挂载同步路由：POST /accounts/:id/sync、GET /accounts/:id/sync/status。
+// RegisterRoutes 挂载同步路由：POST /accounts/:id/sync、GET /accounts/:id/sync/status、GET /accounts/:id/stats。
 func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	h := &handler{svc: svc}
 	rg.POST("/accounts/:id/sync", h.trigger)
 	rg.GET("/accounts/:id/sync/status", h.status)
+	rg.GET("/accounts/:id/stats", h.stats)
 	rg.GET("/messages/:id", h.detail)
 	rg.POST("/messages/:id/read", h.markRead)
 	rg.POST("/messages/:id/flag", h.markFlag)
@@ -37,6 +38,20 @@ func (h *handler) trigger(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"status": "started"})
+}
+
+func (h *handler) stats(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		return
+	}
+	stats, err := h.svc.AccountStats(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
 }
 
 func (h *handler) status(c *gin.Context) {

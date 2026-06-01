@@ -12,6 +12,16 @@ export interface Account {
   smtp_security: string
   status: string
   last_sync_at?: string
+  enabled: boolean
+}
+
+export interface AppSettings {
+  sync_depth: number
+}
+
+export interface AccountStats {
+  message_count: number
+  folder_count: number
 }
 
 export interface ProxyInput {

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
 import { AccountDialog } from '@/components/mail/AccountDialog'
+import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { MailList } from '@/components/mail/MailList'
 import { Reader } from '@/components/mail/Reader'
 import {
@@ -55,6 +56,9 @@ export function ShellPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const deleteAccount = useDeleteAccount()
+
+  // ── 设置对话框 state ─────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -152,6 +156,7 @@ export function ShellPage() {
             onAddAccount={onAddAccount}
             onEditAccount={onEditAccount}
             onDeleteAccount={onDeleteAccount}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         }
         list={
@@ -171,6 +176,7 @@ export function ShellPage() {
         account={editingAccount}
         onOpenChange={setDialogOpen}
       />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   )
 }

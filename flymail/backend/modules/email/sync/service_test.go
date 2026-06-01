@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"errors"
 	"path/filepath"
 	gosync "sync"
 	"testing"
@@ -113,12 +114,16 @@ func (f *fakeSession) hasMarkRead(uid imapv2.UID) bool {
 	return false
 }
 
-type fakeAccounts struct{ touched bool }
+type fakeAccounts struct {
+	touched bool
+	enabled bool // 默认零值 false，需在 newSyncService 中显式设为 true
+}
 
 func (f *fakeAccounts) IMAPConfig(id uint) (types.IMAPConfig, error) {
 	return types.IMAPConfig{Host: "h"}, nil
 }
 func (f *fakeAccounts) TouchLastSync(id uint, t time.Time) error { f.touched = true; return nil }
+func (f *fakeAccounts) IsEnabled(id uint) (bool, error)          { return f.enabled, nil }
 
 // newSyncService 构建带临时 SQLite 数据库的测试用 Service，dial 注入共享 fakeSession。
 func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Service, *fakeSession) {
@@ -137,7 +142,7 @@ func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Serv
 	})
 	fsvc := folder.NewService(folder.NewRepository(db))
 	msvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
-	accts := &fakeAccounts{}
+	accts := &fakeAccounts{enabled: true}
 	sess := &fakeSession{}
 	svc := syncmod.NewService(accts, fsvc, msvc)
 	svc.SetDial(func(cfg types.IMAPConfig) (syncmod.Session, error) { return sess, nil })
@@ -244,6 +249,52 @@ func TestMessageDetailFetchesBodyWhenNotSynced(t *testing.T) {
 	}
 	if !detail2.BodySynced {
 		t.Errorf("expected BodySynced=true after fetch, got false")
+	}
+}
+
+// TestAccountStats 验证 AccountStats 在同步完成后返回正确的邮件数与文件夹数。
+func TestAccountStats(t *testing.T) {
+	svc, _, _, _ := newSyncService(t)
+
+	// 触发同步：fakeSession.ListFolders 返回 2 个文件夹，FetchByUIDRange 返回 2 封邮件（INBOX）
+	if err := svc.Trigger(1); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := svc.StatusOf(1)
+		if st.Phase == syncmod.PhaseDone || st.Phase == syncmod.PhaseError {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st, _ := svc.StatusOf(1); st.Phase != syncmod.PhaseDone {
+		t.Fatalf("sync not done: %+v", st)
+	}
+
+	stats, err := svc.AccountStats(1)
+	if err != nil {
+		t.Fatalf("AccountStats: %v", err)
+	}
+	// fakeSession 同步了 2 封邮件（INBOX uid=1,2）和 2 个文件夹（INBOX + Sent）
+	if stats.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", stats.MessageCount)
+	}
+	if stats.FolderCount != 2 {
+		t.Errorf("FolderCount = %d, want 2", stats.FolderCount)
+	}
+}
+
+// TestTriggerRejectsDisabled 验证停用账户触发同步时返回 ErrAccountDisabled。
+func TestTriggerRejectsDisabled(t *testing.T) {
+	svc, accts, _, _ := newSyncService(t)
+	accts.enabled = false
+	err := svc.Trigger(1)
+	if err == nil {
+		t.Fatal("expected ErrAccountDisabled, got nil")
+	}
+	if !errors.Is(err, syncmod.ErrAccountDisabled) {
+		t.Fatalf("expected ErrAccountDisabled, got %v", err)
 	}
 }
 

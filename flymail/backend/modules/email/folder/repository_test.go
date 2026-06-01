@@ -65,6 +65,31 @@ func TestUpsertPreservesSyncAnchors(t *testing.T) {
 	}
 }
 
+func TestCountByAccount(t *testing.T) {
+	repo, _ := newRepo(t)
+	// account 1：两个文件夹
+	_ = repo.UpsertByPath(&folder.Folder{AccountID: 1, Path: "INBOX", DisplayName: "Inbox", Type: "inbox"})
+	_ = repo.UpsertByPath(&folder.Folder{AccountID: 1, Path: "Sent", DisplayName: "Sent", Type: "sent"})
+	// account 2：一个文件夹，不应计入 account 1
+	_ = repo.UpsertByPath(&folder.Folder{AccountID: 2, Path: "INBOX", DisplayName: "Inbox", Type: "inbox"})
+
+	n1, err := repo.CountByAccount(1)
+	if err != nil {
+		t.Fatalf("CountByAccount(1): %v", err)
+	}
+	if n1 != 2 {
+		t.Errorf("account 1: want 2, got %d", n1)
+	}
+
+	n2, err := repo.CountByAccount(2)
+	if err != nil {
+		t.Fatalf("CountByAccount(2): %v", err)
+	}
+	if n2 != 1 {
+		t.Errorf("account 2: want 1, got %d", n2)
+	}
+}
+
 func TestFindInboxByType(t *testing.T) {
 	repo, _ := newRepo(t)
 	_ = repo.UpsertByPath(&folder.Folder{AccountID: 1, Path: "Sent", DisplayName: "Sent", Type: "sent"})

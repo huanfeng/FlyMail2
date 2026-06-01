@@ -52,6 +52,12 @@ func (r *Repository) ListByAccount(accountID uint) ([]Folder, error) {
 	return list, err
 }
 
+func (r *Repository) CountByAccount(accountID uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&Folder{}).Where("account_id = ?", accountID).Count(&n).Error
+	return n, err
+}
+
 func (r *Repository) GetByID(id uint) (*Folder, error) {
 	var f Folder
 	err := r.db.First(&f, id).Error

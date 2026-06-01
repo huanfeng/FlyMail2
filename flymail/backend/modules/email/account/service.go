@@ -21,7 +21,8 @@ func (s *Service) Create(req CreateAccountRequest) (*AccountResponse, error) {
 		AuthType: "password", PasswordEnc: encPw,
 		IMAPHost: req.IMAPHost, IMAPPort: req.IMAPPort, IMAPSecurity: req.IMAPSecurity,
 		SMTPHost: req.SMTPHost, SMTPPort: req.SMTPPort, SMTPSecurity: req.SMTPSecurity,
-		Status: "new",
+		Status:  "new",
+		Enabled: true,
 	}
 	if err := s.applyProxy(a, req.Proxy); err != nil {
 		return nil, err
@@ -86,6 +87,14 @@ func (s *Service) Update(id uint, req UpdateAccountRequest) (*AccountResponse, e
 }
 
 func (s *Service) Delete(id uint) error { return s.repo.Delete(id) }
+
+func (s *Service) SetEnabled(id uint, enabled bool) error {
+	return s.repo.SetEnabled(id, enabled)
+}
+
+func (s *Service) IsEnabled(id uint) (bool, error) {
+	return s.repo.IsEnabled(id)
+}
 
 func (s *Service) applyProxy(a *Account, p *ProxyDTO) error {
 	if p == nil || p.Host == "" {

@@ -34,6 +34,29 @@ func (r *Repository) List() ([]Account, error) {
 
 func (r *Repository) Update(a *Account) error { return r.db.Save(a).Error }
 
+func (r *Repository) SetEnabled(id uint, enabled bool) error {
+	res := r.db.Model(&Account{}).Where("id = ?", id).Update("enabled", enabled)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrAccountNotFound
+	}
+	return nil
+}
+
+func (r *Repository) IsEnabled(id uint) (bool, error) {
+	var a Account
+	err := r.db.Select("id", "enabled").First(&a, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, ErrAccountNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	return a.Enabled, nil
+}
+
 func (r *Repository) Delete(id uint) error {
 	res := r.db.Delete(&Account{}, id)
 	if res.Error != nil {

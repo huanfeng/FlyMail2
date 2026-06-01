@@ -52,6 +52,7 @@ type AccountResponse struct {
 	SMTPPort     int        `json:"smtp_port"`
 	SMTPSecurity string     `json:"smtp_security"`
 	Proxy        *ProxyDTO  `json:"proxy,omitempty"`
+	Enabled      bool       `json:"enabled"`
 	Status       string     `json:"status"`
 	LastSyncAt   *time.Time `json:"last_sync_at,omitempty"`
 }
@@ -62,6 +63,7 @@ func toResponse(a *Account) AccountResponse {
 		AuthType: a.AuthType,
 		IMAPHost: a.IMAPHost, IMAPPort: a.IMAPPort, IMAPSecurity: a.IMAPSecurity,
 		SMTPHost: a.SMTPHost, SMTPPort: a.SMTPPort, SMTPSecurity: a.SMTPSecurity,
+		Enabled:    a.Enabled,
 		Status:     a.Status,
 		LastSyncAt: a.LastSyncAt,
 	}

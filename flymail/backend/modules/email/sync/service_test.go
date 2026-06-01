@@ -61,7 +61,7 @@ func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Serv
 		}
 	})
 	fsvc := folder.NewService(folder.NewRepository(db))
-	msvc := message.NewService(message.NewRepository(db))
+	msvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	accts := &fakeAccounts{}
 	svc := syncmod.NewService(accts, fsvc, msvc)
 	svc.SetDial(func(cfg types.IMAPConfig) (syncmod.Session, error) { return fakeSession{}, nil })

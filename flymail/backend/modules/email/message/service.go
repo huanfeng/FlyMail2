@@ -2,6 +2,8 @@ package message
 
 import (
 	"encoding/json"
+	"regexp"
+	"strings"
 
 	coreimap "flymail-core/imap"
 	"flymail-core/types"
@@ -29,9 +31,14 @@ type FolderState struct {
 	Unread      int
 }
 
-type Service struct{ repo *Repository }
+type Service struct {
+	repo     *Repository
+	bodyRepo *BodyRepository
+}
 
-func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+func NewService(repo *Repository, bodyRepo *BodyRepository) *Service {
+	return &Service{repo: repo, bodyRepo: bodyRepo}
+}
 
 // SyncFolderMessages 同步单个文件夹最近 ~defaultSyncDepth 封邮件的元数据。
 // prevUIDValidity 为本地已存的该文件夹 UIDVALIDITY（0=从未同步）。
@@ -113,6 +120,85 @@ func (s *Service) List(folderID uint, beforeUID uint32, limit int) ([]MessageLis
 		out = append(out, toListItem(&rows[i]))
 	}
 	return out, nil
+}
+
+// StoreParsedBody 落正文+附件，回填 snippet/has_attachment/body_synced。
+func (s *Service) StoreParsedBody(messageID uint, e *types.ParsedEmail) error {
+	if err := s.bodyRepo.Upsert(&MessageBody{MessageID: messageID, TextBody: e.TextBody, HTMLBody: e.HTMLBody}); err != nil {
+		return err
+	}
+	atts := make([]Attachment, 0, len(e.Attachments))
+	for _, a := range e.Attachments {
+		atts = append(atts, Attachment{
+			MessageID:   messageID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+			ContentID:   a.ContentID,
+			IsInline:    a.IsInline,
+		})
+	}
+	if err := s.bodyRepo.ReplaceAttachments(messageID, atts); err != nil {
+		return err
+	}
+	return s.repo.MarkBodySynced(messageID, makeSnippet(e.TextBody, e.HTMLBody), len(atts) > 0)
+}
+
+// Detail 从本地组装邮件详情。
+func (s *Service) Detail(messageID uint) (*MessageDetail, error) {
+	m, err := s.repo.GetByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	item := toListItem(m)
+	d := &MessageDetail{
+		MessageListItem: item,
+		BodySynced:      m.BodySynced,
+		Attachments:     []Attachment{},
+	}
+	if b, _ := s.bodyRepo.GetByMessageID(messageID); b != nil {
+		d.TextBody = b.TextBody
+		d.HTMLBody = b.HTMLBody
+	}
+	if atts, _ := s.bodyRepo.ListAttachments(messageID); len(atts) > 0 {
+		d.Attachments = atts
+	}
+	if m.CcJSON != "" {
+		_ = json.Unmarshal([]byte(m.CcJSON), &d.Cc)
+	}
+	return d, nil
+}
+
+// GetByID 透传单封邮件原始记录。
+func (s *Service) GetByID(id uint) (*Message, error) { return s.repo.GetByID(id) }
+
+// SetSeenLocal 本地标记已读/未读。
+func (s *Service) SetSeenLocal(id uint, seen bool) error { return s.repo.SetSeen(id, seen) }
+
+// SetFlaggedLocal 本地标记星标/取消星标。
+func (s *Service) SetFlaggedLocal(id uint, flagged bool) error {
+	return s.repo.SetFlagged(id, flagged)
+}
+
+var reHTML = regexp.MustCompile(`<[^>]*>`)
+
+// stripHTML 简单去除 HTML 标签。
+func stripHTML(html string) string {
+	return reHTML.ReplaceAllString(html, " ")
+}
+
+// makeSnippet 生成不超过 150 字的摘要。
+func makeSnippet(text, html string) string {
+	s := text
+	if s == "" {
+		s = stripHTML(html)
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > 150 {
+		return string(r[:150]) + "…"
+	}
+	return s
 }
 
 func toMessage(accountID, folderID uint, e *types.ParsedEmail) *Message {

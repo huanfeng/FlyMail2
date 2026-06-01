@@ -22,6 +22,16 @@ type MessageListItem struct {
 	Snippet       string          `json:"snippet"`
 }
 
+// MessageDetail 邮件详情（含正文与附件）。
+type MessageDetail struct {
+	MessageListItem
+	Cc          []types.Address `json:"cc"`
+	TextBody    string          `json:"text_body"`
+	HTMLBody    string          `json:"html_body"`
+	Attachments []Attachment    `json:"attachments"`
+	BodySynced  bool            `json:"body_synced"`
+}
+
 func toListItem(m *Message) MessageListItem {
 	var to []types.Address
 	if m.ToJSON != "" {

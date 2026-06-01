@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Paperclip } from 'lucide-react'
+import { Paperclip, Star } from 'lucide-react'
 import type { Folder, MessageListItem } from '@/lib/types'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   loading: boolean
   activeMessageId: number | null
   onSelectMessage: (id: number) => void
+  onToggleFlag: (id: number, flagged: boolean) => void
 }
 
 function initials(name: string, addr: string): string {
@@ -21,7 +22,7 @@ function formatDate(iso: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-export function MailList({ folder, messages, loading, activeMessageId, onSelectMessage }: Props) {
+export function MailList({ folder, messages, loading, activeMessageId, onSelectMessage, onToggleFlag }: Props) {
   const { t } = useTranslation()
   const title = folder
     ? folder.type === 'custom'
@@ -77,12 +78,25 @@ export function MailList({ folder, messages, loading, activeMessageId, onSelectM
                 >
                   {m.from_name || m.from_addr}
                 </span>
-                <span
-                  className="flex items-center gap-1 text-[10.5px]"
-                  style={{ color: 'var(--ink-3)' }}
-                >
+                <span className="flex items-center gap-1.5 text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
                   {m.has_attachment && <Paperclip size={11} />}
                   {formatDate(m.date)}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleFlag(m.id, !m.flagged)
+                    }}
+                    className="flex items-center justify-center"
+                    style={{ lineHeight: 1 }}
+                    aria-label={m.flagged ? 'Unflag' : 'Flag'}
+                  >
+                    <Star
+                      size={13}
+                      fill={m.flagged ? 'var(--accent-color)' : 'none'}
+                      stroke={m.flagged ? 'var(--accent-color)' : 'var(--ink-3)'}
+                    />
+                  </button>
                 </span>
               </div>
               <div

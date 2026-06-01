@@ -14,6 +14,8 @@ import {
   useSyncStatus,
   useTriggerSync,
   useDeleteAccount,
+  useMarkRead,
+  useToggleFlag,
 } from '@/lib/queries'
 import type { Account } from '@/lib/types'
 
@@ -30,6 +32,19 @@ export function ShellPage() {
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
   const { data: messages = [], isLoading: messagesLoading } = useMessages(folderId)
+
+  const markRead = useMarkRead()
+  const toggleFlag = useToggleFlag()
+
+  // 打开未读邮件时自动标已读
+  useEffect(() => {
+    if (messageId == null) return
+    const m = messages.find((x) => x.id === messageId)
+    if (m && !m.seen) {
+      markRead.mutate({ id: messageId, read: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageId, messages])
 
   const [syncEnabled, setSyncEnabled] = useState(false)
   const { data: syncStatus } = useSyncStatus(accountId, syncEnabled)
@@ -146,9 +161,10 @@ export function ShellPage() {
             loading={messagesLoading}
             activeMessageId={messageId}
             onSelectMessage={selectMessage}
+            onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
           />
         }
-        reader={<Reader />}
+        reader={<Reader messageId={messageId} />}
       />
       <AccountDialog
         open={dialogOpen}

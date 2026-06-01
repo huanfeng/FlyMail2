@@ -44,7 +44,7 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	accountSvc := account.NewService(account.NewRepository(db), enc)
 	folderSvc := folder.NewService(folder.NewRepository(db))
-	messageSvc := message.NewService(message.NewRepository(db))
+	messageSvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	syncSvc := syncmod.NewService(accountSvc, folderSvc, messageSvc)
 	handler := server.New(server.Deps{
 		Auth:    authSvc,

@@ -22,5 +22,7 @@ func Migrate(db *gorm.DB) error {
 		&account.Account{},
 		&folder.Folder{},
 		&message.Message{},
+		&message.MessageBody{},
+		&message.Attachment{},
 	)
 }

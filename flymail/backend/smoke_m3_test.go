@@ -44,7 +44,7 @@ func TestM3SmokeRealAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	fsvc := folder.NewService(folder.NewRepository(db))
-	msvc := message.NewService(message.NewRepository(db))
+	msvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	syncSvc := syncmod.NewService(acctSvc, fsvc, msvc)
 	if err := syncSvc.Trigger(created.ID); err != nil {
 		t.Fatal(err)

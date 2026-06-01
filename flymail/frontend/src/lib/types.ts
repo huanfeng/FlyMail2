@@ -78,6 +78,22 @@ export interface MessageListItem {
   snippet: string
 }
 
+export interface Attachment {
+  filename: string
+  content_type: string
+  size: number
+  content_id?: string
+  is_inline: boolean
+}
+
+export interface MessageDetail extends MessageListItem {
+  cc?: Address[]
+  text_body: string
+  html_body: string
+  attachments: Attachment[]
+  body_synced: boolean
+}
+
 export type SyncPhase = 'none' | 'folders' | 'messages' | 'done' | 'error'
 
 export interface SyncStatus {

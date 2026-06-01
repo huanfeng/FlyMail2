@@ -1,9 +1,13 @@
 package message
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var ErrMessageNotFound = errors.New("message not found")
 
 type Repository struct{ db *gorm.DB }
 
@@ -49,4 +53,33 @@ func (r *Repository) UnreadCountByFolder(folderID uint) (int64, error) {
 	var n int64
 	err := r.db.Model(&Message{}).Where("folder_id = ? AND seen = ?", folderID, false).Count(&n).Error
 	return n, err
+}
+
+func (r *Repository) GetByID(id uint) (*Message, error) {
+	var m Message
+	err := r.db.First(&m, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *Repository) SetSeen(id uint, seen bool) error {
+	return r.db.Model(&Message{}).Where("id = ?", id).Update("seen", seen).Error
+}
+
+func (r *Repository) SetFlagged(id uint, flagged bool) error {
+	return r.db.Model(&Message{}).Where("id = ?", id).Update("flagged", flagged).Error
+}
+
+// MarkBodySynced 置 body_synced=true 并回填 snippet/has_attachment。
+func (r *Repository) MarkBodySynced(id uint, snippet string, hasAttachment bool) error {
+	return r.db.Model(&Message{}).Where("id = ?", id).Updates(map[string]any{
+		"body_synced":    true,
+		"snippet":        snippet,
+		"has_attachment": hasAttachment,
+	}).Error
 }

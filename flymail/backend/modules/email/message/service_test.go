@@ -2,6 +2,7 @@ package message_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,8 @@ func newMsgService(t *testing.T) (*message.Service, *message.Repository) {
 		}
 	})
 	repo := message.NewRepository(db)
-	return message.NewService(repo), repo
+	bodyRepo := message.NewBodyRepository(db)
+	return message.NewService(repo, bodyRepo), repo
 }
 
 func TestSyncFolderMessagesStoresMetadata(t *testing.T) {
@@ -145,5 +147,77 @@ func TestSyncUIDValidityFallbackToStatus(t *testing.T) {
 	}
 	if state.UIDValidity != 77 {
 		t.Errorf("should fall back to STATUS uidvalidity, got %d", state.UIDValidity)
+	}
+}
+
+func TestStoreParsedBodyAndDetail(t *testing.T) {
+	svc, repo := newMsgService(t)
+
+	// 先插入一封邮件元数据
+	m := &message.Message{
+		AccountID: 1, FolderID: 1, UID: 1,
+		Subject: "测试邮件", Date: time.Now(),
+	}
+	if err := repo.Upsert(m); err != nil {
+		t.Fatalf("upsert message: %v", err)
+	}
+	// 取回以获得自增 ID
+	list, err := repo.ListByFolder(1, 0, 10)
+	if err != nil || len(list) == 0 {
+		t.Fatalf("list: %v, len=%d", err, len(list))
+	}
+	msgID := list[0].ID
+
+	// 构造 ParsedEmail 含正文与附件
+	longText := strings.Repeat("这是一段很长的正文内容。", 20) // >150 字
+	e := &types.ParsedEmail{
+		TextBody: longText,
+		HTMLBody: "<p>hi</p>",
+		Attachments: []types.Attachment{
+			{Filename: "a.pdf", ContentType: "application/pdf", Size: 100},
+		},
+	}
+
+	// 存正文
+	if err := svc.StoreParsedBody(msgID, e); err != nil {
+		t.Fatalf("StoreParsedBody: %v", err)
+	}
+
+	// 验证元数据已回填
+	stored, err := repo.GetByID(msgID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !stored.HasAttachment {
+		t.Errorf("HasAttachment should be true")
+	}
+	if !stored.BodySynced {
+		t.Errorf("BodySynced should be true")
+	}
+	if stored.Snippet == "" {
+		t.Errorf("Snippet should not be empty")
+	}
+
+	// 验证 Detail 组装
+	detail, err := svc.Detail(msgID)
+	if err != nil {
+		t.Fatalf("Detail: %v", err)
+	}
+	if detail.TextBody != longText {
+		t.Errorf("TextBody mismatch: got %q", detail.TextBody[:20])
+	}
+	if detail.HTMLBody != "<p>hi</p>" {
+		t.Errorf("HTMLBody mismatch: got %q", detail.HTMLBody)
+	}
+	if len(detail.Attachments) != 1 {
+		t.Errorf("want 1 attachment, got %d", len(detail.Attachments))
+	} else if detail.Attachments[0].Filename != "a.pdf" {
+		t.Errorf("attachment filename mismatch: %q", detail.Attachments[0].Filename)
+	}
+	if !detail.BodySynced {
+		t.Errorf("detail.BodySynced should be true")
+	}
+	if detail.Snippet == "" {
+		t.Errorf("detail.Snippet should not be empty")
 	}
 }

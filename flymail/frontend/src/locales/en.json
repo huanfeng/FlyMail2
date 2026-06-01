@@ -36,5 +36,41 @@
     "smtpOk": "SMTP connection successful", "smtpFail": "SMTP connection failed",
     "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
     "nameRequired": "Name and email are required", "passwordRequired": "Password is required"
+  },
+  "settings": {
+    "title": "Settings",
+    "navAccounts": "Accounts",
+    "navGeneral": "General",
+    "navSecurity": "Security",
+    "navMail": "Mail",
+    "general": {
+      "language": "Language",
+      "theme": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "zh": "Chinese",
+      "en": "English"
+    },
+    "security": {
+      "title": "Change Admin Password",
+      "oldPwd": "Current Password",
+      "newPwd": "New Password",
+      "confirmPwd": "Confirm New Password",
+      "submit": "Change Password",
+      "mismatch": "New passwords do not match",
+      "success": "Password changed successfully",
+      "wrongOld": "Current password is incorrect",
+      "required": "Please fill in all fields"
+    },
+    "mail": {
+      "title": "Sync Preferences",
+      "syncDepth": "Sync depth (most recent N messages per folder)",
+      "syncDepthHint": "Range 100–5000",
+      "loadRemoteImages": "Load remote images in messages by default",
+      "save": "Save",
+      "saved": "Saved",
+      "invalidDepth": "Sync depth must be between 100 and 5000"
+    },
+    "accountsPlaceholder": "Account management (coming soon)"
   }
 }

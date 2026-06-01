@@ -49,6 +49,13 @@ func (f *fakeSession) FetchByUIDRange(from, to imapv2.UID, opts coreimap.FetchOp
 	}, nil
 }
 
+func (f *fakeSession) FetchBySeqRange(from, to uint32, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error) {
+	return []*types.ParsedEmail{
+		{UID: 1, Subject: "a", Date: time.Now()},
+		{UID: 2, Subject: "b", Date: time.Now()},
+	}, nil
+}
+
 // FetchByUIDs 返回一封带正文的 ParsedEmail（供 MessageDetail 测试使用）。
 func (f *fakeSession) FetchByUIDs(uids []imapv2.UID, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error) {
 	emails := make([]*types.ParsedEmail, 0, len(uids))

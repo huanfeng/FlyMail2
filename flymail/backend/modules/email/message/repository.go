@@ -49,6 +49,17 @@ func (r *Repository) CountByFolder(folderID uint) (int64, error) {
 	return n, err
 }
 
+// MaxUID 返回文件夹内最大的 UID（无邮件返回 0）。用于服务商不报 UIDNEXT 时推导锚点。
+func (r *Repository) MaxUID(folderID uint) (uint32, error) {
+	var maxUID *uint32
+	err := r.db.Model(&Message{}).Where("folder_id = ?", folderID).
+		Select("MAX(uid)").Scan(&maxUID).Error
+	if err != nil || maxUID == nil {
+		return 0, err
+	}
+	return *maxUID, nil
+}
+
 func (r *Repository) UnreadCountByFolder(folderID uint) (int64, error) {
 	var n int64
 	err := r.db.Model(&Message{}).Where("folder_id = ? AND seen = ?", folderID, false).Count(&n).Error

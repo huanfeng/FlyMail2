@@ -50,6 +50,22 @@ func (s *Session) FetchByUIDRange(from, to imapv2.UID, opts FetchOptions) ([]*ty
 	return s.doFetch(uidSet, opts)
 }
 
+// FetchBySeqRange fetches messages by sequence-number range [from, to].
+// Useful when the server does not report UIDNEXT (e.g. NetEase 163), so the
+// "last N messages" window must be expressed by sequence number instead of UID.
+// The FETCH response still carries each message's real UID (UID is requested),
+// so de-duplication anchors are preserved.
+func (s *Session) FetchBySeqRange(from, to uint32, opts FetchOptions) ([]*types.ParsedEmail, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	var seqSet imapv2.SeqSet
+	seqSet.AddRange(from, to)
+
+	return s.doFetch(seqSet, opts)
+}
+
 // SearchUnseenSince searches for unseen messages with UID >= startUID.
 func (s *Session) SearchUnseenSince(startUID imapv2.UID) ([]imapv2.UID, error) {
 	if s.Client == nil {
@@ -72,7 +88,7 @@ func (s *Session) SearchUnseenSince(startUID imapv2.UID) ([]imapv2.UID, error) {
 	return res.AllUIDs(), nil
 }
 
-func (s *Session) doFetch(uidSet imapv2.UIDSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
+func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
 	var bodySection *imapv2.FetchItemBodySection
 	if opts.FetchBody {
 		bodySection = &imapv2.FetchItemBodySection{}
@@ -89,7 +105,7 @@ func (s *Session) doFetch(uidSet imapv2.UIDSet, opts FetchOptions) ([]*types.Par
 		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{bodySection}
 	}
 
-	fetchCmd := s.Client.Fetch(uidSet, fetchOpts)
+	fetchCmd := s.Client.Fetch(numSet, fetchOpts)
 
 	var emails []*types.ParsedEmail
 	for {

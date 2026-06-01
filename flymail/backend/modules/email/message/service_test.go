@@ -47,6 +47,17 @@ func (f *fakeFetcher) FetchByUIDRange(from, to imapv2.UID, opts coreimap.FetchOp
 	return out, nil
 }
 
+// FetchBySeqRange：fake 中把序号当作 uid 处理（emails 以 uid 1..N 连续填充时等价）。
+func (f *fakeFetcher) FetchBySeqRange(from, to uint32, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error) {
+	var out []*types.ParsedEmail
+	for uid, e := range f.emails {
+		if uid >= from && (to == 0 || uid <= to) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 func newMsgService(t *testing.T) (*message.Service, *message.Repository) {
 	t.Helper()
 	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
@@ -147,6 +158,32 @@ func TestSyncUIDValidityFallbackToStatus(t *testing.T) {
 	}
 	if state.UIDValidity != 77 {
 		t.Errorf("should fall back to STATUS uidvalidity, got %d", state.UIDValidity)
+	}
+}
+
+// TestSyncViaSeqWhenNoUIDNext 模拟 163：SELECT/STATUS 都不报 UIDNEXT（uidNext=0、STATUS 也无），
+// 但 NumMessages>0；应改用按序号抓取，把邮件落库，并用 maxUID+1 作为 UIDNext 锚点。
+func TestSyncViaSeqWhenNoUIDNext(t *testing.T) {
+	svc, repo := newMsgService(t)
+	emails := map[uint32]*types.ParsedEmail{}
+	for uid := uint32(1); uid <= 5; uid++ {
+		emails[uid] = &types.ParsedEmail{UID: uid, Subject: "m", Date: time.Now()}
+	}
+	// uidNext=0（SELECT 不报）；fakeFetcher.FolderStatus 也不返回 UIDNext（仅 UIDValidity）。
+	f := &fakeFetcher{uidValidity: 1, uidNext: 0, numMessages: 5, emails: emails}
+	state, _, err := svc.SyncFolderMessages(1, 1, "INBOX", 0, f)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	list, _ := repo.ListByFolder(1, 0, 50)
+	if len(list) != 5 {
+		t.Fatalf("want 5 stored via seq fetch, got %d", len(list))
+	}
+	if state.Total != 5 {
+		t.Errorf("state.Total = %d, want 5", state.Total)
+	}
+	if state.UIDNext != 6 { // maxUID(5)+1
+		t.Errorf("state.UIDNext = %d, want 6 (maxUID+1 锚点)", state.UIDNext)
 	}
 }
 

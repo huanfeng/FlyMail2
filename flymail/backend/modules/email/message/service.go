@@ -21,6 +21,7 @@ type IMAPFetcher interface {
 	SelectFolder(path string) (*coreimap.SelectedFolder, error)
 	FolderStatus(path string, items ...coreimap.StatusItem) (*coreimap.FolderStatusResult, error)
 	FetchByUIDRange(from, to imapv2.UID, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error)
+	FetchBySeqRange(from, to uint32, opts coreimap.FetchOptions) ([]*types.ParsedEmail, error)
 }
 
 // FolderState 是单文件夹同步后回写文件夹表所需的状态。
@@ -64,25 +65,77 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 		rebuilt = true
 	}
 
-	if sel.NumMessages > 0 && sel.UIDNext > 0 {
-		from := imapv2.UID(1)
-		if sel.UIDNext > uint32(defaultSyncDepth) {
-			from = imapv2.UID(sel.UIDNext - uint32(defaultSyncDepth))
+	// UIDNEXT 兜底：部分服务商 SELECT 不返回 UIDNEXT，尝试 STATUS。
+	uidNext := sel.UIDNext
+	if uidNext == 0 {
+		if st, serr := c.FolderStatus(folderPath, coreimap.StatusUIDNext); serr == nil && st != nil && st.UIDNext != nil {
+			uidNext = *st.UIDNext
 		}
-		end := imapv2.UID(sel.UIDNext - 1)
-		if err := s.fetchRangeBatched(accountID, folderID, from, end, c); err != nil {
-			return nil, rebuilt, err
+	}
+
+	if sel.NumMessages > 0 {
+		if uidNext > 0 {
+			// 已知 UIDNEXT：按 UID 区间抓最近 ~depth 封。
+			from := imapv2.UID(1)
+			if uidNext > uint32(defaultSyncDepth) {
+				from = imapv2.UID(uidNext - uint32(defaultSyncDepth))
+			}
+			end := imapv2.UID(uidNext - 1)
+			if err := s.fetchRangeBatched(accountID, folderID, from, end, c); err != nil {
+				return nil, rebuilt, err
+			}
+		} else {
+			// 服务商不报 UIDNEXT（如网易 163）：按序号抓最近 ~depth 封。
+			// 序号区间 [total-depth+1, total]，FETCH 响应仍带真实 UID。
+			total := sel.NumMessages
+			seqFrom := uint32(1)
+			if total > uint32(defaultSyncDepth) {
+				seqFrom = total - uint32(defaultSyncDepth) + 1
+			}
+			if err := s.fetchSeqRangeBatched(accountID, folderID, seqFrom, total, c); err != nil {
+				return nil, rebuilt, err
+			}
 		}
 	}
 
 	total, _ := s.repo.CountByFolder(folderID)
 	unread, _ := s.repo.UnreadCountByFolder(folderID)
+	// UIDNEXT 未知时，用本地已存的最大 UID + 1 作为锚点（供后续增量同步）。
+	if uidNext == 0 {
+		if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
+			uidNext = maxUID + 1
+		}
+	}
 	return &FolderState{
 		UIDValidity: uidValidity,
-		UIDNext:     sel.UIDNext,
+		UIDNext:     uidNext,
 		Total:       int(total),
 		Unread:      int(unread),
 	}, rebuilt, nil
+}
+
+// fetchSeqRangeBatched 把序号区间 [from,end] 切成 fetchBatchSize 的子区间逐批抓取并 upsert。
+func (s *Service) fetchSeqRangeBatched(accountID, folderID uint, from, end uint32, c IMAPFetcher) error {
+	for start := from; start <= end; {
+		batchEnd := start + fetchBatchSize - 1
+		if batchEnd > end || batchEnd < start {
+			batchEnd = end
+		}
+		emails, err := c.FetchBySeqRange(start, batchEnd, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+		if err != nil {
+			return err
+		}
+		for _, e := range emails {
+			if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
+				return err
+			}
+		}
+		if batchEnd == end {
+			break
+		}
+		start = batchEnd + 1
+	}
+	return nil
 }
 
 // fetchRangeBatched 把 [from,end] 切成 fetchBatchSize 的子区间逐批抓取并 upsert。

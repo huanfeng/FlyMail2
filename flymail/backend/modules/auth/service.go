@@ -130,6 +130,14 @@ func (s *Service) VerifyAccessToken(tokenStr string) (*Claims, error) {
 	return c, nil
 }
 
+// ChangePassword 验证旧密码后更新为新密码。
+func (s *Service) ChangePassword(username, oldPassword, newPassword string) error {
+	if _, err := s.Authenticate(username, oldPassword); err != nil {
+		return err // ErrInvalidCredentials
+	}
+	return s.SetAdminPassword(username, newPassword)
+}
+
 // Refresh 用 refresh token 签发新的 token pair。
 func (s *Service) Refresh(refreshToken string) (*TokenPair, error) {
 	c, err := s.parseToken(refreshToken)

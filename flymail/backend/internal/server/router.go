@@ -47,6 +47,7 @@ func New(deps Deps) http.Handler {
 		protected := api.Group("")
 		protected.Use(auth.Middleware(deps.Auth))
 		account.RegisterRoutes(protected, deps.Account)
+		auth.RegisterProtectedRoutes(protected, deps.Auth)
 		if deps.Setting != nil {
 			setting.RegisterRoutes(protected, deps.Setting)
 		}

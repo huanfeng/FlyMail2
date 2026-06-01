@@ -16,6 +16,9 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // FlyMail 专属开发端口（避开 Vite 默认 5173，减少与其它项目冲突）。
+    port: Number(process.env.FLYMAIL_WEB_PORT) || 5390,
+    strictPort: true,
     proxy: {
       '/api': {
         target: process.env.API_HOST || 'http://localhost:8080',

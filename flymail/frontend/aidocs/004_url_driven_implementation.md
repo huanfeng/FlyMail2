@@ -174,13 +174,13 @@ const validateState = (state) => {
 ### 2. 深度链接分享
 ```bash
 # 精确的邮件链接
-http://localhost:5173/#/main?a=3&f=30&m=1234
+http://localhost:5390/#/main?a=3&f=30&m=1234
 
 # 虚拟文件夹链接
-http://localhost:5173/#/main?a=0&f=all-inbox
+http://localhost:5390/#/main?a=0&f=all-inbox
 
 # 单页邮件查看
-http://localhost:5173/#/view?id=1234
+http://localhost:5390/#/view?id=1234
 ```
 
 ### 3. 多标签页支持

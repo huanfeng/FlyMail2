@@ -48,6 +48,7 @@ func New(cfg *config.Config) (*App, error) {
 	messageSvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	syncSvc := syncmod.NewService(accountSvc, folderSvc, messageSvc)
 	settingSvc := setting.NewService(setting.NewRepository(db))
+	syncSvc.SetSyncDepthProvider(func() int { return settingSvc.GetInt(setting.KeySyncDepth, 1000) })
 	handler := server.New(server.Deps{
 		Auth:    authSvc,
 		Account: accountSvc,

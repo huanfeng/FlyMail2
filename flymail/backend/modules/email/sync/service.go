@@ -62,7 +62,8 @@ type Service struct {
 	folders  *folder.Service
 	messages *message.Service
 
-	dial func(types.IMAPConfig) (Session, error)
+	dial        func(types.IMAPConfig) (Session, error)
+	syncDepthFn func() int
 
 	mu       gosync.Mutex
 	statuses map[uint]*Status
@@ -74,16 +75,24 @@ type Service struct {
 // NewService 创建 Sync 服务。
 func NewService(accounts AccountConfigProvider, folders *folder.Service, messages *message.Service) *Service {
 	s := &Service{
-		accounts: accounts,
-		folders:  folders,
-		messages: messages,
-		dial:     defaultDial,
-		statuses: map[uint]*Status{},
-		running:  map[uint]bool{},
-		wbCh:     make(chan wbOp, 256),
+		accounts:    accounts,
+		folders:     folders,
+		messages:    messages,
+		dial:        defaultDial,
+		syncDepthFn: func() int { return 0 },
+		statuses:    map[uint]*Status{},
+		running:     map[uint]bool{},
+		wbCh:        make(chan wbOp, 256),
 	}
 	go s.writebackLoop()
 	return s
+}
+
+// SetSyncDepthProvider 注入同步深度提供函数；fn 返回 0 时使用 message 默认值。
+func (s *Service) SetSyncDepthProvider(fn func() int) {
+	if fn != nil {
+		s.syncDepthFn = fn
+	}
 }
 
 func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(cfg) }
@@ -153,6 +162,11 @@ func (s *Service) run(accountID uint) {
 		return
 	}
 	defer sess.Close()
+
+	// 2.5 注入可配置同步深度（0 表示不覆盖，保持 message.Service 默认值）
+	if d := s.syncDepthFn(); d > 0 {
+		s.messages.SetSyncDepth(d)
+	}
 
 	// 3. 同步文件夹列表
 	if err := s.folders.SyncFolders(accountID, sess); err != nil {

@@ -33,12 +33,20 @@ type FolderState struct {
 }
 
 type Service struct {
-	repo     *Repository
-	bodyRepo *BodyRepository
+	repo      *Repository
+	bodyRepo  *BodyRepository
+	syncDepth int
 }
 
 func NewService(repo *Repository, bodyRepo *BodyRepository) *Service {
-	return &Service{repo: repo, bodyRepo: bodyRepo}
+	return &Service{repo: repo, bodyRepo: bodyRepo, syncDepth: defaultSyncDepth}
+}
+
+// SetSyncDepth 覆盖同步深度（最近 N 封）；n<=0 时忽略。
+func (s *Service) SetSyncDepth(n int) {
+	if n > 0 {
+		s.syncDepth = n
+	}
 }
 
 // SyncFolderMessages 同步单个文件夹最近 ~defaultSyncDepth 封邮件的元数据。
@@ -77,8 +85,8 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 		if uidNext > 0 {
 			// 已知 UIDNEXT：按 UID 区间抓最近 ~depth 封。
 			from := imapv2.UID(1)
-			if uidNext > uint32(defaultSyncDepth) {
-				from = imapv2.UID(uidNext - uint32(defaultSyncDepth))
+			if uidNext > uint32(s.syncDepth) {
+				from = imapv2.UID(uidNext - uint32(s.syncDepth))
 			}
 			end := imapv2.UID(uidNext - 1)
 			if err := s.fetchRangeBatched(accountID, folderID, from, end, c); err != nil {
@@ -89,8 +97,8 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 			// 序号区间 [total-depth+1, total]，FETCH 响应仍带真实 UID。
 			total := sel.NumMessages
 			seqFrom := uint32(1)
-			if total > uint32(defaultSyncDepth) {
-				seqFrom = total - uint32(defaultSyncDepth) + 1
+			if total > uint32(s.syncDepth) {
+				seqFrom = total - uint32(s.syncDepth) + 1
 			}
 			if err := s.fetchSeqRangeBatched(accountID, folderID, seqFrom, total, c); err != nil {
 				return nil, rebuilt, err

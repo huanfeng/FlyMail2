@@ -66,6 +66,37 @@ func (c *Client) SendEmail(from string, to, cc, bcc []string, subject, body, con
 	return w.Close()
 }
 
+// SendRaw sends a pre-built RFC 5322 message. The caller builds `raw` (headers + body);
+// recipients includes To/Cc/Bcc (Bcc must NOT appear in raw headers).
+func (c *Client) SendRaw(from string, recipients []string, raw []byte) error {
+	conn, err := c.connect()
+	if err != nil {
+		return err
+	}
+	defer conn.Quit()
+
+	auth := smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
+	if err := conn.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP auth failed: %w", err)
+	}
+	if err := conn.Mail(from); err != nil {
+		return fmt.Errorf("MAIL FROM failed: %w", err)
+	}
+	for _, rcpt := range recipients {
+		if err := conn.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("RCPT TO %s failed: %w", rcpt, err)
+		}
+	}
+	w, err := conn.Data()
+	if err != nil {
+		return fmt.Errorf("DATA failed: %w", err)
+	}
+	if _, err := w.Write(raw); err != nil {
+		return fmt.Errorf("write failed: %w", err)
+	}
+	return w.Close()
+}
+
 // TestConnection verifies the SMTP connection and authentication.
 func (c *Client) TestConnection() error {
 	conn, err := c.connect()

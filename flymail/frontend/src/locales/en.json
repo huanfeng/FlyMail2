@@ -7,7 +7,7 @@
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
-    "empty": "No messages", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged"
+    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged"
   },
   "sync": {
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",

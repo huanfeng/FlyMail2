@@ -7,7 +7,7 @@
   },
   "list": {
     "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
-    "empty": "暂无邮件", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标"
+    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标"
   },
   "sync": {
     "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",

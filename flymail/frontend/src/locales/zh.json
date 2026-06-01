@@ -71,6 +71,25 @@
       "saved": "已保存",
       "invalidDepth": "同步深度需在 100–5000 之间"
     },
-    "accountsPlaceholder": "账户管理（建设中）"
+    "account": {
+      "add": "添加账户",
+      "edit": "编辑",
+      "delete": "删除",
+      "sync": "立即同步",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "enable": "启用",
+      "disable": "停用",
+      "lastSync": "最后同步",
+      "never": "从未",
+      "messages": "邮件",
+      "folders": "文件夹",
+      "status": "状态",
+      "syncing": "同步中…",
+      "syncDone": "同步完成",
+      "syncError": "同步失败",
+      "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
+      "none": "暂无账户，点击「添加账户」开始"
+    }
   }
 }

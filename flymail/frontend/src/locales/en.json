@@ -71,6 +71,25 @@
       "saved": "Saved",
       "invalidDepth": "Sync depth must be between 100 and 5000"
     },
-    "accountsPlaceholder": "Account management (coming soon)"
+    "account": {
+      "add": "Add Account",
+      "edit": "Edit",
+      "delete": "Delete",
+      "sync": "Sync Now",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "lastSync": "Last sync",
+      "never": "Never",
+      "messages": "Messages",
+      "folders": "Folders",
+      "status": "Status",
+      "syncing": "Syncing…",
+      "syncDone": "Sync complete",
+      "syncError": "Sync failed",
+      "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
+      "none": "No accounts yet. Click \"Add Account\" to get started."
+    }
   }
 }

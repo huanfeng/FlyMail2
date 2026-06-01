@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
+import { AccountDialog } from '@/components/mail/AccountDialog'
 import { MailList } from '@/components/mail/MailList'
 import { Reader } from '@/components/mail/Reader'
-import { useAccounts, useFolders, useMessages, useSyncStatus, useTriggerSync } from '@/lib/queries'
+import {
+  useAccounts,
+  useFolders,
+  useMessages,
+  useSyncStatus,
+  useTriggerSync,
+  useDeleteAccount,
+} from '@/lib/queries'
+import type { Account } from '@/lib/types'
 
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
   // 未来支持多用户时需补 ownership 校验。
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
+  const { t } = useTranslation()
   const accountId = params.get('account') ? Number(params.get('account')) : null
   const folderId = params.get('folder') ? Number(params.get('folder')) : null
   const messageId = params.get('message') ? Number(params.get('message')) : null
@@ -24,6 +35,11 @@ export function ShellPage() {
   const { data: syncStatus } = useSyncStatus(accountId, syncEnabled)
   const triggerSync = useTriggerSync()
   const syncing = syncStatus?.phase === 'folders' || syncStatus?.phase === 'messages'
+
+  // ── 账户对话框 state ─────────────────────────────────────────────────────────
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const deleteAccount = useDeleteAccount()
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -80,30 +96,65 @@ export function ShellPage() {
     triggerSync.mutate(id)
   }
 
+  // ── 账户增删改回调 ────────────────────────────────────────────────────────────
+
+  function onAddAccount() {
+    setEditingAccount(null)
+    setDialogOpen(true)
+  }
+
+  function onEditAccount(a: Account) {
+    setEditingAccount(a)
+    setDialogOpen(true)
+  }
+
+  function onDeleteAccount(a: Account) {
+    if (window.confirm(t('account.deleteConfirm'))) {
+      deleteAccount.mutate(a.id)
+      if (a.id === accountId) {
+        setParam((p) => {
+          p.delete('account')
+          p.delete('folder')
+          p.delete('message')
+        })
+      }
+    }
+  }
+
   return (
-    <AppLayout
-      sidebar={
-        <AccountSidebar
-          accounts={accounts}
-          folders={folders}
-          activeAccountId={accountId}
-          activeFolderId={folderId}
-          syncing={syncing}
-          onSelectAccount={selectAccount}
-          onSelectFolder={selectFolder}
-          onSync={onSync}
-        />
-      }
-      list={
-        <MailList
-          folder={activeFolder}
-          messages={messages}
-          loading={messagesLoading}
-          activeMessageId={messageId}
-          onSelectMessage={selectMessage}
-        />
-      }
-      reader={<Reader />}
-    />
+    <>
+      <AppLayout
+        sidebar={
+          <AccountSidebar
+            accounts={accounts}
+            folders={folders}
+            activeAccountId={accountId}
+            activeFolderId={folderId}
+            syncing={syncing}
+            onSelectAccount={selectAccount}
+            onSelectFolder={selectFolder}
+            onSync={onSync}
+            onAddAccount={onAddAccount}
+            onEditAccount={onEditAccount}
+            onDeleteAccount={onDeleteAccount}
+          />
+        }
+        list={
+          <MailList
+            folder={activeFolder}
+            messages={messages}
+            loading={messagesLoading}
+            activeMessageId={messageId}
+            onSelectMessage={selectMessage}
+          />
+        }
+        reader={<Reader />}
+      />
+      <AccountDialog
+        open={dialogOpen}
+        account={editingAccount}
+        onOpenChange={setDialogOpen}
+      />
+    </>
   )
 }

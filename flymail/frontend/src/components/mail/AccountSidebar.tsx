@@ -8,6 +8,8 @@ import {
   Archive,
   Folder as FolderIcon,
   RefreshCw,
+  Plus,
+  Pencil,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Account, Folder } from '@/lib/types'
@@ -30,6 +32,9 @@ interface Props {
   onSelectAccount: (id: number) => void
   onSelectFolder: (id: number) => void
   onSync: (accountId: number) => void
+  onAddAccount: () => void
+  onEditAccount: (account: Account) => void
+  onDeleteAccount: (account: Account) => void
 }
 
 export function AccountSidebar({
@@ -41,6 +46,9 @@ export function AccountSidebar({
   onSelectAccount,
   onSelectFolder,
   onSync,
+  onAddAccount,
+  onEditAccount,
+  onDeleteAccount,
 }: Props) {
   const { t } = useTranslation()
   return (
@@ -50,30 +58,71 @@ export function AccountSidebar({
         style={{ borderBottom: '1px solid var(--rule)' }}
       >
         <span className="text-base font-medium">{t('app.name')}</span>
+        <button
+          type="button"
+          onClick={onAddAccount}
+          title={t('account.add')}
+          aria-label={t('account.add')}
+          className="rounded-md p-1 opacity-60 hover:opacity-100 transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ color: 'var(--ink-2)' }}
+        >
+          <Plus size={16} />
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {accounts.map((acc) => (
           <div key={acc.id} className="mb-2">
-            <button
-              type="button"
-              onClick={() => onSelectAccount(acc.id)}
-              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm"
-              style={{
-                color: acc.id === activeAccountId ? 'var(--ink)' : 'var(--ink-2)',
-                background: acc.id === activeAccountId ? 'var(--bg-hover)' : 'transparent',
-              }}
-            >
-              <span className="truncate">{acc.name || acc.email}</span>
-              <RefreshCw
-                size={14}
-                className={syncing && acc.id === activeAccountId ? 'animate-spin' : ''}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSync(acc.id)
+            <div className="group relative flex items-center">
+              <button
+                type="button"
+                onClick={() => onSelectAccount(acc.id)}
+                className="flex flex-1 min-w-0 items-center justify-between rounded-md px-2 py-1.5 text-sm"
+                style={{
+                  color: acc.id === activeAccountId ? 'var(--ink)' : 'var(--ink-2)',
+                  background: acc.id === activeAccountId ? 'var(--bg-hover)' : 'transparent',
                 }}
-                aria-label={t('sync.trigger')}
-              />
-            </button>
+              >
+                <span className="truncate">{acc.name || acc.email}</span>
+                <RefreshCw
+                  size={14}
+                  className={syncing && acc.id === activeAccountId ? 'animate-spin' : ''}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSync(acc.id)
+                  }}
+                  aria-label={t('sync.trigger')}
+                />
+              </button>
+              {/* 编辑 / 删除操作按钮，hover 时显示 */}
+              <div className="absolute right-7 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  title={t('account.edit')}
+                  aria-label={t('account.edit')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditAccount(acc)
+                  }}
+                  className="rounded p-1 hover:bg-[var(--bg-hover)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  style={{ color: 'var(--ink-3)' }}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  type="button"
+                  title={t('account.delete')}
+                  aria-label={t('account.delete')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteAccount(acc)
+                  }}
+                  className="rounded p-1 hover:bg-[var(--bg-hover)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  style={{ color: 'var(--ink-3)' }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
             {acc.id === activeAccountId &&
               folders
                 .filter((f) => f.selectable)

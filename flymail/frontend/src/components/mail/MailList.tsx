@@ -62,7 +62,7 @@ export function MailList({ folder, messages, loading, activeMessageId, onSelectM
           >
             <div
               className="flex h-8 w-8 items-center justify-center rounded-md text-[12.5px] font-semibold text-white"
-              style={{ background: 'var(--accent)' }}
+              style={{ background: 'var(--accent-color)' }}
             >
               {initials(m.from_name, m.from_addr)}
             </div>

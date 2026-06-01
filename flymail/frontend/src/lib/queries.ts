@@ -6,8 +6,9 @@ export function useAccounts() {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: async (): Promise<Account[]> => {
-      const { data } = await api.get<{ accounts: Account[] }>('/accounts')
-      return data.accounts ?? []
+      // /accounts 返回裸数组（与 folders/messages 的包裹形状不同）；兼容两种形状。
+      const { data } = await api.get<Account[] | { accounts: Account[] }>('/accounts')
+      return Array.isArray(data) ? data : (data.accounts ?? [])
     },
   })
 }

@@ -3,6 +3,7 @@ package database
 import (
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/folder"
 
 	coredb "flymail-core/database"
 	"gorm.io/gorm"
@@ -18,5 +19,6 @@ func Migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&auth.AdminUser{},
 		&account.Account{},
+		&folder.Folder{},
 	)
 }

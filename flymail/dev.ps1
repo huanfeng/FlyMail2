@@ -150,8 +150,8 @@ function Invoke-DBInit {
     if (-not (Assert-Tool 'go' '请先安装 Go')) { return }
     $user = Read-Host '管理员用户名 (默认 admin)'
     if ([string]::IsNullOrWhiteSpace($user)) { $user = 'admin' }
-    $pass = Read-Host '管理员密码'
-    if ([string]::IsNullOrWhiteSpace($pass)) { Write-Err '密码不能为空'; return }
+    $pass = Read-Host '管理员密码 (开发默认 admin，直接回车即用)'
+    if ([string]::IsNullOrWhiteSpace($pass)) { $pass = 'admin'; Write-Warn '使用开发默认密码 admin，生产请用菜单 11 修改' }
     Push-Location $Backend
     try { go run . db init --admin-user $user --admin-pass $pass --data-dir $DataDir } finally { Pop-Location }
 }

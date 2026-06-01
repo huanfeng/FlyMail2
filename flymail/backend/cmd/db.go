@@ -20,7 +20,9 @@ var dbInitCmd = &cobra.Command{
 		username, _ := cmd.Flags().GetString("admin-user")
 		password, _ := cmd.Flags().GetString("admin-pass")
 		if password == "" {
-			return fmt.Errorf("--admin-pass 不能为空")
+			// 开发便利：未指定密码时默认 admin（配合 admin-user 默认 admin = admin/admin）。
+			password = "admin"
+			fmt.Println("⚠ 未指定 --admin-pass，使用默认开发密码 \"admin\"；生产环境请用 db reset-admin-password 修改")
 		}
 		return runDBInit(dataDir, configFile, username, password)
 	},

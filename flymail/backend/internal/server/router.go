@@ -10,6 +10,7 @@ import (
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
 	syncmod "flymail/modules/email/sync"
+	"flymail/modules/system/setting"
 	"flymail/web"
 
 	"github.com/gin-contrib/cors"
@@ -23,6 +24,7 @@ type Deps struct {
 	Folder  *folder.Service
 	Message *message.Service
 	Sync    *syncmod.Service
+	Setting *setting.Service
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -45,6 +47,9 @@ func New(deps Deps) http.Handler {
 		protected := api.Group("")
 		protected.Use(auth.Middleware(deps.Auth))
 		account.RegisterRoutes(protected, deps.Account)
+		if deps.Setting != nil {
+			setting.RegisterRoutes(protected, deps.Setting)
+		}
 		if deps.Folder != nil {
 			folder.RegisterRoutes(protected, deps.Folder)
 		}

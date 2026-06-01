@@ -5,6 +5,7 @@ import (
 	"flymail/modules/email/account"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
+	"flymail/modules/system/setting"
 
 	coredb "flymail-core/database"
 	"gorm.io/gorm"
@@ -24,5 +25,6 @@ func Migrate(db *gorm.DB) error {
 		&message.Message{},
 		&message.MessageBody{},
 		&message.Attachment{},
+		&setting.Setting{},
 	)
 }

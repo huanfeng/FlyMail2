@@ -76,6 +76,7 @@
     "title": "Compose",
     "reply": "Reply",
     "forward": "Forward",
+    "from": "From",
     "to": "To",
     "cc": "Cc",
     "bcc": "Bcc",
@@ -83,6 +84,7 @@
     "body": "Body",
     "send": "Send",
     "saveDraft": "Save Draft",
+    "savingDraft": "Saving…",
     "cancel": "Cancel",
     "sending": "Sending…",
     "sent": "Sent",
@@ -92,7 +94,11 @@
     "draftsBox": "Drafts (Local)",
     "noDrafts": "No drafts",
     "sendDraft": "Send",
-    "deleteDraft": "Delete draft"
+    "deleteDraft": "Delete draft",
+    "minimize": "Minimize",
+    "showCc": "Cc",
+    "showBcc": "Bcc",
+    "attachDisabled": "Attachment sending coming soon"
   },
   "settings": {
     "title": "Settings",

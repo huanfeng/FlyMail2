@@ -76,6 +76,7 @@
     "title": "写邮件",
     "reply": "回复",
     "forward": "转发",
+    "from": "发件人",
     "to": "收件人",
     "cc": "抄送",
     "bcc": "密送",
@@ -83,6 +84,7 @@
     "body": "正文",
     "send": "发送",
     "saveDraft": "存草稿",
+    "savingDraft": "保存中…",
     "cancel": "取消",
     "sending": "发送中…",
     "sent": "已发送",
@@ -92,7 +94,11 @@
     "draftsBox": "草稿箱(本地)",
     "noDrafts": "暂无草稿",
     "sendDraft": "发送",
-    "deleteDraft": "删除草稿"
+    "deleteDraft": "删除草稿",
+    "minimize": "最小化",
+    "showCc": "抄送",
+    "showBcc": "密送",
+    "attachDisabled": "附件发送功能即将推出"
   },
   "settings": {
     "title": "设置",

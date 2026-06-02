@@ -23,6 +23,10 @@ type Session interface {
 	MarkUnread(uids ...imapv2.UID) error
 	MarkStarred(uids ...imapv2.UID) error
 	MarkUnstarred(uids ...imapv2.UID) error
+	// IDLE 能力（M6）：
+	CanIDLE() bool
+	StartIDLE() (*coreimap.IdleHandle, error)
+	SetIDLEHandler(func(coreimap.IDLEEvent))
 	Close() error
 }
 

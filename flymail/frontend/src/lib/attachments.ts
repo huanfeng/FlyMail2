@@ -43,7 +43,9 @@ export async function downloadAttachment(
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  // 延迟释放：a.click() 触发的下载是异步发起的，立即 revoke 在部分浏览器
+  // （Firefox / 大文件）会导致下载到空文件，故留出时间再释放。
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 /**
@@ -51,13 +53,14 @@ export async function downloadAttachment(
  * 使内联图片（如签名图、嵌入图）能在 iframe 中正常渲染。
  *
  * content_id 比对忽略大小写，同时兼容带尖括号 `<cid>` 的形式（仅匹配括号内的值）。
+ * 前导字符兼容引号、括号与无引号属性（`src=cid:xxx`）。
  */
 export function rewriteCidLinks(
   html: string,
   messageId: number,
   attachments: Attachment[],
 ): string {
-  return html.replace(/(["'(])cid:([^"')\s]+)/gi, (m, pre, cid) => {
+  return html.replace(/(["'(=])cid:([^"')\s>]+)/gi, (m, pre, cid) => {
     // 去掉可能的 < > 包裹
     const cidClean = String(cid).replace(/^<|>$/g, '').toLowerCase()
     const idx = attachments.findIndex((a) => {

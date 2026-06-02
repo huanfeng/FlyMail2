@@ -3,6 +3,7 @@ package sync
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	gosync "sync"
 	"time"
 
@@ -299,6 +300,9 @@ func (s *Service) AttachmentContent(messageID uint, idx int) (*AttachmentResult,
 		return nil, ErrAttachmentNotFound
 	}
 	a := atts[idx]
+	if a.Err != nil {
+		return nil, fmt.Errorf("read attachment content: %w", a.Err)
+	}
 	ct := a.ContentType
 	if ct == "" {
 		ct = "application/octet-stream"

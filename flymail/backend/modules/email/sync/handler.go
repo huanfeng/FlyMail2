@@ -2,8 +2,8 @@ package sync
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -11,6 +11,23 @@ import (
 
 	"flymail/modules/email/message"
 )
+
+// encodeRFC5987 按 RFC 5987 对文件名做 ext-value 百分号编码：保留 attr-char，
+// 其余字节一律 %XX（大写）。url.PathEscape 会漏编码 / ; = , 等在 ext-value 中非法的字符，
+// 故自行实现，兼容中文等非 ASCII 文件名。
+func encodeRFC5987(s string) string {
+	const attrChars = "!#$&+-.^_`|~"
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		isAlnum := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		if isAlnum || strings.IndexByte(attrChars, c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
 
 // RegisterRoutes 挂载同步路由：POST /accounts/:id/sync、GET /accounts/:id/sync/status、GET /accounts/:id/stats。
 func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
@@ -153,8 +170,8 @@ func AttachmentHandler(svc *Service, verify func(token string) error) gin.Handle
 		if fn == "" {
 			fn = "attachment"
 		}
-		// RFC 5987 编码文件名，兼容中文等非 ASCII。
-		c.Header("Content-Disposition", disp+"; filename*=UTF-8''"+url.PathEscape(fn))
+		// RFC 5987 编码文件名，兼容中文等非 ASCII 及特殊字符。
+		c.Header("Content-Disposition", disp+"; filename*=UTF-8''"+encodeRFC5987(fn))
 		c.Data(http.StatusOK, res.ContentType, res.Data)
 	}
 }

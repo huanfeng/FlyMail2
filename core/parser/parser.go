@@ -62,6 +62,9 @@ type AttachmentData struct {
 	IsInline    bool
 	Size        int64
 	Content     []byte
+	// Err 记录 capture=true 时读取该附件内容的错误（如解码失败）；调用方据此避免
+	// 把截断/空内容当作成功返回。展示路径（capture=false）始终为 nil。
+	Err error
 }
 
 // ExtractAttachments 解析整封邮件，返回所有附件（含内联部件）及其原始内容字节，顺序与
@@ -143,9 +146,10 @@ func inlineFilename(h *message.Header) string {
 func readAttachment(body io.Reader, filename, ct, cid string, inline, capture bool) AttachmentData {
 	a := AttachmentData{Filename: filename, ContentType: ct, ContentID: cid, IsInline: inline}
 	if capture {
-		b, _ := io.ReadAll(body)
+		b, err := io.ReadAll(body)
 		a.Content = b
 		a.Size = int64(len(b))
+		a.Err = err
 	} else {
 		a.Size, _ = io.Copy(io.Discard, body)
 	}

@@ -32,11 +32,12 @@
     "messages": "Syncing messages…", "done": "Sync complete", "error": "Sync failed: {{error}}"
   },
   "reader": {
-    "welcome": "Select a message to read",
-    "welcomeHint": "Click any message from the list on the left",
+    "welcome": "Select a message",
+    "welcomeHint": "Click any message from the list on the left to read it",
     "notReady": "Message reading comes in a later version",
     "loading": "Loading…",
     "to": "To",
+    "cc": "Cc",
     "showImages": "This message contains remote images that were not loaded",
     "showImagesBtn": "Show images",
     "attachments": "Attachments",
@@ -44,8 +45,20 @@
     "preview": "Preview",
     "noBody": "(No body)",
     "loadError": "Failed to load message body",
+    "loadErrorHint": "Check your connection and try again",
     "star": "Star",
-    "unstar": "Unstar"
+    "unstar": "Unstar",
+    "markUnread": "Mark as unread",
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "replyTo": "Reply to {{name}}…",
+    "scKbNav": "Next / previous",
+    "scKbCompose": "Compose",
+    "scKbReply": "Reply",
+    "scKbStar": "Star",
+    "scKbSearch": "Search",
+    "sendTo": "to"
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",

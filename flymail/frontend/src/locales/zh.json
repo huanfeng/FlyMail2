@@ -13,8 +13,19 @@
   },
   "list": {
     "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
-    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标",
-    "loadingMore": "加载中…", "noMore": "没有更多"
+    "totalCount": "共 {{count}} 封",
+    "empty": "暂无邮件", "noSubject": "（无主题）",
+    "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标",
+    "loadingMore": "加载中…", "noMore": "没有更多",
+    "clearSearch": "清除搜索",
+    "nothingHere": "没有邮件",
+    "noMessages": "此文件夹暂无内容",
+    "searchNoResult": "未找到匹配的邮件",
+    "relTime": {
+      "justNow": "刚刚",
+      "minutesAgo": "{{n}}分",
+      "yesterday": "昨天"
+    }
   },
   "sync": {
     "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",

@@ -13,8 +13,19 @@
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
-    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
-    "loadingMore": "Loading…", "noMore": "No more"
+    "totalCount": "{{count}} messages",
+    "empty": "No messages", "noSubject": "(No subject)",
+    "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "loadingMore": "Loading…", "noMore": "No more",
+    "clearSearch": "Clear search",
+    "nothingHere": "Nothing here",
+    "noMessages": "This folder has no messages",
+    "searchNoResult": "No matching messages found",
+    "relTime": {
+      "justNow": "now",
+      "minutesAgo": "{{n}}m",
+      "yesterday": "Yesterday"
+    }
   },
   "sync": {
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",

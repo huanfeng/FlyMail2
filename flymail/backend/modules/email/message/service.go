@@ -14,11 +14,6 @@ import (
 const (
 	defaultSyncDepth = 1000
 	fetchBatchSize   = 200
-	// incrementalProbeMin 是无 UIDNEXT 服务商（如 163）增量同步时，
-	// 按序号至少回探的尾部封数。用于兜住「本地行数被 syncDepth 截断、
-	// 与服务器总数不可比」以及「删旧+收新使总数 delta<=0」两种漏抓场景，
-	// 配合 Upsert 幂等补齐。
-	incrementalProbeMin = 50
 )
 
 // IMAPFetcher 是邮件元数据同步所需的最小 IMAP 能力（便于测试 mock）。*coreimap.Session 满足此接口。
@@ -181,25 +176,30 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 			}
 		}
 	} else {
-		// 无 UIDNEXT（163）：无法做 UID 增量。本地行数（prevTotal）可能因 syncDepth
-		// 截断而小于服务器总数，二者不可比；删旧+收新还会使 delta<=0。
-		// 故按序号回探尾部一个「有界」窗口：至少 incrementalProbeMin，
-		// 不超过 syncDepth；靠 Upsert 幂等补齐新邮件，避免每轮全量重抓也不漏新信。
-		currentTotal := int(sel.NumMessages)
-		if currentTotal > 0 {
-			probe := currentTotal - prevTotal
-			if probe < incrementalProbeMin {
-				probe = incrementalProbeMin
+		// 无 UIDNEXT（163）：用本地已存最大 UID 作锚点，抓 UID 区间 [maxUID+1, *]——
+		// 服务器只返回该区间内实际存在的 UID（即新到邮件），结果有界、不会每轮全量重抓。
+		// 首次同步（本地为空）则按序号抓最近 syncDepth 封作基线。
+		maxUID, _ := s.repo.MaxUID(folderID)
+		if maxUID > 0 {
+			emails, ferr := c.FetchByUIDRange(imapv2.UID(maxUID+1), 0, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+			if ferr != nil {
+				return nil, 0, ferr
 			}
-			if probe > s.syncDepth {
-				probe = s.syncDepth
+			for _, e := range emails {
+				if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
+					return nil, 0, err
+				}
 			}
-			from := uint32(1)
-			if currentTotal > probe {
-				from = uint32(currentTotal - probe + 1)
-			}
-			if err := s.fetchSeqRangeBatched(accountID, folderID, from, uint32(currentTotal), c); err != nil {
-				return nil, 0, err
+		} else {
+			currentTotal := int(sel.NumMessages)
+			if currentTotal > 0 {
+				from := uint32(1)
+				if currentTotal > s.syncDepth {
+					from = uint32(currentTotal - s.syncDepth + 1)
+				}
+				if err := s.fetchSeqRangeBatched(accountID, folderID, from, uint32(currentTotal), c); err != nil {
+					return nil, 0, err
+				}
 			}
 		}
 	}

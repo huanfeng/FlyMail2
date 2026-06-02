@@ -123,10 +123,9 @@ func TestIncrementalSyncKnownUIDNext(t *testing.T) {
 	}
 }
 
-// 场景 2：无 UIDNEXT（163）。SELECT 返回 UIDNext=0、NumMessages=12；STATUS(UIDNext)=nil；prevTotal=10。
-// 无 UIDNEXT 路径按序号回探尾部「有界」窗口（至少 incrementalProbeMin=50，不超 syncDepth）。
-// 因 currentTotal(12) < 50，from=1；期望：FetchBySeqRange 收到 from=1 to=12；
-// newCount=2（仅 uid 11、12 为新增）；state.UIDNext = 本地 maxUID+1。
+// 场景 2：无 UIDNEXT（163），本地已有基线。SELECT 返回 UIDNext=0、NumMessages=12；STATUS(UIDNext)=nil。
+// 本地 maxUID=10 → 用 UID 锚点抓 [maxUID+1, *] = [11, 0(表示 *)]；
+// 期望：FetchByUIDRange 收到 from=11 to=0；newCount=2（uid 11、12 新增）；state.UIDNext = 本地 maxUID+1。
 func TestIncrementalSyncNoUIDNext(t *testing.T) {
 	svc, repo := newMsgService(t)
 	// 本地已有 uid 1..10。
@@ -136,20 +135,20 @@ func TestIncrementalSyncNoUIDNext(t *testing.T) {
 		uidNext:       0,
 		numMessages:   12,
 		statusUIDNext: nil,
-		emails:        mkEmails(1, 12), // 序号 1..12 对应 uid 1..12（回探窗口覆盖全部）
+		emails:        mkEmails(11, 12), // 服务器侧新邮件 uid 11、12
 	}
 	state, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 10, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
-	if !f.seqFetchCalled {
-		t.Fatalf("应调用 FetchBySeqRange")
+	if !f.uidFetchCalled {
+		t.Fatalf("应调用 FetchByUIDRange（UID 锚点增量）")
 	}
-	if f.seqFrom != 1 || f.seqTo != 12 {
-		t.Errorf("FetchBySeqRange 入参 = [%d,%d], 期望 [1,12]", f.seqFrom, f.seqTo)
+	if f.uidFrom != 11 || f.uidTo != 0 {
+		t.Errorf("FetchByUIDRange 入参 = [%d,%d], 期望 [11,0(*)]", f.uidFrom, f.uidTo)
 	}
-	if f.uidFetchCalled {
-		t.Errorf("不应调用 FetchByUIDRange")
+	if f.seqFetchCalled {
+		t.Errorf("本地有基线时不应调用 FetchBySeqRange")
 	}
 	if newCount != 2 {
 		t.Errorf("newCount = %d, 期望 2（uid 11、12 为新增）", newCount)
@@ -159,10 +158,34 @@ func TestIncrementalSyncNoUIDNext(t *testing.T) {
 	}
 }
 
-// 场景 4：无 UIDNEXT + 删旧（删除使总数 delta<=0）。回归保护：旧实现 delta<=0 会直接跳过、
-// 不抓任何邮件导致漏同步；新实现按下限 incrementalProbeMin 仍回探固定尾部窗口。
-// 本地 uid 1..100；服务器 NumMessages=98，prevTotal=100。
-// probe = 98-100 = -2 → 取下限 50；currentTotal(98) > 50 → from = 98-50+1 = 49，抓序号 [49,98]。
+// 场景 2b：无 UIDNEXT 且本地为空（首次同步）→ 按序号抓最近 syncDepth 封作基线。
+func TestIncrementalSyncNoUIDNextFirstSync(t *testing.T) {
+	svc, _ := newMsgService(t)
+	f := &recordingFetcher{
+		uidValidity:   1,
+		uidNext:       0,
+		numMessages:   5,
+		statusUIDNext: nil,
+		emails:        mkEmails(1, 5),
+	}
+	_, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 0, f)
+	if err != nil {
+		t.Fatalf("IncrementalSync: %v", err)
+	}
+	if !f.seqFetchCalled {
+		t.Fatalf("首次同步(本地空)应按序号抓基线")
+	}
+	if f.uidFetchCalled {
+		t.Errorf("首次同步不应走 UID 锚点")
+	}
+	if newCount != 5 {
+		t.Errorf("newCount = %d, 期望 5", newCount)
+	}
+}
+
+// 场景 4：无 UIDNEXT + 删旧（服务器总数下降）。UID 锚点不受总数变化影响：
+// 本地 maxUID=100，仍抓 [101, *]，只取真正更高 UID 的新邮件，天然不漏不重。
+// 本地 uid 1..100；服务器 NumMessages=98（删了几封又来了 3 封新信 uid 101..103）。
 func TestIncrementalSyncNoUIDNextWithDeletions(t *testing.T) {
 	svc, repo := newMsgService(t)
 	seedFolder(t, repo, 1, 100)
@@ -171,16 +194,20 @@ func TestIncrementalSyncNoUIDNextWithDeletions(t *testing.T) {
 		uidNext:       0,
 		numMessages:   98,
 		statusUIDNext: nil,
-		emails:        mkEmails(49, 98),
+		emails:        mkEmails(101, 103), // UID > 100 的新邮件
 	}
-	if _, _, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 100, f); err != nil {
+	_, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 100, f)
+	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
-	if !f.seqFetchCalled {
-		t.Fatalf("delta<=0 时仍应回探尾部窗口，不应跳过")
+	if !f.uidFetchCalled {
+		t.Fatalf("应调用 FetchByUIDRange（UID 锚点增量）")
 	}
-	if f.seqFrom != 49 || f.seqTo != 98 {
-		t.Errorf("FetchBySeqRange 入参 = [%d,%d], 期望 [49,98]", f.seqFrom, f.seqTo)
+	if f.uidFrom != 101 || f.uidTo != 0 {
+		t.Errorf("FetchByUIDRange 入参 = [%d,%d], 期望 [101,0(*)]", f.uidFrom, f.uidTo)
+	}
+	if newCount != 3 {
+		t.Errorf("newCount = %d, 期望 3", newCount)
 	}
 }
 

@@ -331,8 +331,10 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 	if err := m.folders.UpdateSyncState(f.ID, state.UIDValidity, state.UIDNext, state.Total, state.Unread, time.Now()); err != nil {
 		log.Printf("sync-manager: 账户 %d 文件夹 %q 回写状态失败: %v", accountID, f.Path, err)
 	}
+	// 始终输出一行同步结果，便于诊断（本地总数/未读/锚点 uidNext/本次新增）。
+	log.Printf("sync-manager: 账户 %d 文件夹 %q 同步完成 本地=%d 未读=%d uidNext=%d 新增=%d",
+		accountID, f.Path, state.Total, state.Unread, state.UIDNext, newCount)
 	if newCount > 0 {
-		log.Printf("sync-manager: 账户 %d 文件夹 %q 新增 %d 封", accountID, f.Path, newCount)
 		if m.pub != nil {
 			payload, _ := json.Marshal(Event{
 				Type:      "new_mail",

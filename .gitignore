@@ -37,6 +37,9 @@ dist/
 # Build
 bin/
 
+# Dev 进程管理（PID 文件）
+.dev/
+
 # Environment
 .env
 .env.local

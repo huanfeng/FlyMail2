@@ -58,12 +58,14 @@ export function getTheme(): ThemePref {
 
 /**
  * 应用主题到 documentElement 并持久化
- * - 设置 data-theme 属性（触发 CSS 色调覆盖）
- * - 切换 .dark class（触发暗色令牌）
+ * - 设置 data-theme 属性（触发 CSS 色调令牌覆盖）
+ * - 设置 data-mode 属性（供 MailMaster CSS 选择器 [data-mode="dark"] 使用）
+ * - 切换 .dark class（供 shadcn 组件 @custom-variant dark 使用）
  * - 写入 localStorage
  */
 export function applyTheme(t: ThemePref): void {
-  document.documentElement.setAttribute('data-theme', t.tone)
+  document.documentElement.dataset.theme = t.tone
+  document.documentElement.dataset.mode = t.mode
   document.documentElement.classList.toggle('dark', t.mode === 'dark')
   localStorage.setItem(KEY_MODE, t.mode)
   localStorage.setItem(KEY_TONE, t.tone)

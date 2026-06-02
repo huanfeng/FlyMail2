@@ -11,6 +11,7 @@ beforeEach(() => {
   // 每个测试前清空 localStorage 并重置 documentElement
   localStorage.clear()
   document.documentElement.removeAttribute('data-theme')
+  document.documentElement.removeAttribute('data-mode')
   document.documentElement.classList.remove('dark')
 })
 
@@ -41,18 +42,23 @@ describe('getTheme()', () => {
 })
 
 describe('applyTheme()', () => {
-  it('设置 data-theme 属性和 dark class', () => {
+  it('同时设置 data-theme、data-mode 属性和 dark class', () => {
     applyTheme({ mode: 'dark', tone: 'sky' })
-    expect(document.documentElement.getAttribute('data-theme')).toBe('sky')
+    // MailMaster CSS 使用 data-theme + data-mode 双属性选择器
+    expect(document.documentElement.dataset.theme).toBe('sky')
+    expect(document.documentElement.dataset.mode).toBe('dark')
+    // shadcn 组件使用 .dark class（@custom-variant dark）
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  it('亮色模式移除 dark class', () => {
-    // 先设置暗色
+  it('亮色模式：data-mode="light" 且移除 dark class', () => {
+    // 先设置暗色状态
     document.documentElement.classList.add('dark')
+    document.documentElement.dataset.mode = 'dark'
     applyTheme({ mode: 'light', tone: 'warm' })
+    expect(document.documentElement.dataset.theme).toBe('warm')
+    expect(document.documentElement.dataset.mode).toBe('light')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
-    expect(document.documentElement.getAttribute('data-theme')).toBe('warm')
   })
 
   it('持久化：applyTheme 后 getTheme() 返回相同偏好', () => {
@@ -70,17 +76,19 @@ describe('applyTheme()', () => {
 })
 
 describe('initTheme()', () => {
-  it('读取持久化偏好并应用', () => {
+  it('读取持久化偏好并同时设置 data-theme、data-mode 和 dark class', () => {
     localStorage.setItem('flymail_theme_mode', 'dark')
     localStorage.setItem('flymail_theme_tone', 'mint')
     initTheme()
-    expect(document.documentElement.getAttribute('data-theme')).toBe('mint')
+    expect(document.documentElement.dataset.theme).toBe('mint')
+    expect(document.documentElement.dataset.mode).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  it('无持久化时应用默认值', () => {
+  it('无持久化时应用默认值（light + slate）', () => {
     initTheme()
-    expect(document.documentElement.getAttribute('data-theme')).toBe('slate')
+    expect(document.documentElement.dataset.theme).toBe('slate')
+    expect(document.documentElement.dataset.mode).toBe('light')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 })

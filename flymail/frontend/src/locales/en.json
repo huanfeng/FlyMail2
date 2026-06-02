@@ -16,6 +16,7 @@
   },
   "reader": {
     "welcome": "Select a message to read",
+    "welcomeHint": "Click any message from the list on the left",
     "notReady": "Message reading comes in a later version",
     "loading": "Loading…",
     "to": "To",
@@ -25,7 +26,9 @@
     "download": "Download",
     "preview": "Preview",
     "noBody": "(No body)",
-    "loadError": "Failed to load message body"
+    "loadError": "Failed to load message body",
+    "star": "Star",
+    "unstar": "Unstar"
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",

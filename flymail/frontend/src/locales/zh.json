@@ -16,6 +16,7 @@
   },
   "reader": {
     "welcome": "选择一封邮件以阅读",
+    "welcomeHint": "从左侧列表中点击任意邮件",
     "notReady": "邮件阅读将在后续版本提供",
     "loading": "加载中…",
     "to": "收件人",
@@ -25,7 +26,9 @@
     "download": "下载",
     "preview": "预览",
     "noBody": "（无正文）",
-    "loadError": "邮件正文加载失败"
+    "loadError": "邮件正文加载失败",
+    "star": "标星",
+    "unstar": "取消标星"
   },
   "account": {
     "add": "添加账户", "edit": "编辑账户", "delete": "删除账户",

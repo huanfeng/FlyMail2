@@ -180,6 +180,12 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 	pollTicker := time.NewTicker(m.pollInterval())
 	defer pollTicker.Stop()
 
+	// idleRefresh timer 在循环外创建一次、每次进入 IDLE 时 Reset，
+	// 避免在长生命周期 for 循环内反复 NewTimer/defer 累积（资源泄漏）。
+	refreshTimer := time.NewTimer(idleRefreshInterval)
+	defer refreshTimer.Stop()
+	stopTimer(refreshTimer) // 起始停掉，仅在成功进入 IDLE 后 Reset
+
 	for {
 		var handle *coreimap.IdleHandle
 		var idleDone <-chan error
@@ -190,9 +196,8 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 					if h, err := sess.StartIDLE(); err == nil {
 						handle = h
 						idleDone = h.Done()
-						t := time.NewTimer(idleRefreshInterval)
-						defer t.Stop()
-						idleRefresh = t.C
+						refreshTimer.Reset(idleRefreshInterval)
+						idleRefresh = refreshTimer.C
 					}
 				}
 			}
@@ -205,21 +210,43 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 			}
 			return nil
 		case <-idleCh:
+			stopTimer(refreshTimer)
+			// Stop 失败说明 IDLE 未干净结束，连接状态不确定：返回触发重连，
+			// 不要在脏连接上继续 FETCH。
 			if handle != nil {
-				_ = handle.Stop("new-mail")
+				if err := handle.Stop("new-mail"); err != nil {
+					return fmt.Errorf("stop idle (new-mail): %w", err)
+				}
 			}
 			m.pollInbox(accountID, sess)
 		case <-idleDone:
+			stopTimer(refreshTimer)
 			return fmt.Errorf("idle connection closed")
 		case <-idleRefresh:
 			if handle != nil {
 				_ = handle.Stop("refresh")
 			}
+			// timer 已触发并被 select 读空，下一轮进入 IDLE 时再 Reset。
 		case <-pollTicker.C:
+			stopTimer(refreshTimer)
 			if handle != nil {
-				_ = handle.Stop("poll")
+				if err := handle.Stop("poll"); err != nil {
+					return fmt.Errorf("stop idle (poll): %w", err)
+				}
 			}
 			m.pollAll(accountID, sess)
+			// 重新读取设置中的轮询间隔，使其变更能及时生效。
+			pollTicker.Reset(m.pollInterval())
+		}
+	}
+}
+
+// stopTimer 停止 timer 并清空其 channel，便于后续安全 Reset。
+func stopTimer(t *time.Timer) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
 		}
 	}
 }

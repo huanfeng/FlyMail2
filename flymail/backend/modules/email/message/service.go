@@ -14,6 +14,11 @@ import (
 const (
 	defaultSyncDepth = 1000
 	fetchBatchSize   = 200
+	// incrementalProbeMin 是无 UIDNEXT 服务商（如 163）增量同步时，
+	// 按序号至少回探的尾部封数。用于兜住「本地行数被 syncDepth 截断、
+	// 与服务器总数不可比」以及「删旧+收新使总数 delta<=0」两种漏抓场景，
+	// 配合 Upsert 幂等补齐。
+	incrementalProbeMin = 50
 )
 
 // IMAPFetcher 是邮件元数据同步所需的最小 IMAP 能力（便于测试 mock）。*coreimap.Session 满足此接口。
@@ -176,13 +181,22 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 			}
 		}
 	} else {
-		// 无 UIDNEXT（163）：用消息总数增量，按序号补抓尾部 delta 封。
+		// 无 UIDNEXT（163）：无法做 UID 增量。本地行数（prevTotal）可能因 syncDepth
+		// 截断而小于服务器总数，二者不可比；删旧+收新还会使 delta<=0。
+		// 故按序号回探尾部一个「有界」窗口：至少 incrementalProbeMin，
+		// 不超过 syncDepth；靠 Upsert 幂等补齐新邮件，避免每轮全量重抓也不漏新信。
 		currentTotal := int(sel.NumMessages)
-		delta := currentTotal - prevTotal
-		if delta > 0 {
-			from := uint32(currentTotal - delta + 1)
-			if from < 1 {
-				from = 1
+		if currentTotal > 0 {
+			probe := currentTotal - prevTotal
+			if probe < incrementalProbeMin {
+				probe = incrementalProbeMin
+			}
+			if probe > s.syncDepth {
+				probe = s.syncDepth
+			}
+			from := uint32(1)
+			if currentTotal > probe {
+				from = uint32(currentTotal - probe + 1)
 			}
 			if err := s.fetchSeqRangeBatched(accountID, folderID, from, uint32(currentTotal), c); err != nil {
 				return nil, 0, err

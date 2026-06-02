@@ -42,7 +42,10 @@ type Event struct {
 	Type      string `json:"type"` // "new_mail"
 	AccountID uint   `json:"account_id"`
 	FolderID  uint   `json:"folder_id"`
-	NewCount  int    `json:"new_count"`
+	// NewCount 为本次同步「本地新增行数」，非服务器新邮件精确数（UIDVALIDITY
+	// 重建时等于整库行数）。仅作为「有变化、需刷新」的提示，前端据此失效查询；
+	// 若将来要展示精确数字，应改为基于 UID>prevUIDNext 的计数。
+	NewCount int `json:"new_count"`
 }
 
 // Publisher 由 sse.Hub 适配实现（Manager 只依赖发布能力）。

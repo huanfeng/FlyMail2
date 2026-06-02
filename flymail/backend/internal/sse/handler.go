@@ -41,13 +41,17 @@ func NewHandler(hub *Hub, verify func(token string) error) http.HandlerFunc {
 			case <-ctx.Done():
 				return
 			case <-heartbeat.C:
-				fmt.Fprint(w, ": ping\n\n")
+				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+					return // 写失败说明连接已断，退出避免卡在 Flush。
+				}
 				flusher.Flush()
 			case msg, open := <-ch:
 				if !open {
 					return
 				}
-				fmt.Fprintf(w, "data: %s\n\n", msg)
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 		}

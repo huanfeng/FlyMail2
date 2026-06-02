@@ -1453,3 +1453,26 @@ body.is-resizing * { cursor: col-resize !important; }
   border-radius: 999px; background: var(--accent);
   border: 2px solid var(--bg-alt);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   账户行操作按钮：仅 hover 时显示
+   ════════════════════════════════════════════════════════════════════════ */
+/* 默认隐藏，父级 .group hover 时显示 */
+.account-row-actions {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+/* 父容器 hover 触发显示 */
+.group:hover .account-row-actions {
+  opacity: 1;
+}
+
+/* 同步旋转动画（用于同步中状态） */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin-anim {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}

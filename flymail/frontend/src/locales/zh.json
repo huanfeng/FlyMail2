@@ -1,6 +1,12 @@
 {
   "app": { "name": "FlyMail" },
-  "sidebar": { "compose": "写邮件", "accounts": "账户", "settings": "设置" },
+  "sidebar": {
+    "compose": "写邮件",
+    "accounts": "账户",
+    "settings": "设置",
+    "accountCount": "{{count}} 个账号",
+    "noAccounts": "暂无账号"
+  },
   "folder": {
     "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
     "trash": "已删除", "junk": "垃圾邮件", "archive": "归档", "custom": "文件夹"

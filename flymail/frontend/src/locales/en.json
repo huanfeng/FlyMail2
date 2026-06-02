@@ -1,6 +1,12 @@
 {
   "app": { "name": "FlyMail" },
-  "sidebar": { "compose": "Compose", "accounts": "Accounts", "settings": "Settings" },
+  "sidebar": {
+    "compose": "Compose",
+    "accounts": "Accounts",
+    "settings": "Settings",
+    "accountCount": "{{count}} accounts",
+    "noAccounts": "No accounts"
+  },
   "folder": {
     "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
     "trash": "Trash", "junk": "Junk", "archive": "Archive", "custom": "Folder"

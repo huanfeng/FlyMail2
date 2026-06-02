@@ -7,7 +7,8 @@
   },
   "list": {
     "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
-    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标"
+    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标",
+    "loadingMore": "加载中…", "noMore": "没有更多"
   },
   "sync": {
     "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",
@@ -107,7 +108,10 @@
       "save": "保存",
       "saved": "已保存",
       "invalidDepth": "同步深度需在 100–5000 之间",
-      "invalidInterval": "轮询间隔需在 30–3600 之间"
+      "invalidInterval": "轮询间隔需在 30–3600 之间",
+      "listStyle": "列表样式",
+      "listCompact": "紧凑",
+      "listCard": "卡片"
     },
     "account": {
       "add": "添加账户",

@@ -7,7 +7,8 @@
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
-    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged"
+    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "loadingMore": "Loading…", "noMore": "No more"
   },
   "sync": {
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
@@ -107,7 +108,10 @@
       "save": "Save",
       "saved": "Saved",
       "invalidDepth": "Sync depth must be between 100 and 5000",
-      "invalidInterval": "Poll interval must be between 30 and 3600"
+      "invalidInterval": "Poll interval must be between 30 and 3600",
+      "listStyle": "List style",
+      "listCompact": "Compact",
+      "listCard": "Card"
     },
     "account": {
       "add": "Add Account",

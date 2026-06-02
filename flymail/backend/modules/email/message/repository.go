@@ -2,6 +2,7 @@ package message
 
 import (
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -41,6 +42,52 @@ func (r *Repository) ListByFolder(folderID uint, beforeUID uint32, limit int) ([
 	var list []Message
 	err := q.Order("uid DESC").Limit(limit).Find(&list).Error
 	return list, err
+}
+
+// aggregateScope 给聚合查询附加 JOIN folders + 对应过滤条件。
+// view 取值：inbox（各账户收件箱）/ unread（全部未读，排除回收站/垃圾箱）/ starred（星标，排除回收站）。
+// 跨账户聚合，单管理员假设下不按 account 过滤。
+func aggregateScope(db *gorm.DB, view string) *gorm.DB {
+	q := db.Joins("JOIN folders ON folders.id = messages.folder_id")
+	switch view {
+	case "inbox":
+		q = q.Where("folders.type = ?", "inbox")
+	case "unread":
+		q = q.Where("messages.seen = ?", false).
+			Where("folders.type NOT IN ?", []string{"trash", "junk"})
+	case "starred":
+		q = q.Where("messages.flagged = ?", true).
+			Where("folders.type <> ?", "trash")
+	}
+	return q
+}
+
+// ListAggregate 跨文件夹/账户聚合邮件列表，按 (date, id) 降序 keyset 分页。
+// beforeDate==nil 取首页；翻页时传入上一页最后一封的 date+id 作游标。
+func (r *Repository) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	q := aggregateScope(r.db.Model(&Message{}), view).Select("messages.*")
+	if beforeDate != nil {
+		q = q.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
+	}
+	var list []Message
+	err := q.Order("messages.date DESC").Order("messages.id DESC").Limit(limit).Find(&list).Error
+	return list, err
+}
+
+// CountAggregate 返回聚合入口的徽标计数：
+// inbox -> 各账户收件箱未读数；unread -> 全部未读数；starred -> 星标数。
+func (r *Repository) CountAggregate(view string) (int64, error) {
+	q := aggregateScope(r.db.Model(&Message{}), view)
+	if view == "inbox" {
+		// 收件箱聚合按 MailMaster 语义展示未读数。
+		q = q.Where("messages.seen = ?", false)
+	}
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
 }
 
 func (r *Repository) CountByFolder(folderID uint) (int64, error) {

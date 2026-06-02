@@ -5,7 +5,10 @@
     "accounts": "账户",
     "settings": "设置",
     "accountCount": "{{count}} 个账号",
-    "noAccounts": "暂无账号"
+    "noAccounts": "暂无账号",
+    "allInboxes": "所有收件箱",
+    "allUnread": "所有未读",
+    "starred": "星标"
   },
   "folder": {
     "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
@@ -105,7 +108,11 @@
     "sub": "暂无新通知",
     "backToInbox": "返回收件箱",
     "emptyTitle": "暂无通知",
-    "emptyHint": "新邮件到达或账户状态变化时，通知将显示在此处"
+    "emptyHint": "新邮件到达或账户状态变化时，通知将显示在此处",
+    "tabAll": "全部",
+    "tabUnread": "未读",
+    "tabMail": "邮件",
+    "tabSecurity": "安全"
   },
   "settings": {
     "title": "设置",

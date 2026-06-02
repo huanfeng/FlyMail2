@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
+import type { AggregateView } from '@/lib/queries'
 import type { Account, Folder } from '@/lib/types'
 
 // ── 文件夹类型 → 图标名称映射 ─────────────────────────────
@@ -19,8 +20,8 @@ const FOLDER_ICON: Record<string, IconName> = {
   custom: 'folder',
 }
 
-/** 应用级视图 */
-export type AppView = 'mail' | 'notif' | 'settings'
+/** 应用级视图（第三栏模式）：邮件 / 通知 */
+export type AppView = 'mail' | 'notif'
 
 // ── Props ────────────────────────────────────────────────
 interface Props {
@@ -29,16 +30,23 @@ interface Props {
   activeAccountId: number | null
   activeFolderId: number | null
   syncing: boolean
-  /** 当前应用视图，用于高亮 sidebar 底部导航图标 */
-  activeView?: AppView
+  /** 当前第三栏视图，用于高亮铃铛 */
+  activeView: AppView
+  /** 设置浮层是否打开，用于高亮齿轮 */
+  settingsOpen: boolean
+  /** 当前激活的聚合入口（null 表示未选中聚合） */
+  activeAgg: AggregateView | null
+  /** 聚合入口徽标计数 */
+  aggCounts: Record<AggregateView, number>
   onSelectAccount: (id: number) => void
   onSelectFolder: (id: number) => void
+  onSelectAggregate: (view: AggregateView) => void
   onSync: (accountId: number) => void
   onAddAccount: () => void
-  onEditAccount: (account: Account) => void
-  onDeleteAccount: (account: Account) => void
-  /** 切换应用视图（settings / notif / mail） */
+  /** 切换第三栏视图（mail / notif） */
   onSetView: (view: AppView) => void
+  /** 切换设置浮层 */
+  onToggleSettings: () => void
   onCompose: () => void
   onOpenDrafts: (accountId: number) => void
 }
@@ -87,8 +95,6 @@ interface AccountBlockProps {
   syncing: boolean
   onToggleExpand: () => void
   onSync: () => void
-  onEdit: () => void
-  onDelete: () => void
   onSelectFolder: (id: number) => void
   onOpenDrafts: () => void
 }
@@ -102,8 +108,6 @@ function AccountBlock({
   syncing,
   onToggleExpand,
   onSync,
-  onEdit,
-  onDelete,
   onSelectFolder,
   onOpenDrafts,
 }: AccountBlockProps) {
@@ -139,33 +143,11 @@ function AccountBlock({
           )}
         </button>
 
-        {/* hover 显示：编辑 / 删除 / 同步 按钮（CSS group-hover 控制显隐） */}
+        {/* hover 显示：同步按钮（账户管理移至设置弹框，此处不再放编辑/删除）*/}
         <div
           className="account-row-actions"
-          style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, paddingRight: 6 }}
+          style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingRight: 6 }}
         >
-          {/* 编辑 */}
-          <button
-            type="button"
-            className="icon-btn"
-            title={t('account.edit')}
-            aria-label={t('account.edit')}
-            onClick={(e) => { e.stopPropagation(); onEdit() }}
-            style={{ width: 22, height: 22 }}
-          >
-            <Icon name="compose" size={11} />
-          </button>
-          {/* 删除 */}
-          <button
-            type="button"
-            className="icon-btn"
-            title={t('account.delete')}
-            aria-label={t('account.delete')}
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            style={{ width: 22, height: 22 }}
-          >
-            <Icon name="trash" size={11} />
-          </button>
           {/* 同步（进行中时旋转） */}
           <button
             type="button"
@@ -226,14 +208,17 @@ export function AccountSidebar({
   activeAccountId,
   activeFolderId,
   syncing,
-  activeView = 'mail',
+  activeView,
+  settingsOpen,
+  activeAgg,
+  aggCounts,
   onSelectAccount,
   onSelectFolder,
+  onSelectAggregate,
   onSync,
   onAddAccount,
-  onEditAccount,
-  onDeleteAccount,
   onSetView,
+  onToggleSettings,
   onCompose,
   onOpenDrafts,
 }: Props) {
@@ -249,6 +234,16 @@ export function AccountSidebar({
   function toggleExpand(id: number) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
   }
+
+  // 聚合入口在邮件视图下才可能高亮
+  const inMail = activeView === 'mail' && !settingsOpen
+
+  // 聚合入口配置
+  const aggItems: { id: AggregateView; icon: IconName; labelKey: string }[] = [
+    { id: 'inbox', icon: 'inbox', labelKey: 'sidebar.allInboxes' },
+    { id: 'unread', icon: 'circle-dot', labelKey: 'sidebar.allUnread' },
+    { id: 'starred', icon: 'star', labelKey: 'sidebar.starred' },
+  ]
 
   return (
     // .col.sidebar 由 AppLayout 提供外层容器，这里只填充内容
@@ -270,7 +265,7 @@ export function AccountSidebar({
         <div className="brand-name">{t('app.name')}</div>
         {/* brand-dot：视觉装饰 */}
         <div className="brand-dot" />
-        {/* 铃铛按钮：切换到通知整页视图 */}
+        {/* 铃铛按钮：切换到通知视图（第三栏特殊模式）*/}
         <button
           type="button"
           className={'icon-btn bell-wrap' + (activeView === 'notif' ? ' active' : '')}
@@ -297,6 +292,22 @@ export function AccountSidebar({
       {/* ── 滚动区 .sidebar-scroll ─────────────────────────── */}
       <div className="sidebar-scroll">
 
+        {/* 聚合入口：所有收件箱 / 所有未读 / 星标（跨所有账户）*/}
+        {aggItems.map((it) => (
+          <button
+            key={it.id}
+            type="button"
+            className={'side-btn' + (inMail && activeAgg === it.id ? ' active' : '')}
+            onClick={() => onSelectAggregate(it.id)}
+          >
+            <Icon name={it.icon} size={14} />
+            <span style={{ flex: 1, textAlign: 'left' }}>{t(it.labelKey)}</span>
+            {aggCounts[it.id] > 0 && (
+              <span className="count">{aggCounts[it.id] > 99 ? '99+' : aggCounts[it.id]}</span>
+            )}
+          </button>
+        ))}
+
         {/* 账户区 section label */}
         <div className="side-section-label">
           <span>{t('sidebar.accounts')}</span>
@@ -318,7 +329,7 @@ export function AccountSidebar({
             key={acc.id}
             acc={acc}
             expanded={!!expanded[acc.id]}
-            active={acc.id === activeAccountId}
+            active={inMail && activeAgg == null && acc.id === activeAccountId}
             // 只有激活账户才传入文件夹，其余传空数组节省渲染
             folders={acc.id === activeAccountId ? folders : []}
             activeFolderId={activeFolderId}
@@ -329,8 +340,6 @@ export function AccountSidebar({
               toggleExpand(acc.id)
             }}
             onSync={() => onSync(acc.id)}
-            onEdit={() => onEditAccount(acc)}
-            onDelete={() => onDeleteAccount(acc)}
             onSelectFolder={onSelectFolder}
             onOpenDrafts={() => onOpenDrafts(acc.id)}
           />
@@ -342,7 +351,7 @@ export function AccountSidebar({
 
       {/* ── 底部 .sidebar-foot ─────────────────────────────── */}
       <div className="sidebar-foot">
-        {/* 当前用户信息（暂用账户数量占位，Phase E 换为真实管理员信息） */}
+        {/* 当前用户信息（暂用账户数量占位） */}
         <div className="me" style={{ cursor: 'default' }}>
           {/* 头像方块 */}
           <div
@@ -374,13 +383,13 @@ export function AccountSidebar({
           </div>
         </div>
 
-        {/* 设置入口 → 切换到设置整页视图 */}
+        {/* 设置入口 → 切换设置浮层 */}
         <button
           type="button"
-          className={'icon-btn' + (activeView === 'settings' ? ' active' : '')}
+          className={'icon-btn' + (settingsOpen ? ' active' : '')}
           title={t('settings.title')}
           aria-label={t('settings.title')}
-          onClick={() => onSetView(activeView === 'settings' ? 'mail' : 'settings')}
+          onClick={onToggleSettings}
         >
           <Icon name="settings" size={15} />
         </button>

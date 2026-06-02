@@ -57,6 +57,55 @@ export function useInfiniteMessages(folderId: number | null) {
   })
 }
 
+/** 聚合视图：所有收件箱 / 所有未读 / 星标（跨所有账户） */
+export type AggregateView = 'inbox' | 'unread' | 'starred'
+
+/** 聚合列表翻页游标（不透明，由后端回传，前端原样传回） */
+interface AggCursor {
+  before_date: string
+  before_id: number
+}
+
+interface AggregatePage {
+  messages: MessageListItem[]
+  next_cursor: AggCursor | null
+}
+
+/**
+ * 跨账户聚合邮件列表（无限加载）。
+ * 游标采用后端回传的 (date, id) keyset，规避跨文件夹 UID 不唯一与日期截断问题。
+ * query key 以 'messages' 开头，使现有 invalidateQueries(['messages']) 一并刷新。
+ */
+export function useInfiniteAggregate(view: AggregateView | null) {
+  return useInfiniteQuery({
+    queryKey: ['messages', 'aggregate', view],
+    enabled: view != null,
+    initialPageParam: null as AggCursor | null,
+    queryFn: async ({ pageParam }): Promise<AggregatePage> => {
+      const params = new URLSearchParams({ view: view as string, limit: '50' })
+      if (pageParam) {
+        params.set('before_date', pageParam.before_date)
+        params.set('before_id', String(pageParam.before_id))
+      }
+      const { data } = await api.get<AggregatePage>(`/aggregate/messages?${params.toString()}`)
+      return { messages: data.messages ?? [], next_cursor: data.next_cursor ?? null }
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/** 聚合入口徽标计数：{ inbox, unread, starred } */
+export function useAggregateCounts() {
+  return useQuery({
+    queryKey: ['aggregate-counts'],
+    queryFn: async (): Promise<Record<AggregateView, number>> => {
+      const { data } = await api.get<{ counts: Record<string, number> }>('/aggregate/counts')
+      const c = data.counts ?? {}
+      return { inbox: c.inbox ?? 0, unread: c.unread ?? 0, starred: c.starred ?? 0 }
+    },
+  })
+}
+
 export function useSyncStatus(accountId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ['sync-status', accountId],
@@ -145,6 +194,7 @@ export function useMarkRead() {
     onSuccess: (_d, { id }) => {
       void qc.invalidateQueries({ queryKey: ['messages'] })
       void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
       void qc.invalidateQueries({ queryKey: ['message', id] })
     },
   })
@@ -158,6 +208,7 @@ export function useToggleFlag() {
     },
     onSuccess: (_d, { id }) => {
       void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
       void qc.invalidateQueries({ queryKey: ['message', id] })
     },
   })

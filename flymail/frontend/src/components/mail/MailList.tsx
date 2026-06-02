@@ -30,6 +30,10 @@ interface Props {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
+  /** 标题覆盖：聚合视图（无 folder）时使用 */
+  titleOverride?: string
+  /** 副标题覆盖：聚合视图时使用 */
+  subtitleOverride?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,6 +294,8 @@ export function MailList({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  titleOverride,
+  subtitleOverride,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -318,18 +324,22 @@ export function MailList({
   const [filter, setFilter] = useState<FilterType>('all')
 
   // ── 标题 ─────────────────────────────────────────────────────────────────
-  const title = folder
+  // 聚合视图无 folder，使用 titleOverride
+  const title = titleOverride ?? (folder
     ? folder.type === 'custom'
       ? folder.display_name
       : t(`folder.${folder.type}`)
-    : ''
+    : '')
 
   // ── 副标题：N封 / N未读 ───────────────────────────────────────────────────
   const totalCount = folder?.total_count ?? messages.length
   const unreadCount = folder?.unread_count ?? 0
-  const subLabel = unreadCount > 0
+  const subLabel = subtitleOverride ?? (unreadCount > 0
     ? `${t('list.totalCount', { count: totalCount })} · ${t('list.unreadCount', { count: unreadCount })}`
-    : t('list.totalCount', { count: totalCount })
+    : t('list.totalCount', { count: totalCount }))
+
+  // 是否显示副标题（folder 视图或聚合视图都显示）
+  const showSub = folder != null || subtitleOverride != null
 
   // ── 前端过滤：搜索 + chips ─────────────────────────────────────────────────
   // 搜索范围：发件人姓名/地址、主题、摘要（includes，大小写不敏感）
@@ -405,7 +415,7 @@ export function MailList({
       <div className="list-head">
         <div className="title-wrap">
           <div className="list-title">{title}</div>
-          {folder && (
+          {showSub && (
             <div className="list-sub">{subLabel}</div>
           )}
         </div>

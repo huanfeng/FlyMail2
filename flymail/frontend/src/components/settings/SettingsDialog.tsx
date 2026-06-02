@@ -1,7 +1,7 @@
-// 设置整页组件
+// 设置弹框组件（modal）
 // 参考蓝本：.dev/mailmaster/src_extracted/06_87910dfb.js (SettingsScreen + THEMES_LIST)
-// 所有颜色严格使用 CSS 令牌，不写死任何颜色值。
-// 复用现有 Section 组件数据逻辑，重新包装为整页布局。
+// 原版设置是覆盖层弹框（.settings-backdrop > .settings-dialog），左侧分栏导航 + 右侧内容。
+// 所有颜色严格使用 CSS 令牌，不写死任何颜色值。复用现有 Section 子组件数据逻辑。
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
@@ -49,12 +49,12 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 type SettingSection = 'appearance' | 'accounts' | 'mail' | 'security'
 
 // ── Props ─────────────────────────────────────────────────
-interface SettingsPageProps {
+interface SettingsDialogProps {
   /** 当前列表样式（Shell 管理），使改动立即对邮件列表生效 */
   listStyle: ListStyle
   onChangeListStyle: (style: ListStyle) => void
-  /** 返回邮件视图的回调 */
-  onBack: () => void
+  /** 关闭弹框的回调 */
+  onClose: () => void
 }
 
 // ════════════════════════════════════════════════════════════
@@ -725,10 +725,10 @@ function SecuritySection() {
 }
 
 // ════════════════════════════════════════════════════════════
-// 主组件：SettingsPage
+// 主组件：SettingsDialog（覆盖层弹框）
 // ════════════════════════════════════════════════════════════
 
-export function SettingsPage({ listStyle, onChangeListStyle, onBack }: SettingsPageProps) {
+export function SettingsDialog({ listStyle, onChangeListStyle, onClose }: SettingsDialogProps) {
   const { t } = useTranslation()
   const [section, setSection] = React.useState<SettingSection>('appearance')
 
@@ -740,69 +740,67 @@ export function SettingsPage({ listStyle, onChangeListStyle, onBack }: SettingsP
     { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'settings' },
   ]
 
-  // Esc 键返回邮件视图
+  // Esc 键关闭弹框
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onBack()
+      if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onBack])
+  }, [onClose])
+
+  const currentLabel = sections.find((s) => s.id === section)?.labelKey ?? 'settings.title'
 
   return (
-    // 整页容器：占据 list+reader 全部区域
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
-
-      {/* 顶部操作栏 .fp-tabs */}
-      <div className="fp-tabs">
-        <button type="button" className="fp-back" onClick={onBack}>
-          <span style={{ transform: 'scaleX(-1)', display: 'inline-block' }}>
-            <Icon name="chevron-right" size={14} />
-          </span>
-          {t('notif.backToInbox')}
+    // 遮罩层：点击空白处关闭
+    <div
+      className="settings-backdrop"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      {/* 弹框本体：阻止冒泡，避免点击内部误关 */}
+      <div className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
+        {/* 关闭按钮 */}
+        <button
+          type="button"
+          className="icon-btn sd-close"
+          onClick={onClose}
+          title={t('account.cancel')}
+          aria-label={t('account.cancel')}
+        >
+          <Icon name="close" size={14} />
         </button>
-      </div>
 
-      {/* 整页内容 .fullpage */}
-      <div className="fullpage">
-        {/* 页头 */}
-        <div className="fp-head">
-          <div style={{ flex: 1 }}>
-            <div className="fp-title">{t('settings.title')}</div>
-            <div className="fp-sub">{t('settings.page.sub')}</div>
+        {/* 左侧分栏导航 */}
+        <aside className="sd-nav">
+          <div className="sd-nav-head">{t('settings.title')}</div>
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={'sd-nav-item' + (section === s.id ? ' active' : '')}
+              onClick={() => setSection(s.id)}
+            >
+              <Icon name={s.icon as Parameters<typeof Icon>[0]['name']} size={14} />
+              <span>{t(s.labelKey)}</span>
+            </button>
+          ))}
+        </aside>
+
+        {/* 右侧内容区 */}
+        <div className="sd-body">
+          <div className="sd-body-head">
+            <div className="sd-body-title">{t(currentLabel)}</div>
           </div>
-        </div>
-
-        {/* 正文：左导航 + 右内容 .settings-grid */}
-        <div className="fp-body">
-          <div className="settings-grid">
-            {/* 左侧锚点导航 .settings-nav */}
-            <nav className="settings-nav">
-              {sections.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={section === s.id ? 'active' : ''}
-                  onClick={() => setSection(s.id)}
-                >
-                  <Icon name={s.icon as Parameters<typeof Icon>[0]['name']} size={14} />
-                  <span>{t(s.labelKey)}</span>
-                </button>
-              ))}
-            </nav>
-
-            {/* 右侧分区内容 */}
-            <div>
-              {section === 'appearance' && <AppearanceSection />}
-              {section === 'accounts' && <AccountsSection />}
-              {section === 'mail' && (
-                <MailSection
-                  listStyle={listStyle}
-                  onChangeListStyle={onChangeListStyle}
-                />
-              )}
-              {section === 'security' && <SecuritySection />}
-            </div>
+          <div className="sd-body-scroll">
+            {section === 'appearance' && <AppearanceSection />}
+            {section === 'accounts' && <AccountsSection />}
+            {section === 'mail' && (
+              <MailSection
+                listStyle={listStyle}
+                onChangeListStyle={onChangeListStyle}
+              />
+            )}
+            {section === 'security' && <SecuritySection />}
           </div>
         </div>
       </div>

@@ -5,7 +5,10 @@
     "accounts": "Accounts",
     "settings": "Settings",
     "accountCount": "{{count}} accounts",
-    "noAccounts": "No accounts"
+    "noAccounts": "No accounts",
+    "allInboxes": "All Inboxes",
+    "allUnread": "All Unread",
+    "starred": "Starred"
   },
   "folder": {
     "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
@@ -105,7 +108,11 @@
     "sub": "No new notifications",
     "backToInbox": "Back to Inbox",
     "emptyTitle": "No notifications",
-    "emptyHint": "Notifications will appear here when new mail arrives or account status changes"
+    "emptyHint": "Notifications will appear here when new mail arrives or account status changes",
+    "tabAll": "All",
+    "tabUnread": "Unread",
+    "tabMail": "Mail",
+    "tabSecurity": "Security"
   },
   "settings": {
     "title": "Settings",

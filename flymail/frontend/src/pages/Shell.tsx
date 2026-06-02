@@ -6,7 +6,7 @@ import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
 import type { AppView } from '@/components/mail/AccountSidebar'
 import { AccountDialog } from '@/components/mail/AccountDialog'
-import { SettingsPage } from '@/components/settings/SettingsPage'
+import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { NotificationsPage } from '@/components/notifications/NotificationsPage'
 import { MailList } from '@/components/mail/MailList'
 import { DraftsList } from '@/components/mail/DraftsList'
@@ -18,18 +18,25 @@ import {
   useAccounts,
   useFolders,
   useInfiniteMessages,
+  useInfiniteAggregate,
+  useAggregateCounts,
   useMessageDetail,
   useSyncStatus,
   useTriggerSync,
-  useDeleteAccount,
   useMarkRead,
   useToggleFlag,
 } from '@/lib/queries'
+import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { getListStyle, setListStyle } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
+
+/** 校验 URL 中的 agg 参数是否为合法聚合视图 */
+function parseAgg(v: string | null): AggregateView | null {
+  return v === 'inbox' || v === 'unread' || v === 'starred' ? v : null
+}
 
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
@@ -44,19 +51,30 @@ export function ShellPage() {
   const accountId = params.get('account') ? Number(params.get('account')) : null
   const folderId = params.get('folder') ? Number(params.get('folder')) : null
   const messageId = params.get('message') ? Number(params.get('message')) : null
+  // 聚合视图（跨所有账户）：inbox / unread / starred；非聚合时为 null
+  const agg = parseAgg(params.get('agg'))
 
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
-  const {
-    data: messagesData,
-    isLoading: messagesLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  } = useInfiniteMessages(folderId)
 
-  // 将分页数据展平为平坦列表
-  const messages = messagesData?.pages.flat() ?? []
+  // 单文件夹列表（agg 激活时禁用）
+  const folderInfinite = useInfiniteMessages(agg ? null : folderId)
+  // 跨账户聚合列表（仅 agg 激活时启用）
+  const aggInfinite = useInfiniteAggregate(agg)
+  // 聚合入口徽标计数
+  const { data: aggCounts = { inbox: 0, unread: 0, starred: 0 } } = useAggregateCounts()
+
+  // 当前生效的数据源元信息
+  const messages = agg
+    ? (aggInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
+    : (folderInfinite.data?.pages.flat() ?? [])
+  const messagesLoading = agg ? aggInfinite.isLoading : folderInfinite.isLoading
+  const hasNextPage = (agg ? aggInfinite.hasNextPage : folderInfinite.hasNextPage) ?? false
+  const isFetchingNextPage = agg ? aggInfinite.isFetchingNextPage : folderInfinite.isFetchingNextPage
+  function loadMore() {
+    if (agg) void aggInfinite.fetchNextPage()
+    else void folderInfinite.fetchNextPage()
+  }
 
   // 列表样式偏好（持久化到 localStorage）
   const [listStyle, setListStyleState] = useState<ListStyle>(() => getListStyle())
@@ -84,14 +102,14 @@ export function ShellPage() {
   const triggerSync = useTriggerSync()
   const syncing = syncStatus?.phase === 'folders' || syncStatus?.phase === 'messages'
 
-  // ── 账户对话框 state ─────────────────────────────────────────────────────────
+  // ── 账户对话框 state（新增账户用）─────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
-  const deleteAccount = useDeleteAccount()
 
-  // ── 应用级视图 state（mail / notif / settings）────────────────────────────────
-  // mail: 正常三栏; notif/settings: sidebar + 整页
+  // ── 第三栏视图 state（邮件 / 通知）────────────────────────────────────────────
   const [appView, setAppView] = useState<AppView>('mail')
+  // ── 设置浮层 state ────────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // ── 中栏视图 state（邮件视图内部：messages / drafts）───────────────────────────
   const [view, setView] = useState<'messages' | 'drafts'>('messages')
@@ -122,10 +140,11 @@ export function ShellPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSyncEnabled(false)
     }
-    // 同步抓完后刷新文件夹（未读数/新文件夹）和邮件列表缓存。
+    // 同步抓完后刷新文件夹（未读数/新文件夹）、邮件列表与聚合计数缓存。
     if (syncStatus?.phase === 'done') {
       void qc.invalidateQueries({ queryKey: ['folders'] })
       void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncStatus?.phase])
@@ -137,19 +156,35 @@ export function ShellPage() {
 
   function selectAccount(id: number) {
     setView('messages')
-    setAppView('mail')   // 点击账户时回到邮件视图
+    setAppView('mail')
+    setSettingsOpen(false)
     setParam((p) => {
       p.set('account', String(id))
       p.delete('folder')
       p.delete('message')
+      p.delete('agg')
     })
   }
 
   function selectFolder(id: number) {
     setView('messages')
-    setAppView('mail')   // 点击文件夹时回到邮件视图
+    setAppView('mail')
+    setSettingsOpen(false)
     setParam((p) => {
       p.set('folder', String(id))
+      p.delete('message')
+      p.delete('agg')
+    })
+  }
+
+  // 选择聚合入口（跨所有账户）
+  function selectAggregate(v: AggregateView) {
+    setView('messages')
+    setAppView('mail')
+    setSettingsOpen(false)
+    setParam((p) => {
+      p.set('agg', v)
+      p.delete('folder')
       p.delete('message')
     })
   }
@@ -163,15 +198,8 @@ export function ShellPage() {
     triggerSync.mutate(id)
   }
 
-  // ── 账户增删改回调 ────────────────────────────────────────────────────────────
-
   function onAddAccount() {
     setEditingAccount(null)
-    setDialogOpen(true)
-  }
-
-  function onEditAccount(a: Account) {
-    setEditingAccount(a)
     setDialogOpen(true)
   }
 
@@ -205,8 +233,8 @@ export function ShellPage() {
     composeOpen,
   })
 
-  function onOpenDrafts(accountId: number) {
-    setParam((p) => p.set('account', String(accountId)), true)
+  function onOpenDrafts(accId: number) {
+    setParam((p) => p.set('account', String(accId)), true)
     setView('drafts')
   }
 
@@ -223,18 +251,14 @@ export function ShellPage() {
     setComposeOpen(true)
   }
 
-  function onDeleteAccount(a: Account) {
-    if (window.confirm(t('account.deleteConfirm'))) {
-      deleteAccount.mutate(a.id)
-      if (a.id === accountId) {
-        setParam((p) => {
-          p.delete('account')
-          p.delete('folder')
-          p.delete('message')
-        })
-      }
-    }
+  // ── 聚合视图标题/副标题 ───────────────────────────────────────────────────────
+  const aggLabelKey: Record<AggregateView, string> = {
+    inbox: 'sidebar.allInboxes',
+    unread: 'sidebar.allUnread',
+    starred: 'sidebar.starred',
   }
+  const aggTitle = agg ? t(aggLabelKey[agg]) : undefined
+  const aggSubtitle = agg ? t('list.totalCount', { count: messages.length }) : undefined
 
   // ── Sidebar（常驻所有视图）────────────────────────────────────────────────────
   const sidebar = (
@@ -245,13 +269,16 @@ export function ShellPage() {
       activeFolderId={folderId}
       syncing={syncing}
       activeView={appView}
+      settingsOpen={settingsOpen}
+      activeAgg={agg}
+      aggCounts={aggCounts}
       onSelectAccount={selectAccount}
       onSelectFolder={selectFolder}
+      onSelectAggregate={selectAggregate}
       onSync={onSync}
       onAddAccount={onAddAccount}
-      onEditAccount={onEditAccount}
-      onDeleteAccount={onDeleteAccount}
       onSetView={setAppView}
+      onToggleSettings={() => setSettingsOpen((o) => !o)}
       onCompose={onCompose}
       onOpenDrafts={onOpenDrafts}
     />
@@ -261,46 +288,38 @@ export function ShellPage() {
     <>
       <AppLayout
         sidebar={sidebar}
-        // 整页分支：settings / notif 视图时传入 fullpage，list/reader 被忽略
-        fullpage={
-          appView === 'settings' ? (
-            <SettingsPage
-              listStyle={listStyle}
-              onChangeListStyle={handleChangeListStyle}
-              onBack={() => setAppView('mail')}
-            />
-          ) : appView === 'notif' ? (
-            <NotificationsPage
-              onBack={() => setAppView('mail')}
-            />
-          ) : undefined
-        }
         list={
           view === 'drafts' && accountId != null ? (
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
           ) : (
             <MailList
-              // 按文件夹+样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
-              key={`${folderId}-${listStyle}`}
-              folder={activeFolder}
+              // 按文件夹/聚合 + 样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
+              key={`${agg ?? folderId}-${listStyle}`}
+              folder={agg ? null : activeFolder}
+              titleOverride={aggTitle}
+              subtitleOverride={aggSubtitle}
               messages={messages}
               loading={messagesLoading}
               activeMessageId={messageId}
               onSelectMessage={selectMessage}
               onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
               listStyle={listStyle}
-              hasNextPage={hasNextPage ?? false}
+              hasNextPage={hasNextPage}
               isFetchingNextPage={isFetchingNextPage}
-              onLoadMore={() => { void fetchNextPage() }}
+              onLoadMore={loadMore}
             />
           )
         }
         reader={
-          <Reader
-            messageId={messageId}
-            onReply={onReply}
-            onForward={onForward}
-          />
+          appView === 'notif' ? (
+            <NotificationsPage onBack={() => setAppView('mail')} />
+          ) : (
+            <Reader
+              messageId={messageId}
+              onReply={onReply}
+              onForward={onForward}
+            />
+          )
         }
       />
       <AccountDialog
@@ -315,6 +334,14 @@ export function ShellPage() {
         initial={composeInitial}
         draftId={composeDraftId}
       />
+      {/* 设置弹框（覆盖层 modal）*/}
+      {settingsOpen && (
+        <SettingsDialog
+          listStyle={listStyle}
+          onChangeListStyle={handleChangeListStyle}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </>
   )
 }

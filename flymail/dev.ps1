@@ -99,18 +99,47 @@ function Get-DevProcess($name) {
     return $p
 }
 
+# 杀掉占用指定端口的进程（连子进程树）。用于清理旧菜单 go run/其它残留占用开发端口。
+function Stop-PortOwner($port, $label) {
+    $owners = @(Get-NetTCPConnection -State Listen -LocalPort ([int]$port) -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+    foreach ($procId in $owners) {
+        if (-not $procId -or $procId -eq 0) { continue }
+        $nm = (Get-Process -Id $procId -ErrorAction SilentlyContinue).ProcessName
+        taskkill /PID $procId /T /F 2>$null | Out-Null
+        Write-Warn "清理占用 $label 端口 :$port 的进程 PID $procId ($nm)"
+    }
+}
+
+# 清扫所有后端残留：①flymail-dev.exe 实例 ②任何仍占着后端端口的进程（含旧菜单 go run 起的）。
+# 多个后端并发打开同一 SQLite 会导致 disk I/O error，必须保证全局只有一个后端。
+function Stop-StrayBackend {
+    $stray = @(Get-Process -Name 'flymail-dev' -ErrorAction SilentlyContinue)
+    foreach ($s in $stray) {
+        taskkill /PID $s.Id /T /F 2>$null | Out-Null
+        Write-Warn "清理残留后端实例 PID $($s.Id)"
+    }
+    Stop-PortOwner $BackendPort '后端'
+}
+
 function Stop-DevService($name, $label) {
     $p = Get-DevProcess $name
-    if (-not $p) { Write-Warn "$label 未在运行"; return }
-    # /T 连同子进程一并结束（pnpm->node、go 子进程等）。
-    taskkill /PID $p.Id /T /F 2>$null | Out-Null
-    Remove-Item (Get-PidFile $name) -ErrorAction SilentlyContinue
-    Write-Ok "$label 已停止 (PID $($p.Id))"
+    if ($p) {
+        # /T 连同子进程一并结束（pnpm->node、go 子进程等）。
+        taskkill /PID $p.Id /T /F 2>$null | Out-Null
+        Remove-Item (Get-PidFile $name) -ErrorAction SilentlyContinue
+        Write-Ok "$label 已停止 (PID $($p.Id))"
+    } else {
+        Write-Warn "$label 未在运行"
+    }
+    # 后端额外清扫未跟踪的残留实例（防止旧窗口/孤儿进程并发抢占 DB）。
+    if ($name -eq 'backend') { Stop-StrayBackend }
 }
 
 function Start-Backend {
     if (-not (Assert-Tool 'go' '请先安装 Go')) { return }
     if (Get-DevProcess 'backend') { Write-Warn '后端已在运行（用「重启后端」回收）'; return }
+    # 清扫未被跟踪的残留后端实例，避免并发抢占 SQLite 导致 disk I/O error。
+    Stop-StrayBackend
     Ensure-Dirs
     Ensure-AdminHint
     Ensure-DistPlaceholder

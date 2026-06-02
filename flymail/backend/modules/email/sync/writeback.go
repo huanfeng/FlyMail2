@@ -119,6 +119,10 @@ func (s *Service) SetRead(messageID uint, read bool) error {
 	if err != nil {
 		return err
 	}
+	// 重算该文件夹未读数并持久化，使文件夹列表未读角标即时刷新（不必等下次同步）。
+	if unread, uerr := s.messages.UnreadCountByFolder(m.FolderID); uerr == nil {
+		_ = s.folders.SetUnreadCount(m.FolderID, int(unread))
+	}
 	s.enqueueWriteback(wbOp{
 		accountID: m.AccountID,
 		folderID:  m.FolderID,

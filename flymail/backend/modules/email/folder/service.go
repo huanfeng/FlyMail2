@@ -65,3 +65,8 @@ func (s *Service) GetByID(id uint) (*Folder, error) { return s.repo.GetByID(id) 
 func (s *Service) UpdateSyncState(id uint, uidValidity, uidNext uint32, total, unread int, syncedAt time.Time) error {
 	return s.repo.UpdateSyncState(id, uidValidity, uidNext, total, unread, syncedAt)
 }
+
+// SetUnreadCount 只更新文件夹未读数。
+func (s *Service) SetUnreadCount(id uint, unread int) error {
+	return s.repo.UpdateUnreadCount(id, unread)
+}

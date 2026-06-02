@@ -345,3 +345,45 @@ func TestSetReadLocalThenWriteback(t *testing.T) {
 		t.Errorf("expected MarkRead to be called for uid=1, but it was not within 2s")
 	}
 }
+
+// TestSetReadUpdatesFolderUnreadCount 回归：标记已读后文件夹未读数应即时下降，
+// 而不是等到下次同步才更新（前端文件夹未读角标依赖此值）。
+func TestSetReadUpdatesFolderUnreadCount(t *testing.T) {
+	svc, _, fsvc, fakeSess := newSyncService(t)
+
+	if err := fsvc.SyncFolders(1, fakeSess); err != nil {
+		t.Fatalf("SyncFolders: %v", err)
+	}
+	if err := svc.Trigger(1); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := svc.StatusOf(1)
+		if st.Phase == syncmod.PhaseDone || st.Phase == syncmod.PhaseError {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// 同步后两封均未读 → 未读数应为 2。
+	inbox, err := fsvc.FindInbox(1)
+	if err != nil || inbox == nil {
+		t.Fatalf("FindInbox: %v", err)
+	}
+	if inbox.UnreadCount != 2 {
+		t.Fatalf("同步后未读应为 2，实际 %d", inbox.UnreadCount)
+	}
+
+	// 标记其中一封已读 → 未读数应即时降为 1。
+	if err := svc.SetRead(1, true); err != nil {
+		t.Fatalf("SetRead: %v", err)
+	}
+	inbox, err = fsvc.FindInbox(1)
+	if err != nil || inbox == nil {
+		t.Fatalf("FindInbox: %v", err)
+	}
+	if inbox.UnreadCount != 1 {
+		t.Errorf("标记已读后未读应即时变为 1，实际 %d", inbox.UnreadCount)
+	}
+}

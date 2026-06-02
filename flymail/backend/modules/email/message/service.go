@@ -345,6 +345,11 @@ func (s *Service) GetByID(id uint) (*Message, error) { return s.repo.GetByID(id)
 // SetSeenLocal 本地标记已读/未读。
 func (s *Service) SetSeenLocal(id uint, seen bool) error { return s.repo.SetSeen(id, seen) }
 
+// UnreadCountByFolder 返回文件夹当前未读邮件数。
+func (s *Service) UnreadCountByFolder(folderID uint) (int64, error) {
+	return s.repo.UnreadCountByFolder(folderID)
+}
+
 // SetFlaggedLocal 本地标记星标/取消星标。
 func (s *Service) SetFlaggedLocal(id uint, flagged bool) error {
 	return s.repo.SetFlagged(id, flagged)

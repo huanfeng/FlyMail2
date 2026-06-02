@@ -29,6 +29,7 @@ type Deps struct {
 	Setting *setting.Service
 	Send    *send.Service
 	Draft   *draft.Service
+	Events  http.HandlerFunc
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -42,6 +43,11 @@ func New(deps Deps) http.Handler {
 	api.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	// SSE 实时事件流：自带 query-param access_token 鉴权，不走 Bearer 中间件。
+	if deps.Events != nil {
+		api.GET("/events", gin.WrapF(deps.Events))
+	}
 
 	if deps.Auth != nil {
 		auth.RegisterRoutes(api, deps.Auth)

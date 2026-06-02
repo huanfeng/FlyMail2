@@ -88,6 +88,49 @@ func (s *Session) SearchUnseenSince(startUID imapv2.UID) ([]imapv2.UID, error) {
 	return res.AllUIDs(), nil
 }
 
+// FetchRawMessage 取回单个 UID 的整封原始 RFC 5322 字节（BODY[]），供 M7 附件下载使用。
+// 调用方拿到原始字节后可交给 parser.ExtractAttachments 解析出附件内容。
+func (s *Session) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	var uidSet imapv2.UIDSet
+	uidSet.AddNum(uid)
+
+	// 空 BodySection 表示整封 BODY[]
+	section := &imapv2.FetchItemBodySection{}
+	fetchOpts := &imapv2.FetchOptions{
+		UID:         true,
+		BodySection: []*imapv2.FetchItemBodySection{section},
+	}
+
+	fetchCmd := s.Client.Fetch(uidSet, fetchOpts)
+
+	var raw []byte
+	for {
+		msg := fetchCmd.Next()
+		if msg == nil {
+			break
+		}
+		buf, err := msg.Collect()
+		if err != nil {
+			continue
+		}
+		if body := buf.FindBodySection(section); body != nil {
+			raw = body
+		}
+	}
+
+	if err := fetchCmd.Close(); err != nil {
+		return nil, fmt.Errorf("fetch close: %w", err)
+	}
+	if raw == nil {
+		return nil, fmt.Errorf("message body not found for uid %d", uid)
+	}
+	return raw, nil
+}
+
 func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
 	var bodySection *imapv2.FetchItemBodySection
 	if opts.FetchBody {

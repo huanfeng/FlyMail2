@@ -4,6 +4,11 @@ interface AppLayoutProps {
   sidebar: ReactNode
   list: ReactNode
   reader: ReactNode
+  /**
+   * 可选：整页内容。传入时渲染 sidebar + fullpage 两栏布局，
+   * 忽略 list / reader，用于设置页和通知页。
+   */
+  fullpage?: ReactNode
 }
 
 // localStorage 持久化键
@@ -49,7 +54,7 @@ function loadWidths(): Widths {
  * - 拖拽：pointer capture，拖拽时给手柄加 .dragging、给 body 加 .is-resizing。
  * - 刷新后宽度从 localStorage 恢复。
  */
-export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
+export function AppLayout({ sidebar, list, reader, fullpage }: AppLayoutProps) {
   const [w, setW] = useState<Widths>(loadWidths)
   // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
   const wRef = useRef(w)
@@ -112,38 +117,48 @@ export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
   return (
     // .app：全屏 flex 容器，class 与 index.css 中的 .app 对应
     <div className="app">
-      {/* 侧栏：.col.sidebar，宽度由 CSS 变量 --sidebar-w 控制 */}
+      {/* 侧栏：.col.sidebar，宽度由 CSS 变量 --sidebar-w 控制，常驻所有视图 */}
       <div className="col sidebar">
         {sidebar}
       </div>
 
-      {/* 侧栏与列表之间的拖拽手柄 */}
-      <div
-        className="col-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整侧栏宽度"
-        {...makeResizeHandlers('sidebar')}
-      />
+      {fullpage ? (
+        // 整页分支（设置/通知视图）：侧栏 + 整页，无拖拽手柄、无 list/reader
+        <div className="col reader" style={{ flex: 1, minWidth: 0 }}>
+          {fullpage}
+        </div>
+      ) : (
+        // 三栏分支（邮件视图）：侧栏调宽手柄 + list + list/reader 调宽手柄 + reader
+        <>
+          {/* 侧栏与列表之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整侧栏宽度"
+            {...makeResizeHandlers('sidebar')}
+          />
 
-      {/* 列表栏：.col.list，宽度由 CSS 变量 --list-w 控制 */}
-      <div className="col list">
-        {list}
-      </div>
+          {/* 列表栏：.col.list，宽度由 CSS 变量 --list-w 控制 */}
+          <div className="col list">
+            {list}
+          </div>
 
-      {/* 列表与阅读区之间的拖拽手柄 */}
-      <div
-        className="col-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整列表宽度"
-        {...makeResizeHandlers('list')}
-      />
+          {/* 列表与阅读区之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整列表宽度"
+            {...makeResizeHandlers('list')}
+          />
 
-      {/* 阅读区：.col.reader，占剩余空间 */}
-      <div className="col reader">
-        {reader}
-      </div>
+          {/* 阅读区：.col.reader，占剩余空间 */}
+          <div className="col reader">
+            {reader}
+          </div>
+        </>
+      )}
     </div>
   )
 }

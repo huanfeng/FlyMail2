@@ -100,12 +100,30 @@
     "showBcc": "密送",
     "attachDisabled": "附件发送功能即将推出"
   },
+  "notif": {
+    "title": "通知",
+    "sub": "暂无新通知",
+    "backToInbox": "返回收件箱",
+    "emptyTitle": "暂无通知",
+    "emptyHint": "新邮件到达或账户状态变化时，通知将显示在此处"
+  },
   "settings": {
     "title": "设置",
     "navAccounts": "账户",
     "navGeneral": "通用",
     "navSecurity": "安全",
     "navMail": "邮件",
+    "page": {
+      "sub": "管理外观、账户与邮件同步偏好",
+      "sectAppearance": "外观",
+      "theme": "主题色调",
+      "themeHelp": "选择一套配色，点击即时预览效果",
+      "mode": "亮 / 暗模式",
+      "colorMode": "配色模式",
+      "language": "语言",
+      "uiLanguage": "界面语言",
+      "accountsHelp": "管理已添加的 IMAP 账户"
+    },
     "general": {
       "language": "语言",
       "theme": "主题",

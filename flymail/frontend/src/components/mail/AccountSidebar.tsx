@@ -19,6 +19,9 @@ const FOLDER_ICON: Record<string, IconName> = {
   custom: 'folder',
 }
 
+/** 应用级视图 */
+export type AppView = 'mail' | 'notif' | 'settings'
+
 // ── Props ────────────────────────────────────────────────
 interface Props {
   accounts: Account[]
@@ -26,13 +29,16 @@ interface Props {
   activeAccountId: number | null
   activeFolderId: number | null
   syncing: boolean
+  /** 当前应用视图，用于高亮 sidebar 底部导航图标 */
+  activeView?: AppView
   onSelectAccount: (id: number) => void
   onSelectFolder: (id: number) => void
   onSync: (accountId: number) => void
   onAddAccount: () => void
   onEditAccount: (account: Account) => void
   onDeleteAccount: (account: Account) => void
-  onOpenSettings: () => void
+  /** 切换应用视图（settings / notif / mail） */
+  onSetView: (view: AppView) => void
   onCompose: () => void
   onOpenDrafts: (accountId: number) => void
 }
@@ -220,13 +226,14 @@ export function AccountSidebar({
   activeAccountId,
   activeFolderId,
   syncing,
+  activeView = 'mail',
   onSelectAccount,
   onSelectFolder,
   onSync,
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
-  onOpenSettings,
+  onSetView,
   onCompose,
   onOpenDrafts,
 }: Props) {
@@ -249,16 +256,30 @@ export function AccountSidebar({
 
       {/* ── 顶部品牌栏 .sidebar-head ───────────────────────── */}
       <div className="sidebar-head">
-        {/* 品牌方块 logo */}
-        <div className="brand-mark">F</div>
+        {/* 品牌方块 logo，点击回到邮件视图 */}
+        <button
+          type="button"
+          className="brand-mark"
+          style={{ cursor: 'pointer' }}
+          onClick={() => onSetView('mail')}
+          aria-label={t('app.name')}
+        >
+          F
+        </button>
         {/* 品牌名 */}
         <div className="brand-name">{t('app.name')}</div>
         {/* brand-dot：视觉装饰 */}
         <div className="brand-dot" />
-        {/* bell 图标：Phase E 实现通知页；本阶段降级隐藏，避免误操作 */}
-        {/* <button className="icon-btn bell-wrap" title={t('sidebar.notifications')}>
+        {/* 铃铛按钮：切换到通知整页视图 */}
+        <button
+          type="button"
+          className={'icon-btn bell-wrap' + (activeView === 'notif' ? ' active' : '')}
+          title={t('notif.title')}
+          aria-label={t('notif.title')}
+          onClick={() => onSetView(activeView === 'notif' ? 'mail' : 'notif')}
+        >
           <Icon name="bell" size={14} />
-        </button> */}
+        </button>
       </div>
 
       {/* ── 写邮件按钮 .compose-btn ────────────────────────── */}
@@ -353,13 +374,13 @@ export function AccountSidebar({
           </div>
         </div>
 
-        {/* 设置入口 */}
+        {/* 设置入口 → 切换到设置整页视图 */}
         <button
           type="button"
-          className="icon-btn"
+          className={'icon-btn' + (activeView === 'settings' ? ' active' : '')}
           title={t('settings.title')}
           aria-label={t('settings.title')}
-          onClick={onOpenSettings}
+          onClick={() => onSetView(activeView === 'settings' ? 'mail' : 'settings')}
         >
           <Icon name="settings" size={15} />
         </button>

@@ -454,6 +454,18 @@ body.is-resizing * { cursor: col-resize !important; }
   display: grid; place-items: center; color: var(--ink-3);
 }
 .icon-btn:hover { background: var(--bg-hover); color: var(--ink); }
+/* 激活态（当前视图对应的导航按钮高亮） */
+.icon-btn.active { background: var(--bg-active); color: var(--ink); }
+
+/* 设置页内联密码输入框 */
+.inline-input {
+  height: 32px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--rule); background: var(--surface);
+  font-size: 13px; color: var(--ink); outline: none;
+  transition: border-color 0.12s;
+  min-width: 180px;
+}
+.inline-input:focus { border-color: var(--accent); }
 
 /* 撰写新邮件按钮 */
 .compose-btn {

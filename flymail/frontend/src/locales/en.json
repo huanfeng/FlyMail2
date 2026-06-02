@@ -100,12 +100,30 @@
     "showBcc": "Bcc",
     "attachDisabled": "Attachment sending coming soon"
   },
+  "notif": {
+    "title": "Notifications",
+    "sub": "No new notifications",
+    "backToInbox": "Back to Inbox",
+    "emptyTitle": "No notifications",
+    "emptyHint": "Notifications will appear here when new mail arrives or account status changes"
+  },
   "settings": {
     "title": "Settings",
     "navAccounts": "Accounts",
     "navGeneral": "General",
     "navSecurity": "Security",
     "navMail": "Mail",
+    "page": {
+      "sub": "Manage appearance, accounts and mail sync preferences",
+      "sectAppearance": "Appearance",
+      "theme": "Color Tone",
+      "themeHelp": "Pick a color scheme — changes take effect immediately",
+      "mode": "Light / Dark Mode",
+      "colorMode": "Color mode",
+      "language": "Language",
+      "uiLanguage": "Interface language",
+      "accountsHelp": "Manage your IMAP accounts"
+    },
     "general": {
       "language": "Language",
       "theme": "Theme",

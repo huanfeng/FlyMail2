@@ -6,6 +6,7 @@ import { router } from './router'
 import './index.css'
 import '@/lib/i18n'
 import { initTheme } from '@/lib/theme'
+import { ToastProvider } from '@/components/ui/Toast'
 
 initTheme()
 
@@ -21,7 +22,10 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* ToastProvider 包裹路由根，使所有子组件均可调用 useToast() */}
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

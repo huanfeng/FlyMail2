@@ -1,12 +1,10 @@
 import * as React from 'react'
-import { Dialog } from 'radix-ui'
 import { useTranslation } from 'react-i18next'
 import Editor from 'react-simple-wysiwyg'
 import type { ContentEditableEvent } from 'react-simple-wysiwyg'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft } from '@/lib/queries'
+import { Icon } from '@/components/ui/Icon'
+import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft, useAccounts } from '@/lib/queries'
+import { useToast } from '@/components/ui/Toast'
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -30,6 +28,7 @@ export interface ComposeDialogProps {
 }
 
 interface FormState {
+  fromId: number | null
   toStr: string
   ccStr: string
   bccStr: string
@@ -41,8 +40,8 @@ interface FormState {
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────────
 
-function emptyForm(): FormState {
-  return { toStr: '', ccStr: '', bccStr: '', subject: '', bodyHtml: '' }
+function emptyForm(fromId: number | null): FormState {
+  return { fromId, toStr: '', ccStr: '', bccStr: '', subject: '', bodyHtml: '' }
 }
 
 /** 按逗号或分号拆分地址，去空格和空项 */
@@ -53,26 +52,18 @@ function parseAddrs(s: string): string[] {
     .filter(Boolean)
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Sub-components
-// ────────────────────────────────────────────────────────────────────────────────
-
-interface FieldProps {
-  label: string
-  children: React.ReactNode
-}
-
-function Field({ label, children }: FieldProps) {
-  return (
-    <div className="flex flex-col gap-1">
-      <Label style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>{label}</Label>
-      {children}
-    </div>
-  )
+/**
+ * 根据账户 id 生成点颜色（使用 CSS 变量 accent 派生色）。
+ * 多账户时用 index 区分；此处简单用固定的 accent 颜色令外观一致。
+ */
+function acctDotColor(index: number): string {
+  // 利用 CSS accent 色系，index 0 使用主色，其余旋转色调
+  const hues = ['var(--accent)', '#4ade80', '#f59e0b', '#a78bfa', '#f87171']
+  return hues[index % hues.length]
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// ComposeDialog
+// ComposeDialog — MailMaster 浮窗风格，右下固定，支持最小化
 // ────────────────────────────────────────────────────────────────────────────────
 
 export function ComposeDialog({
@@ -83,24 +74,41 @@ export function ComposeDialog({
   draftId,
 }: ComposeDialogProps) {
   const { t } = useTranslation()
+  const { toast } = useToast()
+  const { data: accounts = [] } = useAccounts()
 
-  // ── Form state ──────────────────────────────────────────────────────────────
-  const [form, setForm] = React.useState<FormState>(emptyForm)
+  // ── UI state ─────────────────────────────────────────────────────────────────
+  const [minimized, setMinimized] = React.useState(false)
+  const [showCc, setShowCc] = React.useState(false)
+  const [showBcc, setShowBcc] = React.useState(false)
   const [validationError, setValidationError] = React.useState<string | null>(null)
   const [infoMessage, setInfoMessage] = React.useState<string | null>(null)
+
+  // ── Form state ───────────────────────────────────────────────────────────────
+  const [form, setForm] = React.useState<FormState>(() => emptyForm(accountId))
 
   // 便捷 setter
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
-  // 打开时用 initial 预填，关闭时清空
+  // 打开时用 initial 预填，关闭时重置 UI 状态
   React.useEffect(() => {
     if (open) {
       setValidationError(null)
       setInfoMessage(null)
+      setMinimized(false)
+
+      // 有抄送预填时自动展开抄送行
+      const hasCc = (initial?.cc ?? []).length > 0
+      setShowCc(hasCc)
+      setShowBcc(false)
+
+      const defaultFrom = accountId ?? (accounts[0]?.id ?? null)
+
       if (initial) {
         setForm({
+          fromId: defaultFrom,
           toStr: (initial.to ?? []).join(', '),
           ccStr: (initial.cc ?? []).join(', '),
           bccStr: '',
@@ -108,10 +116,10 @@ export function ComposeDialog({
           bodyHtml: initial.bodyHtml ?? '',
         })
       } else {
-        setForm(emptyForm())
+        setForm(emptyForm(defaultFrom))
       }
     }
-  }, [open, initial, draftId])
+  }, [open, initial, draftId, accountId, accounts])
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const sendMutation = useSend()
@@ -123,7 +131,15 @@ export function ComposeDialog({
   const isSending = sendMutation.isPending
   const isSavingDraft = createDraft.isPending || updateDraft.isPending
   const isBusy = isSending || isSavingDraft
-  const noAccount = accountId === null
+  const effectiveAccountId = form.fromId ?? accountId
+  const noAccount = effectiveAccountId === null
+
+  // 当前选中账户信息（用于 from 行显示）
+  const fromAccount = accounts.find((a) => a.id === effectiveAccountId) ?? accounts[0] ?? null
+  const fromAccountIndex = fromAccount ? accounts.indexOf(fromAccount) : 0
+
+  // 多账户时允许切换，单账户只展示
+  const multiAccount = accounts.length > 1
 
   // ── 标题：回复/转发/写邮件 ─────────────────────────────────────────────────
   function resolveTitle(): string {
@@ -135,7 +151,9 @@ export function ComposeDialog({
     return t('compose.title')
   }
 
-  // ── 发送 ────────────────────────────────────────────────────────────────────
+  const title = resolveTitle()
+
+  // ── 发送 ─────────────────────────────────────────────────────────────────────
   function handleSend() {
     setValidationError(null)
     setInfoMessage(null)
@@ -152,7 +170,7 @@ export function ComposeDialog({
 
     sendMutation.mutate(
       {
-        account_id: accountId as number,
+        account_id: effectiveAccountId as number,
         to: toAddrs,
         cc: ccAddrs.length > 0 ? ccAddrs : undefined,
         bcc: bccAddrs.length > 0 ? bccAddrs : undefined,
@@ -163,10 +181,12 @@ export function ComposeDialog({
       },
       {
         onSuccess: () => {
+          // 发送成功提示
+          toast(t('compose.sent'))
           // 发送成功后，若正在编辑草稿则将其删除
-          if (draftId != null && accountId != null) {
+          if (draftId != null && effectiveAccountId != null) {
             deleteDraft.mutate(
-              { id: draftId, accountId: accountId as number },
+              { id: draftId, accountId: effectiveAccountId as number },
               { onSettled: () => onOpenChange(false) },
             )
           } else {
@@ -177,14 +197,14 @@ export function ComposeDialog({
     )
   }
 
-  // ── 存草稿 ──────────────────────────────────────────────────────────────────
+  // ── 存草稿 ───────────────────────────────────────────────────────────────────
   function handleSaveDraft() {
     setValidationError(null)
     setInfoMessage(null)
     if (noAccount) return
 
     const req = {
-      account_id: accountId as number,
+      account_id: effectiveAccountId as number,
       to: parseAddrs(form.toStr),
       cc: parseAddrs(form.ccStr),
       bcc: parseAddrs(form.bccStr),
@@ -199,7 +219,8 @@ export function ComposeDialog({
         { id: draftId, req },
         {
           onSuccess: () => {
-            setInfoMessage(t('compose.draftSaved'))
+            // 存草稿成功 toast（替代原内联提示，关闭后仍可见）
+            toast(t('compose.draftSaved'))
             onOpenChange(false)
           },
         },
@@ -207,174 +228,306 @@ export function ComposeDialog({
     } else {
       createDraft.mutate(req, {
         onSuccess: () => {
-          setInfoMessage(t('compose.draftSaved'))
+          toast(t('compose.draftSaved'))
           onOpenChange(false)
         },
       })
     }
   }
 
-  // ── onChange for Editor ──────────────────────────────────────────────────────
+  // ── onChange 富文本编辑器 ────────────────────────────────────────────────────
   function handleBodyChange(e: ContentEditableEvent) {
     set('bodyHtml', e.target.value)
   }
 
+  // ── 切换最小化 ──────────────────────────────────────────────────────────────
+  function handleToggleMinimize(e?: React.MouseEvent) {
+    e?.stopPropagation()
+    setMinimized((prev) => !prev)
+  }
+
+  // 未打开时不渲染任何内容
+  if (!open) return null
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 最小化条 .compose-bar
+  // ────────────────────────────────────────────────────────────────────────────
+  if (minimized) {
+    return (
+      <div className="compose-bar" onClick={handleToggleMinimize}>
+        <Icon name="compose" size={12} />
+        <span className="cb-title">{form.subject || title}</span>
+        {/* spacer */}
+        <div style={{ flex: 1, minWidth: 0 }} />
+        {/* 展开按钮 */}
+        <button
+          className="icon-btn"
+          title={t('compose.minimize')}
+          onClick={handleToggleMinimize}
+        >
+          {/* 向上箭头（展开） */}
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="M4 10l4-4 4 4" />
+          </svg>
+        </button>
+        {/* 关闭按钮 */}
+        <button
+          className="icon-btn"
+          title={t('compose.cancel')}
+          onClick={(e) => { e.stopPropagation(); onOpenChange(false) }}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </div>
+    )
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 浮窗主体 .compose-window
   // ────────────────────────────────────────────────────────────────────────────
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        {/* 遮罩 */}
-        <Dialog.Overlay
-          className="fixed inset-0 z-40"
-          style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}
-        />
+    <div className="compose-window" onMouseDown={(e) => e.stopPropagation()}>
 
-        {/* 对话框 */}
-        <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[560px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto rounded-xl shadow-xl flex flex-col gap-0 outline-none"
-          style={{ background: 'var(--surface)', color: 'var(--ink)' }}
-          aria-describedby={undefined}
+      {/* ── 标题栏 .compose-head ─────────────────────────────────────────────── */}
+      <div className="compose-head">
+        <Icon name="compose" size={12} />
+        <h3>{title}</h3>
+        {/* spacer */}
+        <div style={{ flex: 1 }} />
+        {/* 最小化 */}
+        <button
+          className="icon-btn"
+          title={t('compose.minimize')}
+          onClick={handleToggleMinimize}
         >
-          {/* 标题栏 */}
-          <div
-            className="flex items-center justify-between px-6 py-4 shrink-0"
-            style={{ borderBottom: '1px solid var(--rule)' }}
-          >
-            <Dialog.Title className="text-base font-semibold" style={{ margin: 0 }}>
-              {resolveTitle()}
-            </Dialog.Title>
-            <Dialog.Close asChild>
-              <button
-                className="rounded-md p-1 text-sm opacity-60 hover:opacity-100 transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                style={{ color: 'var(--ink-3)', lineHeight: 1 }}
-                aria-label={t('compose.cancel')}
-              >
-                ✕
-              </button>
-            </Dialog.Close>
-          </div>
+          <Icon name="minus" size={12} />
+        </button>
+        {/* 关闭 */}
+        <button
+          className="icon-btn"
+          title={t('compose.cancel')}
+          onClick={() => onOpenChange(false)}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </div>
 
-          {/* 表单主体 */}
-          <div className="flex flex-col gap-3 px-6 py-5">
-            {/* 收件人 */}
-            <Field label={t('compose.to')}>
-              <Input
-                value={form.toStr}
-                onChange={(e) => set('toStr', e.target.value)}
-                placeholder={t('compose.addrHint')}
-                disabled={isBusy}
-              />
-            </Field>
+      {/* ── 表单主体 .compose-body ───────────────────────────────────────────── */}
+      <div className="compose-body">
 
-            {/* 抄送 */}
-            <Field label={t('compose.cc')}>
-              <Input
-                value={form.ccStr}
-                onChange={(e) => set('ccStr', e.target.value)}
-                placeholder={t('compose.addrHint')}
-                disabled={isBusy}
-              />
-            </Field>
-
-            {/* 密送 */}
-            <Field label={t('compose.bcc')}>
-              <Input
-                value={form.bccStr}
-                onChange={(e) => set('bccStr', e.target.value)}
-                placeholder={t('compose.addrHint')}
-                disabled={isBusy}
-              />
-            </Field>
-
-            {/* 主题 */}
-            <Field label={t('compose.subject')}>
-              <Input
-                value={form.subject}
-                onChange={(e) => set('subject', e.target.value)}
-                placeholder={t('compose.subject')}
-                disabled={isBusy}
-              />
-            </Field>
-
-            {/* 正文富文本编辑器 */}
-            <Field label={t('compose.body')}>
-              <div
-                style={{
-                  border: '1px solid var(--rule)',
-                  borderRadius: '6px',
-                  overflow: 'hidden',
-                  minHeight: '180px',
-                  background: 'var(--bg)',
-                }}
-              >
-                <Editor
-                  value={form.bodyHtml}
-                  onChange={handleBodyChange}
-                  disabled={isBusy}
-                  containerProps={{
-                    style: { minHeight: '180px' },
-                  }}
-                />
-              </div>
-            </Field>
-
-            {/* 校验错误 */}
-            {validationError && (
-              <div
-                className="rounded-md px-3 py-2 text-sm"
-                style={{
-                  background: 'oklch(0.577 0.245 27.325 / 0.1)',
-                  color: 'var(--destructive)',
-                }}
-              >
-                {validationError}
-              </div>
-            )}
-
-            {/* 成功提示 */}
-            {infoMessage && (
-              <div
-                className="rounded-md px-3 py-2 text-sm"
-                style={{ background: 'var(--accent-wash, oklch(0.9 0.1 145 / 0.15))', color: 'var(--ink-2)' }}
-              >
-                {infoMessage}
-              </div>
-            )}
-          </div>
-
-          {/* 底部操作栏 */}
-          <div
-            className="flex items-center justify-between gap-3 px-6 py-4 shrink-0"
-            style={{ borderTop: '1px solid var(--rule)' }}
-          >
-            {/* 存草稿 */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSaveDraft}
-              disabled={isBusy || noAccount}
+        {/* From 行 */}
+        <div className="compose-row">
+          <label>{t('compose.from')}</label>
+          {multiAccount ? (
+            // 多账户：可点击选择，用原生 select 套 from-account 样式
+            <select
+              value={form.fromId ?? ''}
+              onChange={(e) => set('fromId', Number(e.target.value))}
+              disabled={isBusy}
+              style={{
+                border: 0, outline: 0,
+                background: 'var(--bg-alt)',
+                padding: '4px 8px',
+                borderRadius: 6,
+                fontSize: 13,
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-body)',
+              }}
             >
-              {isSavingDraft ? t('compose.sending') : t('compose.saveDraft')}
-            </Button>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} — {a.email}
+                </option>
+              ))}
+            </select>
+          ) : (
+            // 单账户：只读展示
+            <span className="from-account">
+              <span
+                className="acct-dot"
+                style={{ background: acctDotColor(fromAccountIndex) }}
+              />
+              {fromAccount?.email ?? ''}
+            </span>
+          )}
+        </div>
 
-            {/* 右侧：取消 + 发送 */}
-            <div className="flex items-center gap-2">
-              <Dialog.Close asChild>
-                <Button variant="ghost" size="sm" disabled={isBusy}>
-                  {t('compose.cancel')}
-                </Button>
-              </Dialog.Close>
-              <Button
-                size="sm"
-                onClick={handleSend}
-                disabled={isBusy || noAccount}
+        {/* To 行 */}
+        <div className="compose-row">
+          <label>{t('compose.to')}</label>
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+            <input
+              value={form.toStr}
+              onChange={(e) => set('toStr', e.target.value)}
+              placeholder="name@example.com"
+              disabled={isBusy}
+              autoFocus={!initial}
+            />
+            {/* 未展开抄送时显示 Cc 切换按钮 */}
+            {!showCc && (
+              <button
+                className="pill-btn"
+                style={{ marginLeft: 8, flexShrink: 0 }}
+                onClick={() => setShowCc(true)}
+                type="button"
               >
-                {isSending ? t('compose.sending') : t('compose.send')}
-              </Button>
-            </div>
+                {t('compose.showCc')}
+              </button>
+            )}
+            {/* 未展开密送时显示 Bcc 切换按钮 */}
+            {!showBcc && (
+              <button
+                className="pill-btn"
+                style={{ marginLeft: 4, flexShrink: 0 }}
+                onClick={() => setShowBcc(true)}
+                type="button"
+              >
+                {t('compose.showBcc')}
+              </button>
+            )}
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </div>
+
+        {/* Cc 行（可折叠） */}
+        {showCc && (
+          <div className="compose-row">
+            <label>{t('compose.cc')}</label>
+            <input
+              value={form.ccStr}
+              onChange={(e) => set('ccStr', e.target.value)}
+              placeholder="cc@example.com"
+              disabled={isBusy}
+            />
+          </div>
+        )}
+
+        {/* Bcc 行（可折叠） */}
+        {showBcc && (
+          <div className="compose-row">
+            <label>{t('compose.bcc')}</label>
+            <input
+              value={form.bccStr}
+              onChange={(e) => set('bccStr', e.target.value)}
+              placeholder="bcc@example.com"
+              disabled={isBusy}
+            />
+          </div>
+        )}
+
+        {/* 主题行 */}
+        <div className="compose-row">
+          <label>{t('compose.subject')}</label>
+          <input
+            value={form.subject}
+            onChange={(e) => set('subject', e.target.value)}
+            placeholder={t('compose.subject')}
+            disabled={isBusy}
+            autoFocus={!!initial}
+          />
+        </div>
+
+        {/* 正文：保留 react-simple-wysiwyg 富文本编辑，外观贴近 compose-textarea */}
+        {/* 保留富文本的原因：回复/转发预填是 HTML 引用块，纯 textarea 会显示原始标签 */}
+        <div style={{ position: 'relative' }}>
+          <Editor
+            value={form.bodyHtml}
+            onChange={handleBodyChange}
+            disabled={isBusy}
+            containerProps={{
+              // 用内联样式覆盖 rsw 默认边框，使其外观贴近 compose-textarea
+              style: {
+                border: 'none',
+                background: 'transparent',
+                minHeight: 240,
+                fontSize: 14,
+                lineHeight: '1.6',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-body)',
+              },
+            }}
+          />
+        </div>
+
+        {/* 校验错误提示 */}
+        {validationError && (
+          <div
+            style={{
+              padding: '6px 0',
+              fontSize: 13,
+              color: 'var(--destructive)',
+            }}
+          >
+            {validationError}
+          </div>
+        )}
+
+        {/* 草稿保存成功提示 */}
+        {infoMessage && (
+          <div
+            style={{
+              padding: '6px 0',
+              fontSize: 13,
+              color: 'var(--ink-2)',
+            }}
+          >
+            {infoMessage}
+          </div>
+        )}
+      </div>
+
+      {/* ── 底部操作栏 .compose-foot ─────────────────────────────────────────── */}
+      <div className="compose-foot">
+        {/* 发送按钮（primary pill） */}
+        <button
+          className="pill-btn primary"
+          onClick={handleSend}
+          disabled={isBusy || noAccount}
+          type="button"
+        >
+          {isSending ? t('compose.sending') : t('compose.send')}
+        </button>
+
+        {/* 存草稿按钮 */}
+        <button
+          className="pill-btn"
+          onClick={handleSaveDraft}
+          disabled={isBusy || noAccount}
+          type="button"
+        >
+          {isSavingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
+        </button>
+
+        {/* 附件按钮：后端暂不支持附件发送，disabled 降级 */}
+        <button
+          className="pill-btn"
+          disabled
+          title={t('compose.attachDisabled')}
+          type="button"
+          style={{ cursor: 'not-allowed', opacity: 0.45 }}
+        >
+          <Icon name="attach" size={12} />
+        </button>
+
+        {/* spacer 推开右侧 */}
+        <div style={{ flex: 1 }} />
+
+        {/* 右侧：显示发件账户邮箱 */}
+        {fromAccount && (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
+            {fromAccount.email}
+          </span>
+        )}
+
+        {/* 丢弃（关闭浮窗） */}
+        <button
+          className="pill-btn"
+          onClick={() => onOpenChange(false)}
+          disabled={isBusy}
+          type="button"
+        >
+          <Icon name="trash" size={12} />
+        </button>
+      </div>
+    </div>
   )
 }

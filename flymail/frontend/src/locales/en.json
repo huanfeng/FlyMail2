@@ -1,25 +1,43 @@
 {
   "app": { "name": "FlyMail" },
-  "sidebar": { "compose": "Compose", "accounts": "Accounts", "settings": "Settings" },
+  "sidebar": {
+    "compose": "Compose",
+    "accounts": "Accounts",
+    "settings": "Settings",
+    "accountCount": "{{count}} accounts",
+    "noAccounts": "No accounts"
+  },
   "folder": {
     "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
     "trash": "Trash", "junk": "Junk", "archive": "Archive", "custom": "Folder"
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
-    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
-    "loadingMore": "Loading…", "noMore": "No more"
+    "totalCount": "{{count}} messages",
+    "empty": "No messages", "noSubject": "(No subject)",
+    "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "loadingMore": "Loading…", "noMore": "No more",
+    "clearSearch": "Clear search",
+    "nothingHere": "Nothing here",
+    "noMessages": "This folder has no messages",
+    "searchNoResult": "No matching messages found",
+    "relTime": {
+      "justNow": "now",
+      "minutesAgo": "{{n}}m",
+      "yesterday": "Yesterday"
+    }
   },
   "sync": {
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
     "messages": "Syncing messages…", "done": "Sync complete", "error": "Sync failed: {{error}}"
   },
   "reader": {
-    "welcome": "Select a message to read",
-    "welcomeHint": "Click any message from the list on the left",
+    "welcome": "Select a message",
+    "welcomeHint": "Click any message from the list on the left to read it",
     "notReady": "Message reading comes in a later version",
     "loading": "Loading…",
     "to": "To",
+    "cc": "Cc",
     "showImages": "This message contains remote images that were not loaded",
     "showImagesBtn": "Show images",
     "attachments": "Attachments",
@@ -27,8 +45,20 @@
     "preview": "Preview",
     "noBody": "(No body)",
     "loadError": "Failed to load message body",
+    "loadErrorHint": "Check your connection and try again",
     "star": "Star",
-    "unstar": "Unstar"
+    "unstar": "Unstar",
+    "markUnread": "Mark as unread",
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "replyTo": "Reply to {{name}}…",
+    "scKbNav": "Next / previous",
+    "scKbCompose": "Compose",
+    "scKbReply": "Reply",
+    "scKbStar": "Star",
+    "scKbSearch": "Search",
+    "sendTo": "to"
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",
@@ -46,6 +76,7 @@
     "title": "Compose",
     "reply": "Reply",
     "forward": "Forward",
+    "from": "From",
     "to": "To",
     "cc": "Cc",
     "bcc": "Bcc",
@@ -53,6 +84,7 @@
     "body": "Body",
     "send": "Send",
     "saveDraft": "Save Draft",
+    "savingDraft": "Saving…",
     "cancel": "Cancel",
     "sending": "Sending…",
     "sent": "Sent",
@@ -62,7 +94,18 @@
     "draftsBox": "Drafts (Local)",
     "noDrafts": "No drafts",
     "sendDraft": "Send",
-    "deleteDraft": "Delete draft"
+    "deleteDraft": "Delete draft",
+    "minimize": "Minimize",
+    "showCc": "Cc",
+    "showBcc": "Bcc",
+    "attachDisabled": "Attachment sending coming soon"
+  },
+  "notif": {
+    "title": "Notifications",
+    "sub": "No new notifications",
+    "backToInbox": "Back to Inbox",
+    "emptyTitle": "No notifications",
+    "emptyHint": "Notifications will appear here when new mail arrives or account status changes"
   },
   "settings": {
     "title": "Settings",
@@ -70,6 +113,17 @@
     "navGeneral": "General",
     "navSecurity": "Security",
     "navMail": "Mail",
+    "page": {
+      "sub": "Manage appearance, accounts and mail sync preferences",
+      "sectAppearance": "Appearance",
+      "theme": "Color Tone",
+      "themeHelp": "Pick a color scheme — changes take effect immediately",
+      "mode": "Light / Dark Mode",
+      "colorMode": "Color mode",
+      "language": "Language",
+      "uiLanguage": "Interface language",
+      "accountsHelp": "Manage your IMAP accounts"
+    },
     "general": {
       "language": "Language",
       "theme": "Theme",

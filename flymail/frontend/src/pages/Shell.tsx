@@ -4,8 +4,10 @@ import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
+import type { AppView } from '@/components/mail/AccountSidebar'
 import { AccountDialog } from '@/components/mail/AccountDialog'
-import { SettingsDialog } from '@/components/settings/SettingsDialog'
+import { SettingsPage } from '@/components/settings/SettingsPage'
+import { NotificationsPage } from '@/components/notifications/NotificationsPage'
 import { MailList } from '@/components/mail/MailList'
 import { DraftsList } from '@/components/mail/DraftsList'
 import { Reader } from '@/components/mail/Reader'
@@ -16,6 +18,7 @@ import {
   useAccounts,
   useFolders,
   useInfiniteMessages,
+  useMessageDetail,
   useSyncStatus,
   useTriggerSync,
   useDeleteAccount,
@@ -23,6 +26,7 @@ import {
   useToggleFlag,
 } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { getListStyle, setListStyle } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
@@ -85,16 +89,20 @@ export function ShellPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const deleteAccount = useDeleteAccount()
 
-  // ── 设置对话框 state ─────────────────────────────────────────────────────────
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // ── 应用级视图 state（mail / notif / settings）────────────────────────────────
+  // mail: 正常三栏; notif/settings: sidebar + 整页
+  const [appView, setAppView] = useState<AppView>('mail')
 
-  // ── 中栏视图 state ───────────────────────────────────────────────────────────
+  // ── 中栏视图 state（邮件视图内部：messages / drafts）───────────────────────────
   const [view, setView] = useState<'messages' | 'drafts'>('messages')
 
   // ── 撰写/回复/转发 state ──────────────────────────────────────────────────────
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeInitial, setComposeInitial] = useState<ComposeInitial | undefined>(undefined)
   const [composeDraftId, setComposeDraftId] = useState<number | null>(null)
+
+  // 快捷键 r 回复时需要当前邮件的完整数据；Reader 已请求过，此处只复用缓存
+  const { data: activeMessageDetail } = useMessageDetail(messageId)
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -129,6 +137,7 @@ export function ShellPage() {
 
   function selectAccount(id: number) {
     setView('messages')
+    setAppView('mail')   // 点击账户时回到邮件视图
     setParam((p) => {
       p.set('account', String(id))
       p.delete('folder')
@@ -138,6 +147,7 @@ export function ShellPage() {
 
   function selectFolder(id: number) {
     setView('messages')
+    setAppView('mail')   // 点击文件夹时回到邮件视图
     setParam((p) => {
       p.set('folder', String(id))
       p.delete('message')
@@ -183,6 +193,18 @@ export function ShellPage() {
     setComposeOpen(true)
   }
 
+  // ── 全局键盘快捷键 ────────────────────────────────────────────────────────────
+  useKeyboardShortcuts({
+    onCompose,
+    // 仅当有选中邮件且其详情已缓存时才允许快捷键回复
+    onReply: activeMessageDetail != null ? () => onReply(activeMessageDetail) : null,
+    messages,
+    activeMessageId: messageId,
+    selectMessage,
+    onCloseCompose: () => setComposeOpen(false),
+    composeOpen,
+  })
+
   function onOpenDrafts(accountId: number) {
     setParam((p) => p.set('account', String(accountId)), true)
     setView('drafts')
@@ -214,26 +236,44 @@ export function ShellPage() {
     }
   }
 
+  // ── Sidebar（常驻所有视图）────────────────────────────────────────────────────
+  const sidebar = (
+    <AccountSidebar
+      accounts={accounts}
+      folders={folders}
+      activeAccountId={accountId}
+      activeFolderId={folderId}
+      syncing={syncing}
+      activeView={appView}
+      onSelectAccount={selectAccount}
+      onSelectFolder={selectFolder}
+      onSync={onSync}
+      onAddAccount={onAddAccount}
+      onEditAccount={onEditAccount}
+      onDeleteAccount={onDeleteAccount}
+      onSetView={setAppView}
+      onCompose={onCompose}
+      onOpenDrafts={onOpenDrafts}
+    />
+  )
+
   return (
     <>
       <AppLayout
-        sidebar={
-          <AccountSidebar
-            accounts={accounts}
-            folders={folders}
-            activeAccountId={accountId}
-            activeFolderId={folderId}
-            syncing={syncing}
-            onSelectAccount={selectAccount}
-            onSelectFolder={selectFolder}
-            onSync={onSync}
-            onAddAccount={onAddAccount}
-            onEditAccount={onEditAccount}
-            onDeleteAccount={onDeleteAccount}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onCompose={onCompose}
-            onOpenDrafts={onOpenDrafts}
-          />
+        sidebar={sidebar}
+        // 整页分支：settings / notif 视图时传入 fullpage，list/reader 被忽略
+        fullpage={
+          appView === 'settings' ? (
+            <SettingsPage
+              listStyle={listStyle}
+              onChangeListStyle={handleChangeListStyle}
+              onBack={() => setAppView('mail')}
+            />
+          ) : appView === 'notif' ? (
+            <NotificationsPage
+              onBack={() => setAppView('mail')}
+            />
+          ) : undefined
         }
         list={
           view === 'drafts' && accountId != null ? (
@@ -267,12 +307,6 @@ export function ShellPage() {
         open={dialogOpen}
         account={editingAccount}
         onOpenChange={setDialogOpen}
-      />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        listStyle={listStyle}
-        onChangeListStyle={handleChangeListStyle}
       />
       <ComposeDialog
         open={composeOpen}

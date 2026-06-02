@@ -1,14 +1,23 @@
-import { useCallback, useRef, useState, type ReactNode, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 interface AppLayoutProps {
   sidebar: ReactNode
   list: ReactNode
   reader: ReactNode
+  /**
+   * 可选：整页内容。传入时渲染 sidebar + fullpage 两栏布局，
+   * 忽略 list / reader，用于设置页和通知页。
+   */
+  fullpage?: ReactNode
 }
 
-// 三栏宽度（px）持久化到 localStorage；阅读区占剩余空间。
+// localStorage 持久化键
 const LS_KEY = 'flymail-layout-v1'
-const DEFAULTS = { sidebar: 248, list: 380 } // 参考 MailMaster 比例
+
+// 默认宽度（px），参考 MailMaster 比例
+const DEFAULTS = { sidebar: 248, list: 380 }
+
+// 各栏宽度约束
 const LIMITS = {
   sidebar: { min: 180, max: 420 },
   list: { min: 300, max: 680 },
@@ -21,6 +30,7 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
 
+/** 从 localStorage 加载宽度，失败时返回默认值 */
 function loadWidths(): Widths {
   try {
     const raw = localStorage.getItem(LS_KEY)
@@ -37,93 +47,118 @@ function loadWidths(): Widths {
   return { ...DEFAULTS }
 }
 
-// 可拖拽的分隔条：1px 细线 + 更宽透明命中区，悬停/拖拽高亮强调色。
-function Divider({ onResize, onCommit }: { onResize: (dx: number) => void; onCommit: () => void }) {
-  const startX = useRef(0)
-  const dragging = useRef(false)
-
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    dragging.current = true
-    startX.current = e.clientX
-    e.currentTarget.setPointerCapture(e.pointerId)
-    document.body.style.cursor = 'col-resize'
-  }
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return
-    onResize(e.clientX - startX.current)
-    startX.current = e.clientX
-  }
-  const endDrag = (e: PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return
-    dragging.current = false
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    } catch {
-      /* ignore */
-    }
-    document.body.style.cursor = ''
-    onCommit()
-  }
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      className="group relative z-10 w-px shrink-0 cursor-col-resize self-stretch"
-      style={{ background: 'var(--rule)' }}
-    >
-      {/* 加宽命中区域 */}
-      <div className="absolute inset-y-0 -left-1 -right-1" />
-      {/* 悬停/拖拽高亮 */}
-      <div className="absolute inset-y-0 left-0 w-px opacity-0 transition-opacity group-hover:opacity-100"
-        style={{ background: 'var(--accent-color)' }}
-      />
-    </div>
-  )
-}
-
-// 三栏布局：侧栏 / 列表 可拖拽调宽并记忆，阅读区占剩余空间。
-export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
+/**
+ * 三栏布局外壳，复刻 MailMaster .app/.col/.col-resize 结构。
+ * - 宽度通过 CSS 变量 --sidebar-w / --list-w 注入 documentElement，
+ *   与 index.css 中 .col.sidebar / .col.list 的 flex-basis 声明联动。
+ * - 拖拽：pointer capture，拖拽时给手柄加 .dragging、给 body 加 .is-resizing。
+ * - 刷新后宽度从 localStorage 恢复。
+ */
+export function AppLayout({ sidebar, list, reader, fullpage }: AppLayoutProps) {
   const [w, setW] = useState<Widths>(loadWidths)
+  // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
   const wRef = useRef(w)
   wRef.current = w
 
-  const resize = useCallback((key: PaneKey, dx: number) => {
-    setW((prev) => {
-      const next = clamp(prev[key] + dx, LIMITS[key].min, LIMITS[key].max)
-      return { ...prev, [key]: next }
-    })
-  }, [])
+  // 同步 CSS 变量到 :root，驱动 .col.sidebar / .col.list 宽度
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-w', `${w.sidebar}px`)
+    document.documentElement.style.setProperty('--list-w', `${w.list}px`)
+  }, [w])
 
-  const commit = useCallback(() => {
+  // 持久化到 localStorage
+  function persistWidths(next: Widths) {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(wRef.current))
+      localStorage.setItem(LS_KEY, JSON.stringify(next))
     } catch {
       /* ignore */
     }
-  }, [])
+  }
+
+  // 构造单个 col-resize 手柄的 pointer 事件处理器
+  function makeResizeHandlers(key: PaneKey) {
+    return {
+      onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+        e.preventDefault()
+        const el = e.currentTarget
+        el.setPointerCapture(e.pointerId)
+        el.classList.add('dragging')
+        document.body.classList.add('is-resizing')
+
+        let lastX = e.clientX
+
+        function onMove(ev: PointerEvent) {
+          const dx = ev.clientX - lastX
+          lastX = ev.clientX
+          setW((prev) => {
+            const next = clamp(prev[key] + dx, LIMITS[key].min, LIMITS[key].max)
+            return { ...prev, [key]: next }
+          })
+        }
+
+        function onUp(ev: PointerEvent) {
+          el.releasePointerCapture(ev.pointerId)
+          el.classList.remove('dragging')
+          document.body.classList.remove('is-resizing')
+          el.removeEventListener('pointermove', onMove)
+          el.removeEventListener('pointerup', onUp)
+          el.removeEventListener('pointercancel', onUp)
+          // 拖拽结束后持久化
+          persistWidths(wRef.current)
+        }
+
+        el.addEventListener('pointermove', onMove)
+        el.addEventListener('pointerup', onUp)
+        el.addEventListener('pointercancel', onUp)
+      },
+    }
+  }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      <aside
-        className="flex-shrink-0 overflow-y-auto"
-        style={{ width: w.sidebar, background: 'var(--bg-alt)' }}
-      >
+    // .app：全屏 flex 容器，class 与 index.css 中的 .app 对应
+    <div className="app">
+      {/* 侧栏：.col.sidebar，宽度由 CSS 变量 --sidebar-w 控制，常驻所有视图 */}
+      <div className="col sidebar">
         {sidebar}
-      </aside>
-      <Divider onResize={(dx) => resize('sidebar', dx)} onCommit={commit} />
-      <section
-        className="flex flex-shrink-0 flex-col overflow-hidden"
-        style={{ width: w.list }}
-      >
-        {list}
-      </section>
-      <Divider onResize={(dx) => resize('list', dx)} onCommit={commit} />
-      <main className="min-w-0 flex-1 overflow-y-auto">{reader}</main>
+      </div>
+
+      {fullpage ? (
+        // 整页分支（设置/通知视图）：侧栏 + 整页，无拖拽手柄、无 list/reader
+        <div className="col reader" style={{ flex: 1, minWidth: 0 }}>
+          {fullpage}
+        </div>
+      ) : (
+        // 三栏分支（邮件视图）：侧栏调宽手柄 + list + list/reader 调宽手柄 + reader
+        <>
+          {/* 侧栏与列表之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整侧栏宽度"
+            {...makeResizeHandlers('sidebar')}
+          />
+
+          {/* 列表栏：.col.list，宽度由 CSS 变量 --list-w 控制 */}
+          <div className="col list">
+            {list}
+          </div>
+
+          {/* 列表与阅读区之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整列表宽度"
+            {...makeResizeHandlers('list')}
+          />
+
+          {/* 阅读区：.col.reader，占剩余空间 */}
+          <div className="col reader">
+            {reader}
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,10 +1,11 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
-import { Paperclip, Star } from 'lucide-react'
 import { groupByDate } from '@/lib/date-group'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
+import { Icon } from '@/components/ui/Icon'
+import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -14,6 +15,9 @@ import type { Folder, MessageListItem } from '@/lib/types'
 type RowItem =
   | { type: 'header'; label: string }
   | { type: 'item'; msg: MessageListItem }
+
+/** filter chip 过滤类型 */
+type FilterType = 'all' | 'unread' | 'flagged'
 
 interface Props {
   folder: Folder | null
@@ -32,15 +36,54 @@ interface Props {
 // 辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** 取发件人首字母（大写）*/
 function initials(name: string, addr: string): string {
   const s = (name || addr || '?').trim()
   return s.slice(0, 1).toUpperCase()
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${d.getMonth() + 1}/${d.getDate()}`
+/**
+ * 相对时间：参考 MailMaster relTimeMM，支持 zh/en
+ * - < 1分钟 → 刚刚 / now
+ * - < 1小时 → Nm / Nm
+ * - 当天     → HH:mm（本地化）
+ * - < 7天   → 周N（本地化）
+ * - 其他    → M月D日 / Mon D
+ */
+function relTime(isoStr: string, lang: string): string {
+  const ms = new Date(isoStr).getTime()
+  if (Number.isNaN(ms)) return ''
+  const diff = Date.now() - ms
+  const isZh = lang === 'zh' || lang.startsWith('zh')
+
+  if (diff < 60_000) return isZh ? '刚刚' : 'now'
+  if (diff < 3_600_000) {
+    const n = Math.floor(diff / 60_000)
+    return isZh ? `${n}分` : `${n}m`
+  }
+  const d = new Date(ms)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  if (ms >= todayStart.getTime()) {
+    // 当天：显示时间
+    return d.toLocaleTimeString(isZh ? 'zh-CN' : undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+
+  const weekAgo = todayStart.getTime() - 6 * 86_400_000
+  if (ms >= weekAgo) {
+    // 近 7 天：显示星期
+    return d.toLocaleDateString(isZh ? 'zh-CN' : undefined, { weekday: 'short' })
+  }
+
+  // 更早：月/日
+  return d.toLocaleDateString(isZh ? 'zh-CN' : undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,22 +97,20 @@ function SkeletonList() {
         <div
           // eslint-disable-next-line react/no-array-index-key
           key={i}
-          className="px-5 py-3.5 animate-pulse"
-          style={{ borderBottom: '1px solid var(--rule)' }}
+          className="mail-item animate-pulse"
         >
-          <div className="flex items-center gap-3">
-            {/* 紧凑模式骨架：无头像，左侧小圆点占位 */}
-            <div
-              className="h-2 w-2 rounded-full flex-shrink-0"
-              style={{ background: 'var(--bg-sunk)' }}
-            />
-            <div className="flex-1 flex flex-col gap-1.5">
-              <div className="flex justify-between gap-4">
-                <div className="h-3 rounded" style={{ width: '40%', background: 'var(--bg-sunk)' }} />
-                <div className="h-3 rounded" style={{ width: '12%', background: 'var(--bg-sunk)' }} />
-              </div>
-              <div className="h-3 rounded" style={{ width: '65%', background: 'var(--bg-sunk)' }} />
+          {/* 头像占位 */}
+          <div
+            className="avatar-sq"
+            style={{ background: 'var(--bg-sunk)' }}
+          />
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex justify-between gap-4">
+              <div className="h-3 rounded" style={{ width: '45%', background: 'var(--bg-sunk)' }} />
+              <div className="h-3 rounded" style={{ width: '14%', background: 'var(--bg-sunk)' }} />
             </div>
+            <div className="h-3 rounded" style={{ width: '70%', background: 'var(--bg-sunk)' }} />
+            <div className="h-3 rounded" style={{ width: '55%', background: 'var(--bg-sunk)' }} />
           </div>
         </div>
       ))}
@@ -78,172 +119,159 @@ function SkeletonList() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 紧凑行：发件人 + 日期 / 主题（无头像，左侧未读圆点）
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface CompactRowProps {
-  msg: MessageListItem
-  active: boolean
-  onSelect: () => void
-  onToggleFlag: (e: React.MouseEvent) => void
-}
-
-function CompactRow({ msg, active, onSelect, onToggleFlag }: CompactRowProps) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex w-full items-center gap-2.5 px-4 py-2 text-left transition-colors"
-      style={{
-        borderBottom: '1px solid var(--rule)',
-        background: active ? 'var(--accent-wash)' : 'transparent',
-      }}
-      onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'
-      }}
-      onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'
-      }}
-    >
-      {/* 未读圆点 */}
-      <span
-        className="h-2 w-2 flex-shrink-0 rounded-full"
-        style={{ background: msg.seen ? 'transparent' : 'var(--accent-color)' }}
-      />
-
-      {/* 发件人 */}
-      <span
-        className="w-28 flex-shrink-0 truncate text-[13px]"
-        style={{
-          color: msg.seen ? 'var(--ink-2)' : 'var(--ink)',
-          fontWeight: msg.seen ? 400 : 600,
-        }}
-      >
-        {msg.from_name || msg.from_addr}
-      </span>
-
-      {/* 主题 */}
-      <span
-        className="min-w-0 flex-1 truncate text-[12.5px]"
-        style={{ color: msg.seen ? 'var(--ink-2)' : 'var(--ink)' }}
-      >
-        {msg.subject || '（无主题）'}
-      </span>
-
-      {/* 右侧：附件 / 日期 / 星标 */}
-      <span
-        className="flex flex-shrink-0 items-center gap-1.5 text-[10.5px]"
-        style={{ color: 'var(--ink-3)' }}
-      >
-        {msg.has_attachment && <Paperclip size={11} />}
-        <span>{formatDate(msg.date)}</span>
-        <button
-          type="button"
-          onClick={onToggleFlag}
-          className="flex items-center justify-center"
-          style={{ lineHeight: 1 }}
-          aria-label={msg.flagged ? 'Unflag' : 'Flag'}
-        >
-          <Star
-            size={13}
-            fill={msg.flagged ? 'var(--accent-color)' : 'none'}
-            stroke={msg.flagged ? 'var(--accent-color)' : 'var(--ink-3)'}
-          />
-        </button>
-      </span>
-    </button>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 卡片行：头像 + 三行信息（沿用原始样式）
+// 卡片行（card 模式）：头像 + 三行信息，复刻 MailMaster .mail-item 结构
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CardRowProps {
   msg: MessageListItem
   active: boolean
+  lang: string
   onSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
 }
 
-function CardRow({ msg, active, onSelect, onToggleFlag }: CardRowProps) {
+function CardRow({ msg, active, lang, onSelect, onToggleFlag }: CardRowProps) {
+  const isUnread = !msg.seen
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
-      className="grid w-full grid-cols-[32px_1fr] gap-3 px-5 py-3.5 text-left transition-colors"
-      style={{
-        borderBottom: '1px solid var(--rule)',
-        background: active ? 'var(--accent-wash)' : 'transparent',
-      }}
-      onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'
-      }}
-      onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'
-      }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+      className={
+        'mail-item' +
+        (isUnread ? ' unread' : '') +
+        (active ? ' selected' : '')
+      }
     >
-      {/* 头像 */}
+      {/* 未读圆点（CSS 控制可见性）*/}
+      <span className="mi-unread-dot" />
+
+      {/* 方形头像 */}
       <div
-        className="flex h-8 w-8 items-center justify-center rounded-md text-[12.5px] font-semibold text-white"
-        style={{ background: 'var(--accent-color)' }}
+        className="avatar-sq"
+        style={{ background: 'var(--accent)' }}
       >
         {initials(msg.from_name, msg.from_addr)}
       </div>
 
-      <div className="min-w-0">
-        {/* 第一行：发件人 + 日期/附件/星标 */}
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className="truncate text-[13.5px]"
-            style={{
-              color: msg.seen ? 'var(--ink-2)' : 'var(--ink)',
-              fontWeight: msg.seen ? 400 : 600,
-            }}
-          >
-            {msg.from_name || msg.from_addr}
-          </span>
-          <span
-            className="flex flex-shrink-0 items-center gap-1.5 text-[10.5px]"
-            style={{ color: 'var(--ink-3)' }}
-          >
-            {msg.has_attachment && <Paperclip size={11} />}
-            {formatDate(msg.date)}
-            <button
-              type="button"
-              onClick={onToggleFlag}
-              className="flex items-center justify-center"
-              style={{ lineHeight: 1 }}
-              aria-label={msg.flagged ? 'Unflag' : 'Flag'}
-            >
-              <Star
-                size={13}
-                fill={msg.flagged ? 'var(--accent-color)' : 'none'}
-                stroke={msg.flagged ? 'var(--accent-color)' : 'var(--ink-3)'}
-              />
-            </button>
-          </span>
+      <div style={{ minWidth: 0 }}>
+        {/* 第一行：发件人 + 时间 */}
+        <div className="mi-top">
+          <span className="mi-sender">{msg.from_name || msg.from_addr}</span>
+          <span className="mi-time">{relTime(msg.date, lang)}</span>
         </div>
 
         {/* 第二行：主题 */}
-        <div
-          className="truncate text-[13px]"
-          style={{
-            color: msg.seen ? 'var(--ink-2)' : 'var(--ink)',
-            fontWeight: msg.seen ? 400 : 600,
-          }}
-        >
-          {msg.subject || '（无主题）'}
+        <div className="mi-subject">
+          {msg.subject || '—'}
         </div>
 
-        {/* 第三行：摘要 */}
+        {/* 第三行：摘要（2 行截断由 CSS 控制）*/}
         {msg.snippet && (
-          <div className="truncate text-[12px]" style={{ color: 'var(--ink-3)' }}>
-            {msg.snippet}
+          <div className="mi-preview">{msg.snippet}</div>
+        )}
+
+        {/* 标签行：附件 */}
+        {msg.has_attachment && (
+          <div className="mi-tags">
+            <span className="mi-tag mi-attach">
+              <Icon name="attach" size={10} />
+            </span>
           </div>
         )}
       </div>
-    </button>
+
+      {/* 星标按钮（hover 显示 / 已标星常显）*/}
+      <button
+        type="button"
+        className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
+        onClick={onToggleFlag}
+        aria-label={msg.flagged ? 'Unstar' : 'Star'}
+        style={{ position: 'absolute', right: 14, top: 14, opacity: msg.flagged ? 1 : undefined }}
+      >
+        <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 紧凑行（compact 模式）：单行密排，复刻 MailMaster .mail-item.mail-item-row
+// grid: [28px] [160-220px] [1fr] [auto] [auto] [auto]
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CompactRowProps {
+  msg: MessageListItem
+  active: boolean
+  lang: string
+  onSelect: () => void
+  onToggleFlag: (e: React.MouseEvent) => void
+}
+
+function CompactRow({ msg, active, lang, onSelect, onToggleFlag }: CompactRowProps) {
+  const isUnread = !msg.seen
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+      className={
+        'mail-item mail-item-row' +
+        (isUnread ? ' unread' : '') +
+        (active ? ' selected' : '')
+      }
+    >
+      {/* 未读圆点 */}
+      <span className="mi-unread-dot" />
+
+      {/* 方形头像（小）*/}
+      <div
+        className="avatar-sq"
+        style={{ background: 'var(--accent)' }}
+      >
+        {initials(msg.from_name, msg.from_addr)}
+      </div>
+
+      {/* 发件人列 */}
+      <div className="mi-top">
+        <span className="mi-sender">{msg.from_name || msg.from_addr}</span>
+      </div>
+
+      {/* 主题 + 摘要（单行，"— " 由 CSS ::before 注入）*/}
+      <div className="mi-subject-preview">
+        <span className="mi-subject">{msg.subject || '—'}</span>
+        {msg.snippet && (
+          <span className="mi-preview">{msg.snippet}</span>
+        )}
+      </div>
+
+      {/* 附件标签 */}
+      {msg.has_attachment ? (
+        <div className="mi-tags">
+          <span className="mi-tag mi-attach">
+            <Icon name="attach" size={10} />
+          </span>
+        </div>
+      ) : (
+        <span />
+      )}
+
+      {/* 时间列 */}
+      <span className="mi-time-col">{relTime(msg.date, lang)}</span>
+
+      {/* 星标按钮 */}
+      <button
+        type="button"
+        className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
+        onClick={onToggleFlag}
+        aria-label={msg.flagged ? 'Unstar' : 'Star'}
+        style={{ position: 'static', opacity: msg.flagged ? 1 : undefined }}
+      >
+        <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
+      </button>
+    </div>
   )
 }
 
@@ -263,21 +291,70 @@ export function MailList({
   isFetchingNextPage,
   onLoadMore,
 }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 搜索框 ref：供快捷键 / 聚焦时使用
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
+  // ── 搜索状态（前端过滤，后端暂无接口）─────────────────────────────────────
+  // TODO: 接后端搜索接口后，将 query 提升至父组件作为请求参数
+
+  const [query, setQuery] = useState('')
+
+  // 监听快捷键 / 广播的自定义事件，聚焦搜索框
+  useEffect(() => {
+    function handleFocusSearch() {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener(FOCUS_SEARCH_EVENT, handleFocusSearch)
+    return () => {
+      window.removeEventListener(FOCUS_SEARCH_EVENT, handleFocusSearch)
+    }
+  }, [])
+
+  // ── filter chips 状态 ─────────────────────────────────────────────────────
+  const [filter, setFilter] = useState<FilterType>('all')
+
+  // ── 标题 ─────────────────────────────────────────────────────────────────
   const title = folder
     ? folder.type === 'custom'
       ? folder.display_name
       : t(`folder.${folder.type}`)
     : ''
 
-  // ── 构造虚拟化行模型 ──────────────────────────────────────────────────────
+  // ── 副标题：N封 / N未读 ───────────────────────────────────────────────────
+  const totalCount = folder?.total_count ?? messages.length
+  const unreadCount = folder?.unread_count ?? 0
+  const subLabel = unreadCount > 0
+    ? `${t('list.totalCount', { count: totalCount })} · ${t('list.unreadCount', { count: unreadCount })}`
+    : t('list.totalCount', { count: totalCount })
 
+  // ── 前端过滤：搜索 + chips ─────────────────────────────────────────────────
+  // 搜索范围：发件人姓名/地址、主题、摘要（includes，大小写不敏感）
+  const filtered = (() => {
+    let list = messages
+    const q = query.trim().toLowerCase()
+    if (q) {
+      list = list.filter(
+        (m) =>
+          (m.from_name || '').toLowerCase().includes(q) ||
+          (m.from_addr || '').toLowerCase().includes(q) ||
+          (m.subject || '').toLowerCase().includes(q) ||
+          (m.snippet || '').toLowerCase().includes(q),
+      )
+    }
+    if (filter === 'unread') list = list.filter((m) => !m.seen)
+    if (filter === 'flagged') list = list.filter((m) => m.flagged)
+    return list
+  })()
+
+  // ── 构造虚拟化行模型 ──────────────────────────────────────────────────────
   const rows: RowItem[] = (() => {
     if (listStyle === 'compact') {
       // 紧凑模式：按日期分组，插入分组 header 行
-      const groups = groupByDate(messages, (m) => m.date)
+      const groups = groupByDate(filtered, (m) => m.date)
       const result: RowItem[] = []
       for (const group of groups) {
         result.push({ type: 'header', label: group.label })
@@ -286,20 +363,18 @@ export function MailList({
         }
       }
       return result
-    } else {
-      // 卡片模式：纯 item 列表，不分组
-      return messages.map((msg): RowItem => ({ type: 'item', msg }))
     }
+    // 卡片模式：纯 item 列表，不分组
+    return filtered.map((msg): RowItem => ({ type: 'item', msg }))
   })()
 
   // ── 行高估算 ─────────────────────────────────────────────────────────────
-
   const estimateSize = useCallback(
     (index: number): number => {
       const row = rows[index]
       if (!row) return 52
       if (row.type === 'header') return 28
-      return listStyle === 'compact' ? 44 : 80
+      return listStyle === 'compact' ? 44 : 84
     },
     [rows, listStyle],
   )
@@ -312,11 +387,10 @@ export function MailList({
   })
 
   // ── 无限加载：接近底部时触发 ──────────────────────────────────────────────
-
   const virtualItems = virtualizer.getVirtualItems()
   const lastIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
 
-  // 仅依赖最末可见行索引，避免每帧滚动都重跑（virtualItems 每次都是新数组引用）。
+  // 仅依赖最末可见行索引，避免每帧滚动都重跑（virtualItems 每次都是新数组引用）
   useEffect(() => {
     if (lastIndex >= rows.length - 5 && hasNextPage && !isFetchingNextPage) {
       onLoadMore()
@@ -324,39 +398,99 @@ export function MailList({
   }, [lastIndex, rows.length, hasNextPage, isFetchingNextPage, onLoadMore])
 
   // ── 渲染 ─────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex h-full flex-col">
-      {/* 顶部标题栏 */}
-      <div className="px-5 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--rule)' }}>
-        <div className="text-lg font-medium">{title}</div>
-        {folder && folder.unread_count > 0 && (
-          <div className="text-[11px]" style={{ color: 'var(--ink-3)' }}>
-            {t('list.unreadCount', { count: folder.unread_count })}
-          </div>
-        )}
+
+      {/* ── 顶部标题栏 ── */}
+      <div className="list-head">
+        <div className="title-wrap">
+          <div className="list-title">{title}</div>
+          {folder && (
+            <div className="list-sub">{subLabel}</div>
+          )}
+        </div>
       </div>
 
-      {/* 列表区域 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      {/* ── 搜索栏 ── */}
+      <div className="search-bar">
+        <div className="search-input">
+          <Icon name="search" size={14} />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder={t('list.search')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label={t('list.search')}
+          />
+          {query ? (
+            /* 有输入时显示清除按钮 */
+            <button
+              type="button"
+              className="icon-btn"
+              style={{ width: 20, height: 20 }}
+              onClick={() => setQuery('')}
+              aria-label={t('list.clearSearch')}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          ) : (
+            /* 无输入时显示快捷键提示 */
+            <span className="kbd">⌘K</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── filter chips ── */}
+      <div className="filter-chips">
+        {(
+          [
+            { id: 'all',     label: t('list.filterAll') },
+            { id: 'unread',  label: t('list.filterUnread') },
+            { id: 'flagged', label: t('list.filterFlagged') },
+          ] as { id: FilterType; label: string }[]
+        ).map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            className={'chip' + (filter === c.id ? ' active' : '')}
+            onClick={() => setFilter(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 列表区域 ── */}
+      <div ref={scrollRef} className="mail-list">
+
         {/* 首屏加载骨架 */}
         {loading && <SkeletonList />}
 
-        {/* 空态 */}
-        {!loading && messages.length === 0 && (
+        {/* 空态：无搜索/过滤结果 */}
+        {!loading && filtered.length === 0 && (
           <div
-            className="px-5 py-8 text-center text-sm"
-            style={{ color: 'var(--ink-3)' }}
+            style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}
           >
-            {t('list.empty')}
+            <div
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 18,
+                color: 'var(--ink-2)',
+                marginBottom: 4,
+              }}
+            >
+              {t('list.nothingHere')}
+            </div>
+            <div>
+              {query || filter !== 'all' ? t('list.searchNoResult') : t('list.noMessages')}
+            </div>
           </div>
         )}
 
         {/* 虚拟化列表 */}
         {!loading && rows.length > 0 && (
-          <div
-            style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
-          >
+          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
             {virtualItems.map((vItem) => {
               const row = rows[vItem.index]
               if (!row) return null
@@ -375,13 +509,19 @@ export function MailList({
                   }}
                 >
                   {row.type === 'header' ? (
-                    // 分组标题行（行高固定，不用动态测量）
+                    /* 分组标题行（compact 模式专属）*/
                     <div
-                      className="px-4 py-1 text-[11px] font-medium"
+                      className="side-section-label"
                       style={{
+                        padding: '4px 16px',
+                        fontSize: 11,
+                        fontWeight: 500,
                         color: 'var(--ink-3)',
                         background: 'var(--bg-alt)',
                         borderBottom: '1px solid var(--rule)',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
                       }}
                     >
                       {row.label}
@@ -390,6 +530,7 @@ export function MailList({
                     <CompactRow
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
+                      lang={lang}
                       onSelect={() => onSelectMessage(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
@@ -400,6 +541,7 @@ export function MailList({
                     <CardRow
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
+                      lang={lang}
                       onSelect={() => onSelectMessage(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
@@ -416,8 +558,7 @@ export function MailList({
         {/* 底部加载状态 */}
         {!loading && messages.length > 0 && (
           <div
-            className="py-3 text-center text-[12px]"
-            style={{ color: 'var(--ink-3)' }}
+            style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-3)' }}
           >
             {isFetchingNextPage
               ? t('list.loadingMore')

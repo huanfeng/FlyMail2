@@ -57,6 +57,13 @@ func (r *Repository) IsEnabled(id uint) (bool, error) {
 	return a.Enabled, nil
 }
 
+// ListEnabledIDs 返回所有 enabled=true 账户的 ID。
+func (r *Repository) ListEnabledIDs() ([]uint, error) {
+	var ids []uint
+	err := r.db.Model(&Account{}).Where("enabled = ?", true).Pluck("id", &ids).Error
+	return ids, err
+}
+
 func (r *Repository) Delete(id uint) error {
 	res := r.db.Delete(&Account{}, id)
 	if res.Error != nil {

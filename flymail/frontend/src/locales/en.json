@@ -88,10 +88,13 @@
       "title": "Sync Preferences",
       "syncDepth": "Sync depth (most recent N messages per folder)",
       "syncDepthHint": "Range 100–5000",
+      "syncInterval": "Background poll interval (seconds)",
+      "syncIntervalHint": "Range 30–3600",
       "loadRemoteImages": "Load remote images in messages by default",
       "save": "Save",
       "saved": "Saved",
-      "invalidDepth": "Sync depth must be between 100 and 5000"
+      "invalidDepth": "Sync depth must be between 100 and 5000",
+      "invalidInterval": "Poll interval must be between 30 and 3600"
     },
     "account": {
       "add": "Add Account",

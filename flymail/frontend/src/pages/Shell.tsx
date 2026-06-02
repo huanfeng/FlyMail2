@@ -22,11 +22,16 @@ import {
   useMarkRead,
   useToggleFlag,
 } from '@/lib/queries'
+import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
 
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
   // 未来支持多用户时需补 ownership 校验。
+
+  // 订阅 SSE 实时推送，新邮件到达时自动刷新 folders/messages 缓存
+  useRealtimeSync()
+
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
   const { t } = useTranslation()

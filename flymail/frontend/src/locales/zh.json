@@ -88,10 +88,13 @@
       "title": "同步偏好",
       "syncDepth": "同步深度（每文件夹最近 N 封）",
       "syncDepthHint": "范围 100–5000",
+      "syncInterval": "后台轮询间隔（秒）",
+      "syncIntervalHint": "范围 30–3600",
       "loadRemoteImages": "默认加载邮件中的远程图片",
       "save": "保存",
       "saved": "已保存",
-      "invalidDepth": "同步深度需在 100–5000 之间"
+      "invalidDepth": "同步深度需在 100–5000 之间",
+      "invalidInterval": "轮询间隔需在 30–3600 之间"
     },
     "account": {
       "add": "添加账户",

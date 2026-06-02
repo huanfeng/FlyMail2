@@ -146,7 +146,10 @@ export function useSettings() {
     queryKey: ['settings'],
     queryFn: async (): Promise<AppSettings> => {
       const { data } = await api.get<{ settings: Record<string, string> }>('/settings')
-      return { sync_depth: Number(data.settings?.sync_depth ?? 1000) || 1000 }
+      return {
+        sync_depth: Number(data.settings?.sync_depth ?? 1000) || 1000,
+        sync_poll_interval: Number(data.settings?.sync_poll_interval ?? 180) || 180,
+      }
     },
   })
 }

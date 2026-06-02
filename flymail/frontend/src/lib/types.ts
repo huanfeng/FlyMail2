@@ -17,6 +17,15 @@ export interface Account {
 
 export interface AppSettings {
   sync_depth: number
+  sync_poll_interval: number
+}
+
+/** SSE 实时推送事件结构 */
+export interface RealtimeEvent {
+  type: 'new_mail'
+  account_id: number
+  folder_id: number
+  new_count: number
 }
 
 export interface AccountStats {

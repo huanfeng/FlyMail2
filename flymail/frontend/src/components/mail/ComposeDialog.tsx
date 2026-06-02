@@ -4,6 +4,7 @@ import Editor from 'react-simple-wysiwyg'
 import type { ContentEditableEvent } from 'react-simple-wysiwyg'
 import { Icon } from '@/components/ui/Icon'
 import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft, useAccounts } from '@/lib/queries'
+import { useToast } from '@/components/ui/Toast'
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -73,6 +74,7 @@ export function ComposeDialog({
   draftId,
 }: ComposeDialogProps) {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const { data: accounts = [] } = useAccounts()
 
   // ── UI state ─────────────────────────────────────────────────────────────────
@@ -179,6 +181,8 @@ export function ComposeDialog({
       },
       {
         onSuccess: () => {
+          // 发送成功提示
+          toast(t('compose.sent'))
           // 发送成功后，若正在编辑草稿则将其删除
           if (draftId != null && effectiveAccountId != null) {
             deleteDraft.mutate(
@@ -215,7 +219,8 @@ export function ComposeDialog({
         { id: draftId, req },
         {
           onSuccess: () => {
-            setInfoMessage(t('compose.draftSaved'))
+            // 存草稿成功 toast（替代原内联提示，关闭后仍可见）
+            toast(t('compose.draftSaved'))
             onOpenChange(false)
           },
         },
@@ -223,7 +228,7 @@ export function ComposeDialog({
     } else {
       createDraft.mutate(req, {
         onSuccess: () => {
-          setInfoMessage(t('compose.draftSaved'))
+          toast(t('compose.draftSaved'))
           onOpenChange(false)
         },
       })

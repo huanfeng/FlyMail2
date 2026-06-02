@@ -5,6 +5,7 @@ import { groupByDate } from '@/lib/date-group'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
+import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -293,11 +294,25 @@ export function MailList({
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 搜索框 ref：供快捷键 / 聚焦时使用
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // ── 搜索状态（前端过滤，后端暂无接口）─────────────────────────────────────
   // TODO: 接后端搜索接口后，将 query 提升至父组件作为请求参数
 
   const [query, setQuery] = useState('')
+
+  // 监听快捷键 / 广播的自定义事件，聚焦搜索框
+  useEffect(() => {
+    function handleFocusSearch() {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener(FOCUS_SEARCH_EVENT, handleFocusSearch)
+    return () => {
+      window.removeEventListener(FOCUS_SEARCH_EVENT, handleFocusSearch)
+    }
+  }, [])
 
   // ── filter chips 状态 ─────────────────────────────────────────────────────
   const [filter, setFilter] = useState<FilterType>('all')
@@ -401,6 +416,7 @@ export function MailList({
         <div className="search-input">
           <Icon name="search" size={14} />
           <input
+            ref={searchInputRef}
             type="text"
             placeholder={t('list.search')}
             value={query}

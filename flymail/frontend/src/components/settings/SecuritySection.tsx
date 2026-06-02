@@ -4,6 +4,7 @@ import { useChangePassword } from '@/lib/queries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useToast } from '@/components/ui/Toast'
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -22,6 +23,7 @@ interface StatusMessage {
 
 export function SecuritySection() {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const changePassword = useChangePassword()
 
   const [oldPwd, setOldPwd] = React.useState('')
@@ -49,6 +51,8 @@ export function SecuritySection() {
       { oldPassword: oldPwd, newPassword: newPwd },
       {
         onSuccess: () => {
+          // 改密成功：toast 全局提示 + 清空表单
+          toast(t('settings.security.success'))
           setStatus({ type: 'success', text: t('settings.security.success') })
           setOldPwd('')
           setNewPwd('')

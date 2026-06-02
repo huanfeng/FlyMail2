@@ -18,6 +18,7 @@ import {
   useAccounts,
   useFolders,
   useInfiniteMessages,
+  useMessageDetail,
   useSyncStatus,
   useTriggerSync,
   useDeleteAccount,
@@ -25,6 +26,7 @@ import {
   useToggleFlag,
 } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { getListStyle, setListStyle } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
@@ -98,6 +100,9 @@ export function ShellPage() {
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeInitial, setComposeInitial] = useState<ComposeInitial | undefined>(undefined)
   const [composeDraftId, setComposeDraftId] = useState<number | null>(null)
+
+  // 快捷键 r 回复时需要当前邮件的完整数据；Reader 已请求过，此处只复用缓存
+  const { data: activeMessageDetail } = useMessageDetail(messageId)
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -187,6 +192,18 @@ export function ShellPage() {
     setComposeDraftId(null)
     setComposeOpen(true)
   }
+
+  // ── 全局键盘快捷键 ────────────────────────────────────────────────────────────
+  useKeyboardShortcuts({
+    onCompose,
+    // 仅当有选中邮件且其详情已缓存时才允许快捷键回复
+    onReply: activeMessageDetail != null ? () => onReply(activeMessageDetail) : null,
+    messages,
+    activeMessageId: messageId,
+    selectMessage,
+    onCloseCompose: () => setComposeOpen(false),
+    composeOpen,
+  })
 
   function onOpenDrafts(accountId: number) {
     setParam((p) => p.set('account', String(accountId)), true)

@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Forward, Paperclip, Reply, Star } from 'lucide-react'
 import { useMessageDetail, useToggleFlag } from '@/lib/queries'
-import type { Address, Attachment, MessageDetail } from '@/lib/types'
+import type { Address, MessageDetail } from '@/lib/types'
+import {
+  attachmentUrl,
+  downloadAttachment,
+  isPreviewable,
+  rewriteCidLinks,
+} from '@/lib/attachments'
 
 // ── 工具函数 ─────────────────────────────────────────────
 
@@ -44,11 +50,28 @@ function formatAddresses(addrs: Address[]): string {
 // ── 子组件：附件列表项 ────────────────────────────────────
 
 interface AttachmentItemProps {
-  attachment: Attachment
-  noDownloadLabel: string
+  messageId: number
+  /** 附件在 detail.attachments 数组中的原始索引，对应后端 :idx 参数。 */
+  idx: number
+  filename: string
+  contentType: string
+  size: number
+  downloadLabel: string
+  previewLabel: string
 }
 
-function AttachmentItem({ attachment, noDownloadLabel }: AttachmentItemProps) {
+function AttachmentItem({
+  messageId,
+  idx,
+  filename,
+  contentType,
+  size,
+  downloadLabel,
+  previewLabel,
+}: AttachmentItemProps) {
+  // 构造一个临时对象仅用于 isPreviewable 判断，避免重复传附件对象。
+  const previewable = isPreviewable({ filename, content_type: contentType, size, is_inline: false })
+
   return (
     <div
       style={{
@@ -63,14 +86,43 @@ function AttachmentItem({ attachment, noDownloadLabel }: AttachmentItemProps) {
     >
       <Paperclip size={14} style={{ flexShrink: 0, color: 'var(--ink-3)' }} />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {attachment.filename}
+        {filename}
       </span>
       <span style={{ color: 'var(--ink-3)', fontSize: 12, flexShrink: 0 }}>
-        {formatBytes(attachment.size)}
+        {formatBytes(size)}
       </span>
-      <span style={{ color: 'var(--ink-3)', fontSize: 12, flexShrink: 0 }}>
-        {noDownloadLabel}
-      </span>
+      {/* 下载按钮：通过 axios Bearer 头下载，不暴露 token 到 URL */}
+      <button
+        onClick={() => void downloadAttachment(messageId, idx, filename)}
+        style={{
+          background: 'none',
+          border: '1px solid var(--rule)',
+          borderRadius: 4,
+          padding: '2px 8px',
+          fontSize: 12,
+          cursor: 'pointer',
+          color: 'var(--ink)',
+          flexShrink: 0,
+        }}
+      >
+        {downloadLabel}
+      </button>
+      {/* 预览链接：仅图片/PDF 显示，token 走 query 参数 */}
+      {previewable && (
+        <a
+          href={attachmentUrl(messageId, idx)}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: 12,
+            color: 'var(--accent-color)',
+            flexShrink: 0,
+            textDecoration: 'none',
+          }}
+        >
+          {previewLabel}
+        </a>
+      )}
     </div>
   )
 }
@@ -101,11 +153,21 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
 
   // 当 messageId 变化时重置 showImages（依赖 messageId）
   // 用 key 在父层重置更优雅，但这里用 useMemo 惰性处理足矣
-  const { processedHtml, blockedCount } = useMemo(() => {
-    if (!detail?.html_body) return { processedHtml: '', blockedCount: 0 }
-    const { html, blocked } = blockRemoteImages(detail.html_body)
-    return { processedHtml: html, blockedCount: blocked }
-  }, [detail?.html_body])
+  //
+  // 先改写 cid: 内联图引用为同源相对路径 /api/...，再做远程图拦截。
+  // blockRemoteImages 只匹配 https?:// 外链，不会误伤 /api/... 相对路径，顺序互不干扰。
+  // cidHtml：保留 cid 改写、跳过远程图拦截（showImages=true 时使用）。
+  // processedHtml：cid 改写 + 远程图拦截（showImages=false 时使用）。
+  const htmlBody = detail?.html_body ?? ''
+  const msgId = detail?.id ?? 0
+  const { processedHtml, blockedCount, cidHtml } = useMemo(() => {
+    // attachments 在 memo 内取，避免外部 ?? [] 每次渲染产生新引用
+    const atts = detail?.attachments ?? []
+    if (!htmlBody) return { processedHtml: '', blockedCount: 0, cidHtml: '' }
+    const replaced = rewriteCidLinks(htmlBody, msgId, atts)
+    const { html, blocked } = blockRemoteImages(replaced)
+    return { processedHtml: html, blockedCount: blocked, cidHtml: replaced }
+  }, [htmlBody, msgId, detail?.attachments])
 
   // ── 占位：未选中邮件 ──
   if (messageId == null) {
@@ -146,7 +208,9 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
   }
 
   // ── 确定正文 HTML ──
-  const bodyHtml = showImages ? detail.html_body : processedHtml
+  // showImages=true：用 cidHtml（cid 改写完毕，不拦截远程图）
+  // showImages=false：用 processedHtml（cid 改写 + 远程图拦截）
+  const bodyHtml = showImages ? cidHtml : processedHtml
 
   // ── 详情视图 ──
   return (
@@ -344,8 +408,8 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
         )}
       </div>
 
-      {/* 附件列表 */}
-      {detail.attachments && detail.attachments.length > 0 && (
+      {/* 附件列表：内联图（is_inline）仅用于正文 cid 渲染，不在此展示 */}
+      {detail.attachments && detail.attachments.some((a) => !a.is_inline) && (
         <div
           style={{
             borderTop: '1px solid var(--rule)',
@@ -362,15 +426,24 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
               letterSpacing: '0.05em',
             }}
           >
-            {t('reader.attachments')} ({detail.attachments.length})
+            {t('reader.attachments')} ({detail.attachments.filter((a) => !a.is_inline).length})
           </p>
-          {detail.attachments.map((att, idx) => (
-            <AttachmentItem
-              key={`${att.filename}-${idx}`}
-              attachment={att}
-              noDownloadLabel={t('reader.attachmentNoDownload')}
-            />
-          ))}
+          {detail.attachments.map((att, idx) => {
+            // 内联图不在附件列表展示，保留原始 idx 以对应后端 :idx 参数
+            if (att.is_inline) return null
+            return (
+              <AttachmentItem
+                key={`${att.filename}-${idx}`}
+                messageId={detail.id}
+                idx={idx}
+                filename={att.filename}
+                contentType={att.content_type}
+                size={att.size}
+                downloadLabel={t('reader.download')}
+                previewLabel={t('reader.preview')}
+              />
+            )
+          })}
         </div>
       )}
     </div>

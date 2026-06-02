@@ -95,6 +95,10 @@ func New(cfg *config.Config) (*App, error) {
 		Send:    sendSvc,
 		Draft:   draftSvc,
 		Events:  eventsHandler,
+		VerifyToken: func(token string) error {
+			_, err := authSvc.VerifyAccessToken(token)
+			return err
+		},
 	})
 	return &App{cfg: cfg, srv: &http.Server{Handler: handler}, manager: manager, logClose: logClose}, nil
 }

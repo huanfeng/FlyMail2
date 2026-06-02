@@ -25,13 +25,13 @@ type ParsedEmail struct {
 	HTMLBody string `json:"html_body,omitempty"`
 
 	// Metadata
-	Size        int64    `json:"size"`
-	Flags       []string `json:"flags,omitempty"`
-	IsRead      bool     `json:"is_read"`
-	IsStarred   bool     `json:"is_starred"`
-	FolderName  string   `json:"folder_name"`
-	FolderPath  string   `json:"folder_path"` // raw IMAP path (may differ from FolderName for UTF-7 encoded names)
-	FolderType  string   `json:"folder_type"`
+	Size        int64        `json:"size"`
+	Flags       []string     `json:"flags,omitempty"`
+	IsRead      bool         `json:"is_read"`
+	IsStarred   bool         `json:"is_starred"`
+	FolderName  string       `json:"folder_name"`
+	FolderPath  string       `json:"folder_path"` // raw IMAP path (may differ from FolderName for UTF-7 encoded names)
+	FolderType  string       `json:"folder_type"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
@@ -43,6 +43,7 @@ type Attachment struct {
 	Size        int64  `json:"size"`
 	ContentID   string `json:"content_id,omitempty"` // for inline attachments (CID)
 	IsInline    bool   `json:"is_inline"`
+	Content     []byte `json:"-"` // 附件内容字节，仅 ExtractAttachments 填充；不序列化、不入库
 }
 
 // FromString returns the first From address as a formatted string, or empty.

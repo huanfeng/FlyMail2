@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"bytes"
 	"errors"
 	"path/filepath"
 	gosync "sync"
@@ -16,6 +17,8 @@ import (
 	"flymail-core/types"
 
 	imapv2 "github.com/emersion/go-imap/v2"
+	gomessage "github.com/emersion/go-message"
+	"github.com/emersion/go-message/mail"
 )
 
 // fakeSession 实现 syncmod.Session 接口，线程安全记录方法调用。
@@ -25,6 +28,7 @@ type fakeSession struct {
 	markUnreadUIDs  []imapv2.UID
 	markStarredUIDs []imapv2.UID
 	markUnstarred   []imapv2.UID
+	rawMessage      []byte // FetchRawMessage 返回的原始 RFC 5322 字节
 }
 
 func (f *fakeSession) ListFolders() ([]types.FolderInfo, error) {
@@ -105,6 +109,11 @@ func (f *fakeSession) StartIDLE() (*coreimap.IdleHandle, error) { return nil, ni
 func (f *fakeSession) SetIDLEHandler(func(coreimap.IDLEEvent))  {}
 
 func (f *fakeSession) Close() error { return nil }
+
+// FetchRawMessage 返回预置的原始 RFC 5322 字节（供 AttachmentContent 测试使用）。
+func (f *fakeSession) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
+	return f.rawMessage, nil
+}
 
 // hasMarkRead 线程安全地检查 MarkRead 是否被调用过（包含指定 uid）。
 func (f *fakeSession) hasMarkRead(uid imapv2.UID) bool {
@@ -343,6 +352,106 @@ func TestSetReadLocalThenWriteback(t *testing.T) {
 	}
 	if !fakeSess.hasMarkRead(imapv2.UID(1)) {
 		t.Errorf("expected MarkRead to be called for uid=1, but it was not within 2s")
+	}
+}
+
+// buildRFC822WithPDFAttachment 构造一封含 text/plain 正文 + application/pdf 附件的原始 RFC 5322 字节。
+// 附件 filename=doc.pdf，内容为 "PDFDATA"。
+func buildRFC822WithPDFAttachment(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+
+	// 构造顶层 multipart/mixed
+	var h gomessage.Header
+	h.SetContentType("multipart/mixed", map[string]string{"boundary": "testboundary"})
+	h.Set("From", "sender@example.com")
+	h.Set("To", "receiver@example.com")
+	h.Set("Subject", "Test with attachment")
+
+	mw, err := gomessage.CreateWriter(&buf, h)
+	if err != nil {
+		t.Fatalf("CreateWriter: %v", err)
+	}
+
+	// text/plain 正文部件
+	var ph gomessage.Header
+	ph.SetContentType("text/plain", map[string]string{"charset": "utf-8"})
+	pw, err := mw.CreatePart(ph)
+	if err != nil {
+		t.Fatalf("CreatePart text: %v", err)
+	}
+	if _, err := pw.Write([]byte("hello text")); err != nil {
+		t.Fatalf("write text: %v", err)
+	}
+	pw.Close()
+
+	// application/pdf 附件部件
+	var ah gomessage.Header
+	ah.SetContentType("application/pdf", nil)
+	ah.SetContentDisposition("attachment", map[string]string{"filename": "doc.pdf"})
+	aw, err := mw.CreatePart(ah)
+	if err != nil {
+		t.Fatalf("CreatePart pdf: %v", err)
+	}
+	if _, err := aw.Write([]byte("PDFDATA")); err != nil {
+		t.Fatalf("write pdf: %v", err)
+	}
+	aw.Close()
+
+	mw.Close()
+	return buf.Bytes()
+}
+
+// TestAttachmentContent 验证 AttachmentContent 能正确解析附件，并对越界索引返回 ErrAttachmentNotFound。
+func TestAttachmentContent(t *testing.T) {
+	// 确保 go-message/mail 包被使用（mail.Header 用于后续扩展，此处显式引用避免 import 报错）
+	_ = mail.Header{}
+
+	svc, _, fsvc, fakeSess := newSyncService(t)
+
+	// 先同步文件夹，使 INBOX 入库
+	if err := fsvc.SyncFolders(1, fakeSess); err != nil {
+		t.Fatalf("SyncFolders: %v", err)
+	}
+
+	// 触发同步，使邮件 uid=1 入库（message id=1）
+	if err := svc.Trigger(1); err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := svc.StatusOf(1)
+		if st.Phase == syncmod.PhaseDone || st.Phase == syncmod.PhaseError {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st, _ := svc.StatusOf(1); st.Phase != syncmod.PhaseDone {
+		t.Fatalf("sync not done: %+v", st)
+	}
+
+	// 设置 rawMessage：一封含 pdf 附件的 RFC 5322 邮件
+	fakeSess.rawMessage = buildRFC822WithPDFAttachment(t)
+
+	// 调用 AttachmentContent(1, 0)，断言返回正确附件
+	res, err := svc.AttachmentContent(1, 0)
+	if err != nil {
+		t.Fatalf("AttachmentContent(1,0): %v", err)
+	}
+	if res.Filename != "doc.pdf" {
+		t.Errorf("Filename = %q, want %q", res.Filename, "doc.pdf")
+	}
+	if res.ContentType != "application/pdf" {
+		t.Errorf("ContentType = %q, want %q", res.ContentType, "application/pdf")
+	}
+	if string(res.Data) != "PDFDATA" {
+		t.Errorf("Data = %q, want %q", string(res.Data), "PDFDATA")
+	}
+
+	// 调用 AttachmentContent(1, 5)，断言返回 ErrAttachmentNotFound
+	_, err = svc.AttachmentContent(1, 5)
+	if !errors.Is(err, syncmod.ErrAttachmentNotFound) {
+		t.Errorf("expected ErrAttachmentNotFound, got %v", err)
 	}
 }
 

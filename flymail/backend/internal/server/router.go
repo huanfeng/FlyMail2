@@ -30,6 +30,8 @@ type Deps struct {
 	Send    *send.Service
 	Draft   *draft.Service
 	Events  http.HandlerFunc
+	// VerifyToken 校验 access token（供 SSE/附件等无法走 Bearer 中间件的端点自鉴权）。
+	VerifyToken func(token string) error
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -52,6 +54,12 @@ func New(deps Deps) http.Handler {
 	// SSE 实时事件流：自带 query-param access_token 鉴权，不走 Bearer 中间件。
 	if deps.Events != nil {
 		api.GET("/events", gin.WrapF(deps.Events))
+	}
+
+	// 附件下载/预览：支持 Bearer 头或 ?access_token= query（img/iframe/预览新标签需要），
+	// 故挂在 api 组、不走 Bearer 中间件，由 handler 自鉴权。
+	if deps.Sync != nil && deps.VerifyToken != nil {
+		api.GET("/messages/:id/attachments/:idx", syncmod.AttachmentHandler(deps.Sync, deps.VerifyToken))
 	}
 
 	if deps.Auth != nil {

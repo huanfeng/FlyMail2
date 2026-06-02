@@ -21,7 +21,8 @@
     "showImages": "This message contains remote images that were not loaded",
     "showImagesBtn": "Show images",
     "attachments": "Attachments",
-    "attachmentNoDownload": "(Download not yet supported — coming in a future version)",
+    "download": "Download",
+    "preview": "Preview",
     "noBody": "(No body)",
     "loadError": "Failed to load message body"
   },

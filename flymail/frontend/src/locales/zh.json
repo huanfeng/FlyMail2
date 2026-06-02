@@ -21,7 +21,8 @@
     "showImages": "此邮件包含未加载的远程图片",
     "showImagesBtn": "显示图片",
     "attachments": "附件",
-    "attachmentNoDownload": "（暂不支持下载，后续版本提供）",
+    "download": "下载",
+    "preview": "预览",
     "noBody": "（无正文）",
     "loadError": "邮件正文加载失败"
   },

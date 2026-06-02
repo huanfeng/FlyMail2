@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	gosync "sync"
 	"time"
 
@@ -127,6 +128,8 @@ func (m *Manager) reconcile() {
 
 func (m *Manager) worker(ctx context.Context, accountID uint) {
 	defer m.wg.Done()
+	log.Printf("sync-manager: 账户 %d worker 启动", accountID)
+	defer log.Printf("sync-manager: 账户 %d worker 退出", accountID)
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
@@ -137,6 +140,7 @@ func (m *Manager) worker(ctx context.Context, accountID uint) {
 			return
 		}
 		if err != nil {
+			log.Printf("sync-manager: 账户 %d 会话结束(%v)，%v 后重连", accountID, err, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -164,18 +168,33 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 	}
 	defer sess.Close()
 
-	// 初始全文件夹增量同步。
-	m.pollAll(accountID, sess)
+	log.Printf("sync-manager: 账户 %d 已连接 (IDLE 支持=%v)", accountID, sess.CanIDLE())
 
-	idleCh := make(chan struct{}, 1)
-	if sess.CanIDLE() {
-		sess.SetIDLEHandler(func(coreimap.IDLEEvent) {
-			select {
-			case idleCh <- struct{}{}:
-			default:
-			}
-		})
+	// 初始全文件夹增量同步。
+	if err := m.pollAll(accountID, sess); err != nil {
+		return err
 	}
+
+	// 非 IDLE 服务商（如网易 163）：不持有空闲连接——这类服务器会在数分钟空闲后
+	// 静默断开连接，导致后续 FETCH 卡死或失败而无法察觉。改为「轮询一轮 → 等待间隔 →
+	// 关闭返回」，由 worker 重新建连进行下一轮，每轮都是新鲜连接，最稳健。
+	if !sess.CanIDLE() {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(m.pollInterval()):
+			return nil
+		}
+	}
+
+	// 以下为 IDLE 路径：持有连接，IDLE（仅 INBOX）↔ 轮询（所有文件夹）循环。
+	idleCh := make(chan struct{}, 1)
+	sess.SetIDLEHandler(func(coreimap.IDLEEvent) {
+		select {
+		case idleCh <- struct{}{}:
+		default:
+		}
+	})
 
 	pollTicker := time.NewTicker(m.pollInterval())
 	defer pollTicker.Stop()
@@ -218,7 +237,9 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 					return fmt.Errorf("stop idle (new-mail): %w", err)
 				}
 			}
-			m.pollInbox(accountID, sess)
+			if err := m.pollInbox(accountID, sess); err != nil {
+				return err
+			}
 		case <-idleDone:
 			stopTimer(refreshTimer)
 			return fmt.Errorf("idle connection closed")
@@ -234,7 +255,10 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 					return fmt.Errorf("stop idle (poll): %w", err)
 				}
 			}
-			m.pollAll(accountID, sess)
+			// 轮询出错（多为连接被服务器断开）返回触发重连，否则会在死连接上空转。
+			if err := m.pollAll(accountID, sess); err != nil {
+				return err
+			}
 			// 重新读取设置中的轮询间隔，使其变更能及时生效。
 			pollTicker.Reset(m.pollInterval())
 		}
@@ -252,48 +276,74 @@ func stopTimer(t *time.Timer) {
 }
 
 // pollAll 重列文件夹（发现新文件夹）后对所有可选文件夹做增量同步。
-func (m *Manager) pollAll(accountID uint, sess Session) {
-	_ = m.folders.SyncFolders(accountID, sess)
+// 返回遇到的第一个文件夹同步错误（多为连接断开）；会先尝试完所有文件夹，
+// 以保证 INBOX 等仍能在本轮被同步，再由调用方据错误决定是否重连。
+func (m *Manager) pollAll(accountID uint, sess Session) error {
+	if err := m.folders.SyncFolders(accountID, sess); err != nil {
+		log.Printf("sync-manager: 账户 %d 列文件夹失败: %v", accountID, err)
+		return err
+	}
 	fs, err := m.folders.List(accountID)
 	if err != nil {
-		return
+		return err
 	}
+	var firstErr error
+	attempted, failed := 0, 0
 	for i := range fs {
 		f := &fs[i]
 		if !f.Selectable {
 			continue
 		}
-		m.syncFolder(accountID, f, sess)
+		attempted++
+		if err := m.syncFolder(accountID, f, sess); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
 	}
 	_ = m.accounts.TouchLastSync(accountID, time.Now())
+	// 仅当所有尝试的文件夹都失败时判定为连接故障，返回错误触发重连；
+	// 个别文件夹失败（良性，如某特殊文件夹不可 SELECT）不强制重连。
+	if attempted > 0 && failed == attempted {
+		return firstErr
+	}
+	return nil
 }
 
 // pollInbox 只增量同步收件箱（IDLE 唤醒用）。
-func (m *Manager) pollInbox(accountID uint, sess Session) {
+func (m *Manager) pollInbox(accountID uint, sess Session) error {
 	inbox, err := m.folders.FindInbox(accountID)
 	if err != nil || inbox == nil {
-		return
+		return err
 	}
-	m.syncFolder(accountID, inbox, sess)
+	return m.syncFolder(accountID, inbox, sess)
 }
 
-func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) {
+func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) error {
 	state, newCount, err := m.messages.IncrementalSync(
 		accountID, f.ID, f.Path, f.UIDValidity, f.UIDNext, f.TotalCount, sess,
 	)
 	if err != nil {
-		return
+		log.Printf("sync-manager: 账户 %d 文件夹 %q 增量同步失败: %v", accountID, f.Path, err)
+		return err
 	}
-	_ = m.folders.UpdateSyncState(f.ID, state.UIDValidity, state.UIDNext, state.Total, state.Unread, time.Now())
-	if newCount > 0 && m.pub != nil {
-		payload, _ := json.Marshal(Event{
-			Type:      "new_mail",
-			AccountID: accountID,
-			FolderID:  f.ID,
-			NewCount:  newCount,
-		})
-		m.pub.Publish(payload)
+	if err := m.folders.UpdateSyncState(f.ID, state.UIDValidity, state.UIDNext, state.Total, state.Unread, time.Now()); err != nil {
+		log.Printf("sync-manager: 账户 %d 文件夹 %q 回写状态失败: %v", accountID, f.Path, err)
 	}
+	if newCount > 0 {
+		log.Printf("sync-manager: 账户 %d 文件夹 %q 新增 %d 封", accountID, f.Path, newCount)
+		if m.pub != nil {
+			payload, _ := json.Marshal(Event{
+				Type:      "new_mail",
+				AccountID: accountID,
+				FolderID:  f.ID,
+				NewCount:  newCount,
+			})
+			m.pub.Publish(payload)
+		}
+	}
+	return nil
 }
 
 // workerCount 返回当前运行的 worker 数（测试与诊断用）。

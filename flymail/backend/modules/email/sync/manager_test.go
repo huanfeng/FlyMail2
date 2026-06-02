@@ -69,6 +69,9 @@ func (f *mgrFakeSession) SetIDLEHandler(func(coreimap.IDLEEvent))  {}
 
 func (f *mgrFakeSession) Close() error { return nil }
 
+// FetchRawMessage 桩实现，manager 测试不涉及附件下载，直接返回空。
+func (f *mgrFakeSession) FetchRawMessage(uid imapv2.UID) ([]byte, error) { return nil, nil }
+
 // fakePublisher 线程安全记录发布的事件载荷。
 type fakePublisher struct {
 	mu       gosync.Mutex

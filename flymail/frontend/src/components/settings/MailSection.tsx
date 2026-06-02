@@ -1,6 +1,8 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSettings, useUpdateSettings } from '@/lib/queries'
+import { getListStyle, setListStyle } from '@/lib/list-prefs'
+import type { ListStyle } from '@/lib/list-prefs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,10 +21,29 @@ const POLL_INTERVAL_MAX = 3600
 // MailSection
 // ────────────────────────────────────────────────────────────────────────────────
 
-export function MailSection() {
+interface MailSectionProps {
+  /** 当前列表样式（由 Shell 管理），可选；未提供时从 localStorage 读取 */
+  listStyle?: ListStyle
+  /** 列表样式变更回调，由 Shell 提供实现即时生效 */
+  onChangeListStyle?: (style: ListStyle) => void
+}
+
+export function MailSection({ listStyle: externalListStyle, onChangeListStyle }: MailSectionProps = {}) {
   const { t } = useTranslation()
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
+
+  // 列表样式本地 state（仅在无外部控制时自维护）
+  const [localListStyle, setLocalListStyle] = React.useState<ListStyle>(
+    () => externalListStyle ?? getListStyle(),
+  )
+  const currentListStyle = externalListStyle ?? localListStyle
+
+  function handleListStyleChange(style: ListStyle) {
+    setListStyle(style)
+    setLocalListStyle(style)
+    onChangeListStyle?.(style)
+  }
 
   // 同步深度本地编辑状态
   const [syncDepth, setSyncDepth] = React.useState<number>(
@@ -174,6 +195,31 @@ export function MailSection() {
             {intervalError}
           </div>
         )}
+
+        {/* 列表样式切换 */}
+        <div className="flex flex-col gap-1.5">
+          <Label style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>
+            {t('settings.mail.listStyle')}
+          </Label>
+          <div className="flex gap-2">
+            {(['compact', 'card'] as ListStyle[]).map((style) => (
+              <button
+                key={style}
+                type="button"
+                onClick={() => handleListStyleChange(style)}
+                className="rounded-md px-3 py-1.5 text-sm transition-colors"
+                style={{
+                  background: currentListStyle === style ? 'var(--accent-wash)' : 'var(--bg-sunk)',
+                  color: currentListStyle === style ? 'var(--accent-color)' : 'var(--ink-2)',
+                  fontWeight: currentListStyle === style ? 500 : 400,
+                  border: `1px solid ${currentListStyle === style ? 'var(--accent-color)' : 'var(--rule)'}`,
+                }}
+              >
+                {style === 'compact' ? t('settings.mail.listCompact') : t('settings.mail.listCard')}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* 远程图片开关 */}
         <div className="flex items-center gap-2">

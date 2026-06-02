@@ -7,7 +7,8 @@
   },
   "list": {
     "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
-    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标"
+    "empty": "暂无邮件", "noSubject": "（无主题）", "filterAll": "全部", "filterUnread": "未读", "filterFlagged": "星标",
+    "loadingMore": "加载中…", "noMore": "没有更多"
   },
   "sync": {
     "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",
@@ -15,6 +16,7 @@
   },
   "reader": {
     "welcome": "选择一封邮件以阅读",
+    "welcomeHint": "从左侧列表中点击任意邮件",
     "notReady": "邮件阅读将在后续版本提供",
     "loading": "加载中…",
     "to": "收件人",
@@ -24,7 +26,9 @@
     "download": "下载",
     "preview": "预览",
     "noBody": "（无正文）",
-    "loadError": "邮件正文加载失败"
+    "loadError": "邮件正文加载失败",
+    "star": "标星",
+    "unstar": "取消标星"
   },
   "account": {
     "add": "添加账户", "edit": "编辑账户", "delete": "删除账户",
@@ -72,7 +76,19 @@
       "light": "亮色",
       "dark": "暗色",
       "zh": "中文",
-      "en": "English"
+      "en": "English",
+      "toneTitle": "主题色调",
+      "tone": {
+        "slate": "石板",
+        "warm": "暖色",
+        "sky": "天空",
+        "rose": "玫瑰",
+        "mint": "薄荷",
+        "lavender": "薰衣草",
+        "coral": "珊瑚",
+        "butter": "奶油",
+        "aqua": "水蓝"
+      }
     },
     "security": {
       "title": "修改管理员密码",
@@ -95,7 +111,10 @@
       "save": "保存",
       "saved": "已保存",
       "invalidDepth": "同步深度需在 100–5000 之间",
-      "invalidInterval": "轮询间隔需在 30–3600 之间"
+      "invalidInterval": "轮询间隔需在 30–3600 之间",
+      "listStyle": "列表样式",
+      "listCompact": "紧凑",
+      "listCard": "卡片"
     },
     "account": {
       "add": "添加账户",

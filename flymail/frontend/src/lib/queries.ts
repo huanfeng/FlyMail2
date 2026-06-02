@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, SendRequest, SyncStatus } from '@/lib/types'
 
@@ -31,6 +31,28 @@ export function useMessages(folderId: number | null) {
     queryFn: async (): Promise<MessageListItem[]> => {
       const { data } = await api.get<{ messages: MessageListItem[] }>(`/folders/${folderId}/messages?limit=50`)
       return data.messages ?? []
+    },
+  })
+}
+
+/**
+ * 无限加载版邮件查询，复用 query key ['messages', folderId] 使现有 invalidate 生效。
+ * before_uid=0 表示不限制，返回最新 50 封；翻页时传入上一页最后一封的 uid。
+ */
+export function useInfiniteMessages(folderId: number | null) {
+  return useInfiniteQuery({
+    queryKey: ['messages', folderId],
+    enabled: folderId != null,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }): Promise<MessageListItem[]> => {
+      const { data } = await api.get<{ messages: MessageListItem[] }>(
+        `/folders/${folderId}/messages?limit=50&before_uid=${pageParam ?? 0}`,
+      )
+      return data.messages ?? []
+    },
+    getNextPageParam: (lastPage) => {
+      const last = lastPage.at(-1)
+      return lastPage.length < 50 || !last ? undefined : last.uid
     },
   })
 }

@@ -15,7 +15,7 @@ import { buildReply, buildForward } from '@/lib/compose-prefill'
 import {
   useAccounts,
   useFolders,
-  useMessages,
+  useInfiniteMessages,
   useSyncStatus,
   useTriggerSync,
   useDeleteAccount,
@@ -23,6 +23,8 @@ import {
   useToggleFlag,
 } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { getListStyle, setListStyle } from '@/lib/list-prefs'
+import type { ListStyle } from '@/lib/list-prefs'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
 
 export function ShellPage() {
@@ -41,12 +43,29 @@ export function ShellPage() {
 
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
-  const { data: messages = [], isLoading: messagesLoading } = useMessages(folderId)
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteMessages(folderId)
+
+  // 将分页数据展平为平坦列表
+  const messages = messagesData?.pages.flat() ?? []
+
+  // 列表样式偏好（持久化到 localStorage）
+  const [listStyle, setListStyleState] = useState<ListStyle>(() => getListStyle())
+
+  function handleChangeListStyle(style: ListStyle) {
+    setListStyle(style)
+    setListStyleState(style)
+  }
 
   const markRead = useMarkRead()
   const toggleFlag = useToggleFlag()
 
-  // 打开未读邮件时自动标已读
+  // 打开未读邮件时自动标已读（对展平后的 messages 生效）
   useEffect(() => {
     if (messageId == null) return
     const m = messages.find((x) => x.id === messageId)
@@ -221,12 +240,18 @@ export function ShellPage() {
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
           ) : (
             <MailList
+              // 按文件夹+样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
+              key={`${folderId}-${listStyle}`}
               folder={activeFolder}
               messages={messages}
               loading={messagesLoading}
               activeMessageId={messageId}
               onSelectMessage={selectMessage}
               onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
+              listStyle={listStyle}
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={() => { void fetchNextPage() }}
             />
           )
         }
@@ -243,7 +268,12 @@ export function ShellPage() {
         account={editingAccount}
         onOpenChange={setDialogOpen}
       />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        listStyle={listStyle}
+        onChangeListStyle={handleChangeListStyle}
+      />
       <ComposeDialog
         open={composeOpen}
         onOpenChange={setComposeOpen}

@@ -5,6 +5,7 @@ import { AccountsSection } from './AccountsSection'
 import { GeneralSection } from './GeneralSection'
 import { SecuritySection } from './SecuritySection'
 import { MailSection } from './MailSection'
+import type { ListStyle } from '@/lib/list-prefs'
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -15,6 +16,9 @@ type Section = 'accounts' | 'general' | 'security' | 'mail'
 export interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 当前列表样式（由 Shell 管理，传给 MailSection 即时生效） */
+  listStyle?: ListStyle
+  onChangeListStyle?: (style: ListStyle) => void
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -48,7 +52,7 @@ function NavItem({ label, active, onClick }: NavItemProps) {
 // SettingsDialog
 // ────────────────────────────────────────────────────────────────────────────────
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, listStyle, onChangeListStyle }: SettingsDialogProps) {
   const { t } = useTranslation()
   const [section, setSection] = React.useState<Section>('accounts')
 
@@ -123,7 +127,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               {section === 'accounts' && <AccountsSection />}
               {section === 'general' && <GeneralSection />}
               {section === 'security' && <SecuritySection />}
-              {section === 'mail' && <MailSection />}
+              {section === 'mail' && (
+                <MailSection
+                  listStyle={listStyle}
+                  onChangeListStyle={onChangeListStyle}
+                />
+              )}
             </div>
           </div>
         </Dialog.Content>

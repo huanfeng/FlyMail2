@@ -7,7 +7,8 @@
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
-    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged"
+    "empty": "No messages", "noSubject": "(No subject)", "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "loadingMore": "Loading…", "noMore": "No more"
   },
   "sync": {
     "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
@@ -15,6 +16,7 @@
   },
   "reader": {
     "welcome": "Select a message to read",
+    "welcomeHint": "Click any message from the list on the left",
     "notReady": "Message reading comes in a later version",
     "loading": "Loading…",
     "to": "To",
@@ -24,7 +26,9 @@
     "download": "Download",
     "preview": "Preview",
     "noBody": "(No body)",
-    "loadError": "Failed to load message body"
+    "loadError": "Failed to load message body",
+    "star": "Star",
+    "unstar": "Unstar"
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",
@@ -72,7 +76,19 @@
       "light": "Light",
       "dark": "Dark",
       "zh": "Chinese",
-      "en": "English"
+      "en": "English",
+      "toneTitle": "Color Tone",
+      "tone": {
+        "slate": "Slate",
+        "warm": "Warm",
+        "sky": "Sky",
+        "rose": "Rose",
+        "mint": "Mint",
+        "lavender": "Lavender",
+        "coral": "Coral",
+        "butter": "Butter",
+        "aqua": "Aqua"
+      }
     },
     "security": {
       "title": "Change Admin Password",
@@ -95,7 +111,10 @@
       "save": "Save",
       "saved": "Saved",
       "invalidDepth": "Sync depth must be between 100 and 5000",
-      "invalidInterval": "Poll interval must be between 30 and 3600"
+      "invalidInterval": "Poll interval must be between 30 and 3600",
+      "listStyle": "List style",
+      "listCompact": "Compact",
+      "listCard": "Card"
     },
     "account": {
       "add": "Add Account",

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Folder, MessageDetail, MessageListItem, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -186,6 +186,71 @@ export function useAccountStats(accountId: number | null) {
     queryFn: async (): Promise<AccountStats> => {
       const { data } = await api.get<AccountStats>(`/accounts/${accountId}/stats`)
       return data
+    },
+  })
+}
+
+export function useSend() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (req: SendRequest) => { await api.post('/send', req) },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['messages'] })
+    },
+  })
+}
+
+export function useDrafts(accountId: number | null) {
+  return useQuery({
+    queryKey: ['drafts', accountId],
+    enabled: accountId != null,
+    queryFn: async (): Promise<Draft[]> => {
+      const { data } = await api.get<{ drafts: Draft[] } | Draft[]>(`/accounts/${accountId}/drafts`)
+      // 后端可能返回 {drafts:[]} 或裸数组，兼容两种形式
+      return Array.isArray(data) ? data : (data.drafts ?? [])
+    },
+  })
+}
+
+export function useCreateDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (req: DraftRequest): Promise<Draft> => {
+      const { data } = await api.post<Draft>('/drafts', req)
+      return data
+    },
+    onSuccess: (_d, req) => { void qc.invalidateQueries({ queryKey: ['drafts', req.account_id] }) },
+  })
+}
+
+export function useUpdateDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, req }: { id: number; req: DraftRequest }): Promise<Draft> => {
+      const { data } = await api.put<Draft>(`/drafts/${id}`, req)
+      return data
+    },
+    onSuccess: (_d, { req }) => { void qc.invalidateQueries({ queryKey: ['drafts', req.account_id] }) },
+  })
+}
+
+export function useDeleteDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id }: { id: number; accountId: number }) => { await api.delete(`/drafts/${id}`) },
+    onSuccess: (_d, { accountId }) => { void qc.invalidateQueries({ queryKey: ['drafts', accountId] }) },
+  })
+}
+
+export function useSendDraft() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id }: { id: number; accountId: number }) => { await api.post(`/drafts/${id}/send`) },
+    onSuccess: (_d, { accountId }) => {
+      void qc.invalidateQueries({ queryKey: ['drafts', accountId] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['messages'] })
     },
   })
 }

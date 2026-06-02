@@ -102,6 +102,43 @@ export interface MessageDetail extends MessageListItem {
   html_body: string
   attachments: Attachment[]
   body_synced: boolean
+  message_id?: string
+  in_reply_to?: string
+  references?: string
+}
+
+export interface SendRequest {
+  account_id: number
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  body_html: string
+  in_reply_to?: string
+  references?: string
+}
+
+export interface Draft {
+  id: number
+  account_id: number
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  body_html: string
+  in_reply_to: string
+  references: string
+}
+
+export interface DraftRequest {
+  account_id: number
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  body_html: string
+  in_reply_to: string
+  references: string
 }
 
 export type SyncPhase = 'none' | 'folders' | 'messages' | 'done' | 'error'

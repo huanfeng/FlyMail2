@@ -44,6 +44,48 @@ func TestIMAPConfigDecryptsPassword(t *testing.T) {
 	}
 }
 
+func TestSMTPConfigDecrypts(t *testing.T) {
+	svc, _, _ := newSvc(t)
+
+	created, err := svc.Create(account.CreateAccountRequest{
+		Name:         "SMTP User",
+		Email:        "smtp@example.com",
+		Password:     "smtp-secret",
+		IMAPHost:     "imap.example.com",
+		IMAPPort:     993,
+		IMAPSecurity: "ssl",
+		SMTPHost:     "smtp.example.com",
+		SMTPPort:     465,
+		SMTPSecurity: "ssl",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	cfg, err := svc.SMTPConfig(created.ID)
+	if err != nil {
+		t.Fatalf("SMTPConfig: %v", err)
+	}
+
+	if cfg.Password != "smtp-secret" {
+		t.Errorf("Password = %q, want %q", cfg.Password, "smtp-secret")
+	}
+	if cfg.Host != "smtp.example.com" {
+		t.Errorf("Host = %q, want %q", cfg.Host, "smtp.example.com")
+	}
+	if cfg.Port != 465 {
+		t.Errorf("Port = %d, want %d", cfg.Port, 465)
+	}
+	// Username 为空时应回退到 Email
+	if cfg.Username != "smtp@example.com" {
+		t.Errorf("Username = %q, want %q", cfg.Username, "smtp@example.com")
+	}
+	const wantSecurity = "ssl"
+	if string(cfg.Security) != wantSecurity {
+		t.Errorf("Security = %q, want %q", cfg.Security, wantSecurity)
+	}
+}
+
 func TestTouchLastSyncSetsTimestamp(t *testing.T) {
 	svc, _, _ := newSvc(t)
 

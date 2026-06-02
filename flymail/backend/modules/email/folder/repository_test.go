@@ -102,3 +102,27 @@ func TestFindInboxByType(t *testing.T) {
 		t.Errorf("inbox not found correctly: %+v", inbox)
 	}
 }
+
+func TestFindByType(t *testing.T) {
+	repo, _ := newRepo(t)
+	_ = repo.UpsertByPath(&folder.Folder{AccountID: 1, Path: "Sent", DisplayName: "Sent", Type: "sent"})
+	_ = repo.UpsertByPath(&folder.Folder{AccountID: 1, Path: "INBOX", DisplayName: "Inbox", Type: "inbox"})
+
+	// 找已发送
+	sent, err := repo.FindByType(1, "sent")
+	if err != nil {
+		t.Fatalf("FindByType sent: %v", err)
+	}
+	if sent == nil || sent.Path != "Sent" {
+		t.Errorf("sent folder not found: %+v", sent)
+	}
+
+	// 不存在的 type 返回 nil, nil
+	drafts, err := repo.FindByType(1, "drafts")
+	if err != nil {
+		t.Fatalf("FindByType drafts: %v", err)
+	}
+	if drafts != nil {
+		t.Errorf("expected nil for missing type, got %+v", drafts)
+	}
+}

@@ -3,6 +3,7 @@ package database
 import (
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/draft"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
 	"flymail/modules/system/setting"
@@ -26,5 +27,6 @@ func Migrate(db *gorm.DB) error {
 		&message.MessageBody{},
 		&message.Attachment{},
 		&setting.Setting{},
+		&draft.Draft{},
 	)
 }

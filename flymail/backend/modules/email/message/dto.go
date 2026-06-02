@@ -30,6 +30,9 @@ type MessageDetail struct {
 	HTMLBody    string          `json:"html_body"`
 	Attachments []Attachment    `json:"attachments"`
 	BodySynced  bool            `json:"body_synced"`
+	MessageID   string          `json:"message_id"`
+	InReplyTo   string          `json:"in_reply_to"`
+	References  string          `json:"references"`
 }
 
 func toListItem(m *Message) MessageListItem {

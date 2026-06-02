@@ -37,6 +37,28 @@
     "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
     "nameRequired": "请填写名称和邮箱", "passwordRequired": "请填写密码"
   },
+  "compose": {
+    "title": "写邮件",
+    "reply": "回复",
+    "forward": "转发",
+    "to": "收件人",
+    "cc": "抄送",
+    "bcc": "密送",
+    "subject": "主题",
+    "body": "正文",
+    "send": "发送",
+    "saveDraft": "存草稿",
+    "cancel": "取消",
+    "sending": "发送中…",
+    "sent": "已发送",
+    "toRequired": "请填写收件人",
+    "draftSaved": "草稿已保存",
+    "addrHint": "多个地址用逗号分隔",
+    "draftsBox": "草稿箱(本地)",
+    "noDrafts": "暂无草稿",
+    "sendDraft": "发送",
+    "deleteDraft": "删除草稿"
+  },
   "settings": {
     "title": "设置",
     "navAccounts": "账户",

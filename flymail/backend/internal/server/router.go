@@ -7,8 +7,10 @@ import (
 
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
+	"flymail/modules/email/draft"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
+	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/system/setting"
 	"flymail/web"
@@ -25,6 +27,8 @@ type Deps struct {
 	Message *message.Service
 	Sync    *syncmod.Service
 	Setting *setting.Service
+	Send    *send.Service
+	Draft   *draft.Service
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -59,6 +63,12 @@ func New(deps Deps) http.Handler {
 		}
 		if deps.Sync != nil {
 			syncmod.RegisterRoutes(protected, deps.Sync)
+		}
+		if deps.Send != nil {
+			send.RegisterRoutes(protected, deps.Send)
+		}
+		if deps.Draft != nil && deps.Send != nil {
+			draft.RegisterRoutes(protected, deps.Draft, deps.Send)
 		}
 	}
 

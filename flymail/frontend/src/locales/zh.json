@@ -72,7 +72,19 @@
       "light": "亮色",
       "dark": "暗色",
       "zh": "中文",
-      "en": "English"
+      "en": "English",
+      "toneTitle": "主题色调",
+      "tone": {
+        "slate": "石板",
+        "warm": "暖色",
+        "sky": "天空",
+        "rose": "玫瑰",
+        "mint": "薄荷",
+        "lavender": "薰衣草",
+        "coral": "珊瑚",
+        "butter": "奶油",
+        "aqua": "水蓝"
+      }
     },
     "security": {
       "title": "修改管理员密码",

@@ -27,6 +27,7 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ── shadcn 基础令牌（亮色） ──────────────────────────────────────────── */
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -48,27 +49,43 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
 
-  /* FlyMail 主题变量 */
+  /* ── FlyMail 字体令牌（保留中文字体栈，不引入 MailMaster 英文字体） ── */
   --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
+  /* ── 布局令牌 ──────────────────────────────────────────────────────── */
   --sidebar-w: 248px;
   --list-w: 380px;
 
-  --bg: #fbfaf7;
-  --bg-alt: #f5f3ee;
+  /* ── FlyMail 默认色调令牌（slate 亮色，Notion 中性风格） ────────────── */
+  --bg: #f7f8fa;
+  --bg-alt: #eef0f3;
+  --bg-sunk: #e5e7eb;
+  --bg-hover: rgba(30, 34, 40, 0.035);
+  --bg-active: rgba(30, 34, 40, 0.06);
   --surface: #ffffff;
-  --ink: #2a2823;
-  --ink-2: #56524a;
-  --ink-3: #8a857a;
-  --rule: rgba(40, 36, 28, 0.08);
-  --rule-strong: rgba(40, 36, 28, 0.14);
-  --bg-hover: rgba(40, 36, 28, 0.035);
-  --accent-color: #b5886b;
-  --accent-wash: #f5ece0;
-  --accent-ink: #7a5536;
+
+  --ink: #1e2228;
+  --ink-2: #4a4f57;
+  --ink-3: #7a7f87;
+  --ink-4: #b1b5bc;
+
+  --rule: rgba(30, 34, 40, 0.08);
+  --rule-strong: rgba(30, 34, 40, 0.14);
+
+  /* slate 调强调色 */
+  --accent-color: #5b6470;
+  --accent-soft: #d6d9de;
+  --accent-wash: #e8eaee;
+  --accent-ink: #2c333d;
+
+  /* 阴影令牌 */
+  --shadow-sm: 0 1px 2px rgba(30, 34, 40, 0.04), 0 0 0 1px rgba(30, 34, 40, 0.04);
+  --shadow-md: 0 4px 14px rgba(30, 34, 40, 0.08), 0 0 0 1px rgba(30, 34, 40, 0.05);
+  --shadow-lg: 0 20px 50px rgba(30, 34, 40, 0.18), 0 0 0 1px rgba(30, 34, 40, 0.06);
 }
 
+/* ── shadcn 暗色令牌 ─────────────────────────────────────────────────── */
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -89,24 +106,404 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
 
-  /* FlyMail 暗色主题变量 */
-  --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --sidebar-w: 248px;
-  --list-w: 380px;
-  --bg: #1f1d18;
-  --bg-alt: #26231d;
-  --surface: #26231d;
-  --ink: #ece7dc;
-  --ink-2: #b8b3a6;
-  --ink-3: #8a857a;
-  --rule: rgba(255, 255, 255, 0.08);
-  --rule-strong: rgba(255, 255, 255, 0.14);
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  --accent-color: #d2a482;
-  --accent-wash: #3a322a;
-  --accent-ink: #e0c0a0;
+  /* ── FlyMail 默认暗色令牌（slate 暗色） ─────────────────────────────── */
+  --bg: #14161a;
+  --bg-alt: #1a1d22;
+  --bg-sunk: #21252b;
+  --bg-hover: rgba(232, 234, 238, 0.04);
+  --bg-active: rgba(232, 234, 238, 0.08);
+  --surface: #1a1d22;
+
+  --ink: #e8eaee;
+  --ink-2: #aab0b8;
+  --ink-3: #797f88;
+  --ink-4: #525861;
+
+  --rule: rgba(232, 234, 238, 0.08);
+  --rule-strong: rgba(232, 234, 238, 0.14);
+
+  /* slate 暗色强调色 */
+  --accent-color: #b6bdc8;
+  --accent-soft: #2e3239;
+  --accent-wash: #23272d;
+  --accent-ink: #d6dbe2;
+
+  /* 阴影令牌（暗色） */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   9 套色调覆盖（亮色）
+   选择器：[data-theme="X"]，与 .dark 配合形成 [data-theme="X"].dark（暗色）
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* warm — 暖色纸感 */
+[data-theme="warm"] {
+  --bg: #fbfaf7;
+  --bg-alt: #f5f3ee;
+  --bg-sunk: #efece5;
+  --bg-hover: rgba(40, 36, 28, 0.035);
+  --bg-active: rgba(40, 36, 28, 0.06);
+  --surface: #ffffff;
+  --ink: #2a2823;
+  --ink-2: #56524a;
+  --ink-3: #8a857a;
+  --ink-4: #b8b3a6;
+  --rule: rgba(40, 36, 28, 0.08);
+  --rule-strong: rgba(40, 36, 28, 0.14);
+  --accent-color: #b5886b;
+  --accent-soft: #e8d9cb;
+  --accent-wash: #f5ece0;
+  --accent-ink: #7a5536;
+}
+
+/* slate — 石板灰（Notion 风，默认调） */
+[data-theme="slate"] {
+  --bg: #f7f8fa;
+  --bg-alt: #eef0f3;
+  --bg-sunk: #e5e7eb;
+  --bg-hover: rgba(30, 34, 40, 0.035);
+  --bg-active: rgba(30, 34, 40, 0.06);
+  --surface: #ffffff;
+  --ink: #1e2228;
+  --ink-2: #4a4f57;
+  --ink-3: #7a7f87;
+  --ink-4: #b1b5bc;
+  --rule: rgba(30, 34, 40, 0.08);
+  --rule-strong: rgba(30, 34, 40, 0.14);
+  --accent-color: #5b6470;
+  --accent-soft: #d6d9de;
+  --accent-wash: #e8eaee;
+  --accent-ink: #2c333d;
+}
+
+/* sky — 天空蓝 */
+[data-theme="sky"] {
+  --bg: #f8fafc;
+  --bg-alt: #f1f5f9;
+  --bg-sunk: #e8eef4;
+  --bg-hover: rgba(31, 41, 55, 0.035);
+  --bg-active: rgba(31, 41, 55, 0.06);
+  --surface: #ffffff;
+  --ink: #1f2937;
+  --ink-2: #4b5563;
+  --ink-3: #7c8594;
+  --ink-4: #b0b7c2;
+  --rule: rgba(31, 41, 55, 0.08);
+  --rule-strong: rgba(31, 41, 55, 0.14);
+  --accent-color: #4a86c2;
+  --accent-soft: #cfe0f1;
+  --accent-wash: #e6f0f9;
+  --accent-ink: #2b5a8a;
+}
+
+/* rose — 玫瑰粉 */
+[data-theme="rose"] {
+  --bg: #fdf6f8;
+  --bg-alt: #f9e9ee;
+  --bg-sunk: #f1d8e0;
+  --bg-hover: rgba(45, 31, 37, 0.035);
+  --bg-active: rgba(45, 31, 37, 0.06);
+  --surface: #ffffff;
+  --ink: #2d1f25;
+  --ink-2: #5b424c;
+  --ink-3: #8e7079;
+  --ink-4: #c0a8b0;
+  --rule: rgba(45, 31, 37, 0.08);
+  --rule-strong: rgba(45, 31, 37, 0.14);
+  --accent-color: #d6628a;
+  --accent-soft: #f1c5d4;
+  --accent-wash: #fadce6;
+  --accent-ink: #963a5f;
+}
+
+/* mint — 薄荷绿 */
+[data-theme="mint"] {
+  --bg: #f4faf6;
+  --bg-alt: #e7f3eb;
+  --bg-sunk: #daece0;
+  --bg-hover: rgba(28, 41, 34, 0.035);
+  --bg-active: rgba(28, 41, 34, 0.06);
+  --surface: #ffffff;
+  --ink: #1c2922;
+  --ink-2: #3f5448;
+  --ink-3: #748a7c;
+  --ink-4: #a8b8ad;
+  --rule: rgba(28, 41, 34, 0.08);
+  --rule-strong: rgba(28, 41, 34, 0.14);
+  --accent-color: #3d9970;
+  --accent-soft: #c7e6d4;
+  --accent-wash: #e0f1e7;
+  --accent-ink: #1d6147;
+}
+
+/* lavender — 薰衣草紫 */
+[data-theme="lavender"] {
+  --bg: #faf9fc;
+  --bg-alt: #f3f1f7;
+  --bg-sunk: #ebe8f1;
+  --bg-hover: rgba(42, 37, 53, 0.035);
+  --bg-active: rgba(42, 37, 53, 0.06);
+  --surface: #ffffff;
+  --ink: #2a2535;
+  --ink-2: #544d64;
+  --ink-3: #867d97;
+  --ink-4: #b6b0c4;
+  --rule: rgba(42, 37, 53, 0.08);
+  --rule-strong: rgba(42, 37, 53, 0.14);
+  --accent-color: #8d6cc4;
+  --accent-soft: #dfd2ef;
+  --accent-wash: #ece4f6;
+  --accent-ink: #5a3f8c;
+}
+
+/* coral — 珊瑚橙 */
+[data-theme="coral"] {
+  --bg: #fdf9f7;
+  --bg-alt: #f8f0ec;
+  --bg-sunk: #f2e7e1;
+  --bg-hover: rgba(45, 34, 31, 0.035);
+  --bg-active: rgba(45, 34, 31, 0.06);
+  --surface: #ffffff;
+  --ink: #2d221f;
+  --ink-2: #5a4740;
+  --ink-3: #8d786f;
+  --ink-4: #c2aea4;
+  --rule: rgba(45, 34, 31, 0.08);
+  --rule-strong: rgba(45, 34, 31, 0.14);
+  --accent-color: #d27a63;
+  --accent-soft: #f1d2c6;
+  --accent-wash: #faeae1;
+  --accent-ink: #9a4e38;
+}
+
+/* butter — 奶油黄 */
+[data-theme="butter"] {
+  --bg: #fefbf3;
+  --bg-alt: #faf3df;
+  --bg-sunk: #f3eacb;
+  --bg-hover: rgba(43, 37, 22, 0.035);
+  --bg-active: rgba(43, 37, 22, 0.06);
+  --surface: #ffffff;
+  --ink: #2b2516;
+  --ink-2: #574d33;
+  --ink-3: #8b7f5e;
+  --ink-4: #beb491;
+  --rule: rgba(43, 37, 22, 0.08);
+  --rule-strong: rgba(43, 37, 22, 0.14);
+  --accent-color: #d4a72c;
+  --accent-soft: #efdc99;
+  --accent-wash: #f8efc7;
+  --accent-ink: #856613;
+}
+
+/* aqua — 水蓝青 */
+[data-theme="aqua"] {
+  --bg: #f3fafc;
+  --bg-alt: #e3f2f6;
+  --bg-sunk: #d1e8ed;
+  --bg-hover: rgba(17, 35, 40, 0.035);
+  --bg-active: rgba(17, 35, 40, 0.06);
+  --surface: #ffffff;
+  --ink: #112328;
+  --ink-2: #2f4d54;
+  --ink-3: #688088;
+  --ink-4: #a4b6bc;
+  --rule: rgba(17, 35, 40, 0.08);
+  --rule-strong: rgba(17, 35, 40, 0.14);
+  --accent-color: #2ba9b5;
+  --accent-soft: #b9e1e6;
+  --accent-wash: #d6eef1;
+  --accent-ink: #115d65;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   9 套色调暗色覆盖
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* warm 暗 */
+[data-theme="warm"].dark {
+  --bg: #1f1d18;
+  --bg-alt: #26231d;
+  --bg-sunk: #2e2a23;
+  --bg-hover: rgba(236, 231, 220, 0.04);
+  --bg-active: rgba(236, 231, 220, 0.08);
+  --surface: #26231d;
+  --ink: #ece7dc;
+  --ink-2: #b8b1a2;
+  --ink-3: #8a8478;
+  --ink-4: #5c574e;
+  --rule: rgba(236, 231, 220, 0.08);
+  --rule-strong: rgba(236, 231, 220, 0.14);
+  --accent-color: #d2a482;
+  --accent-soft: #4a3a2b;
+  --accent-wash: #332820;
+  --accent-ink: #e8c5a4;
+}
+
+/* slate 暗 */
+[data-theme="slate"].dark {
+  --bg: #14161a;
+  --bg-alt: #1a1d22;
+  --bg-sunk: #21252b;
+  --bg-hover: rgba(232, 234, 238, 0.04);
+  --bg-active: rgba(232, 234, 238, 0.08);
+  --surface: #1a1d22;
+  --ink: #e8eaee;
+  --ink-2: #aab0b8;
+  --ink-3: #797f88;
+  --ink-4: #525861;
+  --rule: rgba(232, 234, 238, 0.08);
+  --rule-strong: rgba(232, 234, 238, 0.14);
+  --accent-color: #b6bdc8;
+  --accent-soft: #2e3239;
+  --accent-wash: #23272d;
+  --accent-ink: #d6dbe2;
+}
+
+/* sky 暗 */
+[data-theme="sky"].dark {
+  --bg: #161a21;
+  --bg-alt: #1c2029;
+  --bg-sunk: #232832;
+  --bg-hover: rgba(230, 235, 243, 0.04);
+  --bg-active: rgba(230, 235, 243, 0.08);
+  --surface: #1c2029;
+  --ink: #e6ebf3;
+  --ink-2: #a8b2c2;
+  --ink-3: #7a8494;
+  --ink-4: #525a6a;
+  --rule: rgba(230, 235, 243, 0.08);
+  --rule-strong: rgba(230, 235, 243, 0.14);
+  --accent-color: #7aaad8;
+  --accent-soft: #2a3f58;
+  --accent-wash: #1e2b3d;
+  --accent-ink: #a9c8e4;
+}
+
+/* rose 暗 */
+[data-theme="rose"].dark {
+  --bg: #1d1518;
+  --bg-alt: #251b1f;
+  --bg-sunk: #2d2226;
+  --bg-hover: rgba(241, 226, 231, 0.04);
+  --bg-active: rgba(241, 226, 231, 0.08);
+  --surface: #251b1f;
+  --ink: #f1e2e7;
+  --ink-2: #bea4ac;
+  --ink-3: #8e747c;
+  --ink-4: #614e54;
+  --rule: rgba(241, 226, 231, 0.08);
+  --rule-strong: rgba(241, 226, 231, 0.14);
+  --accent-color: #e88aac;
+  --accent-soft: #4c2e3a;
+  --accent-wash: #36202a;
+  --accent-ink: #f3a9c4;
+}
+
+/* mint 暗 */
+[data-theme="mint"].dark {
+  --bg: #131a16;
+  --bg-alt: #18211c;
+  --bg-sunk: #1e2a23;
+  --bg-hover: rgba(227, 240, 232, 0.04);
+  --bg-active: rgba(227, 240, 232, 0.08);
+  --surface: #18211c;
+  --ink: #e3f0e8;
+  --ink-2: #a4baad;
+  --ink-3: #758879;
+  --ink-4: #4f5e54;
+  --rule: rgba(227, 240, 232, 0.08);
+  --rule-strong: rgba(227, 240, 232, 0.14);
+  --accent-color: #6dc99c;
+  --accent-soft: #284a39;
+  --accent-wash: #1e362a;
+  --accent-ink: #9ddfba;
+}
+
+/* lavender 暗 */
+[data-theme="lavender"].dark {
+  --bg: #1c1925;
+  --bg-alt: #221f2d;
+  --bg-sunk: #2a2638;
+  --bg-hover: rgba(235, 230, 243, 0.04);
+  --bg-active: rgba(235, 230, 243, 0.08);
+  --surface: #221f2d;
+  --ink: #ebe6f3;
+  --ink-2: #b2a9c4;
+  --ink-3: #867d97;
+  --ink-4: #5a536b;
+  --rule: rgba(235, 230, 243, 0.08);
+  --rule-strong: rgba(235, 230, 243, 0.14);
+  --accent-color: #b593e0;
+  --accent-soft: #3d2f54;
+  --accent-wash: #2c2340;
+  --accent-ink: #cdb2ea;
+}
+
+/* coral 暗 */
+[data-theme="coral"].dark {
+  --bg: #1f1917;
+  --bg-alt: #261f1c;
+  --bg-sunk: #2e2521;
+  --bg-hover: rgba(241, 229, 224, 0.04);
+  --bg-active: rgba(241, 229, 224, 0.08);
+  --surface: #261f1c;
+  --ink: #f1e5e0;
+  --ink-2: #bca89f;
+  --ink-3: #8c7b72;
+  --ink-4: #5e514a;
+  --rule: rgba(241, 229, 224, 0.08);
+  --rule-strong: rgba(241, 229, 224, 0.14);
+  --accent-color: #e89a84;
+  --accent-soft: #4d342c;
+  --accent-wash: #36251f;
+  --accent-ink: #f2b8a4;
+}
+
+/* butter 暗 */
+[data-theme="butter"].dark {
+  --bg: #1c1a13;
+  --bg-alt: #232017;
+  --bg-sunk: #2b271c;
+  --bg-hover: rgba(240, 234, 218, 0.04);
+  --bg-active: rgba(240, 234, 218, 0.08);
+  --surface: #232017;
+  --ink: #f0eada;
+  --ink-2: #bdb497;
+  --ink-3: #8c8568;
+  --ink-4: #5d5740;
+  --rule: rgba(240, 234, 218, 0.08);
+  --rule-strong: rgba(240, 234, 218, 0.14);
+  --accent-color: #e8c560;
+  --accent-soft: #4b3d1c;
+  --accent-wash: #36300e;
+  --accent-ink: #f3d98c;
+}
+
+/* aqua 暗 */
+[data-theme="aqua"].dark {
+  --bg: #0f1a1c;
+  --bg-alt: #142225;
+  --bg-sunk: #1b2c30;
+  --bg-hover: rgba(227, 240, 242, 0.04);
+  --bg-active: rgba(227, 240, 242, 0.08);
+  --surface: #142225;
+  --ink: #e3f0f2;
+  --ink-2: #a3babe;
+  --ink-3: #74898d;
+  --ink-4: #4f6065;
+  --rule: rgba(227, 240, 242, 0.08);
+  --rule-strong: rgba(227, 240, 242, 0.14);
+  --accent-color: #6cd1d8;
+  --accent-soft: #1f4248;
+  --accent-wash: #163036;
+  --accent-ink: #9be3e8;
+}
+
+/* ── 全局基础样式 ─────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;

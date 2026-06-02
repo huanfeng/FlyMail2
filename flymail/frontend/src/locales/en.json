@@ -72,7 +72,19 @@
       "light": "Light",
       "dark": "Dark",
       "zh": "Chinese",
-      "en": "English"
+      "en": "English",
+      "toneTitle": "Color Tone",
+      "tone": {
+        "slate": "Slate",
+        "warm": "Warm",
+        "sky": "Sky",
+        "rose": "Rose",
+        "mint": "Mint",
+        "lavender": "Lavender",
+        "coral": "Coral",
+        "butter": "Butter",
+        "aqua": "Aqua"
+      }
     },
     "security": {
       "title": "Change Admin Password",

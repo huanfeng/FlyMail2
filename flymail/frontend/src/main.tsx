@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { router } from './router'
 import './index.css'
 import '@/lib/i18n'
-import { applyTheme, getTheme } from '@/lib/theme'
+import { initTheme } from '@/lib/theme'
 
-applyTheme(getTheme())
+initTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {

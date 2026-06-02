@@ -14,3 +14,13 @@
   2. iframe sandbox 增加 `allow-popups allow-popups-to-escape-sandbox`（仅为让 `target=_blank` 能在真正的新标签/外部浏览器打开；**不要**加 `allow-scripts`/`allow-top-navigation`）。
   3. 桌面 Wails 形态下，进一步拦截为用系统默认浏览器打开外链。
 - **涉及文件**：`flymail/frontend/src/components/mail/Reader.tsx`（`blockRemoteImages` 附近，可加 `rewriteLinks`）。
+
+---
+
+## KI-2：SSE 端点的 access_token 经 URL query 传递
+
+- **发现于**：M6（2026-06-02），实时收信 SSE 端点 `GET /api/v1/events`。
+- **现象**：浏览器原生 `EventSource` 无法设置自定义请求头（不能带 `Authorization: Bearer`），故 access_token 通过 `?access_token=...` 走 URL query 传递并由后端 `sse.NewHandler` 校验。
+- **风险**：token 可能落入服务器/代理访问日志、浏览器历史。自托管 localhost 场景下风险有限，但非最佳实践。
+- **建议修法（后续）**：改为一次性 stream ticket——新增受保护端点 `POST /events/ticket` 返回短 TTL 一次性票据，前端用 `?ticket=...` 连接 SSE，后端校验并立即作废票据。或迁移到基于 `fetch` 的 SSE 客户端（可设头）。
+- **涉及文件**：`flymail/backend/internal/sse/handler.go`、`flymail/frontend/src/lib/sse.ts`。

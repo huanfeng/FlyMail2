@@ -122,6 +122,9 @@ func Dial(cfg types.IMAPConfig) (*Session, error) {
 	return s, nil
 }
 
+// CanIDLE 报告服务器是否支持 IDLE（基于已读取的 capabilities）。
+func (s *Session) CanIDLE() bool { return s.SupportsIDLE }
+
 // Close logs out and closes the connection.
 func (s *Session) Close() error {
 	if s.Client == nil {

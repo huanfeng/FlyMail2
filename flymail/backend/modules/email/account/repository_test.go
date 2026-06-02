@@ -24,6 +24,39 @@ func newTestRepo(t *testing.T) *account.Repository {
 	return account.NewRepository(db)
 }
 
+func TestListEnabledIDs(t *testing.T) {
+	r := newTestRepo(t)
+
+	// 建 2 个 enabled、1 个 disabled 账户
+	a1 := &account.Account{Name: "A1", Email: "a1@example.com", AuthType: "password"}
+	a2 := &account.Account{Name: "A2", Email: "a2@example.com", AuthType: "password"}
+	a3 := &account.Account{Name: "A3", Email: "a3@example.com", AuthType: "password"}
+	for _, a := range []*account.Account{a1, a2, a3} {
+		if err := r.Create(a); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	// 将 a3 禁用（GORM 对 bool 零值不写入，须用 SetEnabled 显式更新）
+	if err := r.SetEnabled(a3.ID, false); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+
+	ids, err := r.ListEnabledIDs()
+	if err != nil {
+		t.Fatalf("ListEnabledIDs: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("期望 2 个启用账户 ID，实际得到 %d 个: %v", len(ids), ids)
+	}
+	// 确认返回的是 a1、a2 的 ID
+	idSet := map[uint]bool{a1.ID: true, a2.ID: true}
+	for _, id := range ids {
+		if !idSet[id] {
+			t.Errorf("意外的 ID %d", id)
+		}
+	}
+}
+
 func TestRepositoryCRUD(t *testing.T) {
 	r := newTestRepo(t)
 

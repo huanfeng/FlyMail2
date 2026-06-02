@@ -96,6 +96,9 @@ func (s *Service) IsEnabled(id uint) (bool, error) {
 	return s.repo.IsEnabled(id)
 }
 
+// ListEnabledIDs 透传启用账户 ID 列表（供同步管理器调度）。
+func (s *Service) ListEnabledIDs() ([]uint, error) { return s.repo.ListEnabledIDs() }
+
 func (s *Service) applyProxy(a *Account, p *ProxyDTO) error {
 	if p == nil || p.Host == "" {
 		a.ProxyType, a.ProxyHost, a.ProxyPort, a.ProxyUsername, a.ProxyPasswordEnc = "", "", 0, "", ""

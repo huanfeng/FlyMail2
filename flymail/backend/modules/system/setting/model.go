@@ -15,4 +15,7 @@ func (Setting) TableName() string { return "settings" }
 const (
 	KeySyncDepth     = "sync_depth"
 	DefaultSyncDepth = "1000"
+
+	// KeySyncPollInterval 后台轮询间隔（秒）。
+	KeySyncPollInterval = "sync_poll_interval"
 )

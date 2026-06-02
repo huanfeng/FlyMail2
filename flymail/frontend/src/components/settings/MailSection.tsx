@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label'
 const LOAD_REMOTE_IMAGES_KEY = 'flymail_load_remote_images'
 const SYNC_DEPTH_MIN = 100
 const SYNC_DEPTH_MAX = 5000
+const POLL_INTERVAL_MIN = 30
+const POLL_INTERVAL_MAX = 3600
 
 // ────────────────────────────────────────────────────────────────────────────────
 // MailSection
@@ -27,6 +29,13 @@ export function MailSection() {
     settings?.sync_depth ?? 1000,
   )
   const [depthError, setDepthError] = React.useState<string | null>(null)
+
+  // 后台轮询间隔本地编辑状态
+  const [pollInterval, setPollInterval] = React.useState<number>(
+    settings?.sync_poll_interval ?? 180,
+  )
+  const [intervalError, setIntervalError] = React.useState<string | null>(null)
+
   const [saved, setSaved] = React.useState(false)
 
   // 远程图片开关
@@ -37,9 +46,17 @@ export function MailSection() {
   // 当服务端数据加载完成后同步到本地 state（仅首次）
   React.useEffect(() => {
     if (settings?.sync_depth != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSyncDepth(settings.sync_depth)
     }
   }, [settings?.sync_depth])
+
+  React.useEffect(() => {
+    if (settings?.sync_poll_interval != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPollInterval(settings.sync_poll_interval)
+    }
+  }, [settings?.sync_poll_interval])
 
   function handleRemoteImagesChange(e: React.ChangeEvent<HTMLInputElement>) {
     const checked = e.target.checked
@@ -49,6 +66,7 @@ export function MailSection() {
 
   function handleSave() {
     setDepthError(null)
+    setIntervalError(null)
     setSaved(false)
 
     if (syncDepth < SYNC_DEPTH_MIN || syncDepth > SYNC_DEPTH_MAX) {
@@ -56,8 +74,16 @@ export function MailSection() {
       return
     }
 
+    if (pollInterval < POLL_INTERVAL_MIN || pollInterval > POLL_INTERVAL_MAX) {
+      setIntervalError(t('settings.mail.invalidInterval'))
+      return
+    }
+
     updateSettings.mutate(
-      { sync_depth: String(syncDepth) },
+      {
+        sync_depth: String(syncDepth),
+        sync_poll_interval: String(pollInterval),
+      },
       {
         onSuccess: () => {
           setSaved(true)
@@ -110,6 +136,42 @@ export function MailSection() {
             }}
           >
             {depthError}
+          </div>
+        )}
+
+        {/* 后台轮询间隔 */}
+        <div className="flex flex-col gap-1.5">
+          <Label style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>
+            {t('settings.mail.syncInterval')}
+          </Label>
+          <Input
+            type="number"
+            min={POLL_INTERVAL_MIN}
+            max={POLL_INTERVAL_MAX}
+            value={pollInterval}
+            onChange={(e) => {
+              setIntervalError(null)
+              setPollInterval(Number(e.target.value))
+            }}
+          />
+          <span
+            className="text-xs"
+            style={{ color: 'var(--ink-3)' }}
+          >
+            {t('settings.mail.syncIntervalHint')}
+          </span>
+        </div>
+
+        {/* 轮询间隔校验错误 */}
+        {intervalError && (
+          <div
+            className="rounded-md px-3 py-2 text-sm"
+            style={{
+              background: 'oklch(0.577 0.245 27.325 / 0.1)',
+              color: 'var(--destructive)',
+            }}
+          >
+            {intervalError}
           </div>
         )}
 

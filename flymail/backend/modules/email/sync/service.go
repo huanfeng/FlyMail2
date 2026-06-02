@@ -23,6 +23,10 @@ type Session interface {
 	MarkUnread(uids ...imapv2.UID) error
 	MarkStarred(uids ...imapv2.UID) error
 	MarkUnstarred(uids ...imapv2.UID) error
+	// IDLE 能力（M6）：
+	CanIDLE() bool
+	StartIDLE() (*coreimap.IdleHandle, error)
+	SetIDLEHandler(func(coreimap.IDLEEvent))
 	Close() error
 }
 
@@ -31,6 +35,29 @@ type AccountConfigProvider interface {
 	IMAPConfig(id uint) (types.IMAPConfig, error)
 	TouchLastSync(id uint, t time.Time) error
 	IsEnabled(id uint) (bool, error)
+}
+
+// Event 是推送给前端的同步事件。
+type Event struct {
+	Type      string `json:"type"` // "new_mail"
+	AccountID uint   `json:"account_id"`
+	FolderID  uint   `json:"folder_id"`
+	// NewCount 为本次同步「本地新增行数」，非服务器新邮件精确数（UIDVALIDITY
+	// 重建时等于整库行数）。仅作为「有变化、需刷新」的提示，前端据此失效查询；
+	// 若将来要展示精确数字，应改为基于 UID>prevUIDNext 的计数。
+	NewCount int `json:"new_count"`
+}
+
+// Publisher 由 sse.Hub 适配实现（Manager 只依赖发布能力）。
+type Publisher interface {
+	Publish(payload []byte)
+}
+
+// AccountLister 是 Manager 调度所需的账户能力。account.Service 满足之。
+type AccountLister interface {
+	ListEnabledIDs() ([]uint, error)
+	IMAPConfig(id uint) (types.IMAPConfig, error)
+	TouchLastSync(id uint, t time.Time) error
 }
 
 // Phase 表示同步所处阶段。

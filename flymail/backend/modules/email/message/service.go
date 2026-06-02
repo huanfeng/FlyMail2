@@ -14,6 +14,11 @@ import (
 const (
 	defaultSyncDepth = 1000
 	fetchBatchSize   = 200
+	// incrementalProbeMin 是无 UIDNEXT 服务商（如 163）增量同步时，
+	// 按序号至少回探的尾部封数。用于兜住「本地行数被 syncDepth 截断、
+	// 与服务器总数不可比」以及「删旧+收新使总数 delta<=0」两种漏抓场景，
+	// 配合 Upsert 幂等补齐。
+	incrementalProbeMin = 50
 )
 
 // IMAPFetcher 是邮件元数据同步所需的最小 IMAP 能力（便于测试 mock）。*coreimap.Session 满足此接口。
@@ -120,6 +125,102 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 		Total:       int(total),
 		Unread:      int(unread),
 	}, rebuilt, nil
+}
+
+// IncrementalSync 增量同步单文件夹：只抓取本地之后新增的邮件。
+// prev* 为本地已存的该文件夹状态（来自 folders 表）。
+// 返回：同步后状态、本次新增邮件数、错误。
+// UIDVALIDITY 变化时删除本地缓存并退化为完整重建。
+func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, prevUIDValidity, prevUIDNext uint32, prevTotal int, c IMAPFetcher) (*FolderState, int, error) {
+	sel, err := c.SelectFolder(folderPath)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	uidValidity := sel.UIDValidity
+	if uidValidity == 0 {
+		if st, serr := c.FolderStatus(folderPath, coreimap.StatusUIDValidity); serr == nil && st != nil && st.UIDValidity != nil {
+			uidValidity = *st.UIDValidity
+		}
+	}
+
+	// UIDVALIDITY 变化：本地缓存失效，删除后完整重建。
+	if prevUIDValidity != 0 && uidValidity != 0 && uidValidity != prevUIDValidity {
+		if err := s.repo.DeleteByFolder(folderID); err != nil {
+			return nil, 0, err
+		}
+		state, _, err := s.SyncFolderMessages(accountID, folderID, folderPath, 0, c)
+		if err != nil {
+			return nil, 0, err
+		}
+		return state, state.Total, nil
+	}
+
+	beforeCount, _ := s.repo.CountByFolder(folderID)
+
+	uidNext := sel.UIDNext
+	if uidNext == 0 {
+		if st, serr := c.FolderStatus(folderPath, coreimap.StatusUIDNext); serr == nil && st != nil && st.UIDNext != nil {
+			uidNext = *st.UIDNext
+		}
+	}
+
+	if uidNext > 0 {
+		// 已知 UIDNEXT：抓 [anchor, uidNext-1]，anchor=prevUIDNext（无则本地 maxUID+1）。
+		anchor := prevUIDNext
+		if anchor == 0 {
+			if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
+				anchor = maxUID + 1
+			} else {
+				anchor = 1
+			}
+		}
+		if uidNext > anchor {
+			if err := s.fetchRangeBatched(accountID, folderID, imapv2.UID(anchor), imapv2.UID(uidNext-1), c); err != nil {
+				return nil, 0, err
+			}
+		}
+	} else {
+		// 无 UIDNEXT（163）：无法做 UID 增量。本地行数（prevTotal）可能因 syncDepth
+		// 截断而小于服务器总数，二者不可比；删旧+收新还会使 delta<=0。
+		// 故按序号回探尾部一个「有界」窗口：至少 incrementalProbeMin，
+		// 不超过 syncDepth；靠 Upsert 幂等补齐新邮件，避免每轮全量重抓也不漏新信。
+		currentTotal := int(sel.NumMessages)
+		if currentTotal > 0 {
+			probe := currentTotal - prevTotal
+			if probe < incrementalProbeMin {
+				probe = incrementalProbeMin
+			}
+			if probe > s.syncDepth {
+				probe = s.syncDepth
+			}
+			from := uint32(1)
+			if currentTotal > probe {
+				from = uint32(currentTotal - probe + 1)
+			}
+			if err := s.fetchSeqRangeBatched(accountID, folderID, from, uint32(currentTotal), c); err != nil {
+				return nil, 0, err
+			}
+		}
+	}
+
+	total, _ := s.repo.CountByFolder(folderID)
+	unread, _ := s.repo.UnreadCountByFolder(folderID)
+	newCount := int(total) - int(beforeCount)
+	if newCount < 0 {
+		newCount = 0
+	}
+	if uidNext == 0 {
+		if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
+			uidNext = maxUID + 1
+		}
+	}
+	return &FolderState{
+		UIDValidity: uidValidity,
+		UIDNext:     uidNext,
+		Total:       int(total),
+		Unread:      int(unread),
+	}, newCount, nil
 }
 
 // fetchSeqRangeBatched 把序号区间 [from,end] 切成 fetchBatchSize 的子区间逐批抓取并 upsert。

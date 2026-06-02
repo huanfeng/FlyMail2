@@ -36,6 +36,11 @@ type Deps struct {
 func New(deps Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	// 请求日志写入统一日志（gin.DefaultWriter 已在 app 装配时指向轮转文件）；
+	// 跳过健康检查与长连接 SSE，避免噪音。
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/api/v1/healthz", "/api/v1/events"},
+	}))
 	r.Use(gin.Recovery())
 	r.Use(cors.Default())
 

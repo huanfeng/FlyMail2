@@ -14,8 +14,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Server.Port != 8080 {
 		t.Errorf("default port = %d, want 8080", cfg.Server.Port)
 	}
-	if cfg.Server.Host != "0.0.0.0" {
-		t.Errorf("default host = %q, want 0.0.0.0", cfg.Server.Host)
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Errorf("default host = %q, want 127.0.0.1", cfg.Server.Host)
+	}
+	if cfg.LogDir() != filepath.Join(dir, "logs") {
+		t.Errorf("default LogDir = %q, want %q", cfg.LogDir(), filepath.Join(dir, "logs"))
 	}
 	if cfg.Auth.AccessTokenTTL != 15 {
 		t.Errorf("default access_token_ttl = %d, want 15", cfg.Auth.AccessTokenTTL)

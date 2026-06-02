@@ -50,8 +50,10 @@ export function useInfiniteMessages(folderId: number | null) {
       )
       return data.messages ?? []
     },
-    getNextPageParam: (lastPage) =>
-      lastPage.length < 50 ? undefined : lastPage[lastPage.length - 1].uid,
+    getNextPageParam: (lastPage) => {
+      const last = lastPage.at(-1)
+      return lastPage.length < 50 || !last ? undefined : last.uid
+    },
   })
 }
 

@@ -240,6 +240,8 @@ export function ShellPage() {
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
           ) : (
             <MailList
+              // 按文件夹+样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
+              key={`${folderId}-${listStyle}`}
               folder={activeFolder}
               messages={messages}
               loading={messagesLoading}

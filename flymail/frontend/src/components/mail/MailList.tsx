@@ -314,18 +314,14 @@ export function MailList({
   // ── 无限加载：接近底部时触发 ──────────────────────────────────────────────
 
   const virtualItems = virtualizer.getVirtualItems()
+  const lastIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
 
+  // 仅依赖最末可见行索引，避免每帧滚动都重跑（virtualItems 每次都是新数组引用）。
   useEffect(() => {
-    if (virtualItems.length === 0) return
-    const last = virtualItems[virtualItems.length - 1]
-    if (
-      last.index >= rows.length - 5 &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
+    if (lastIndex >= rows.length - 5 && hasNextPage && !isFetchingNextPage) {
       onLoadMore()
     }
-  }, [virtualItems, rows.length, hasNextPage, isFetchingNextPage, onLoadMore])
+  }, [lastIndex, rows.length, hasNextPage, isFetchingNextPage, onLoadMore])
 
   // ── 渲染 ─────────────────────────────────────────────────────────────────
 
@@ -369,19 +365,19 @@ export function MailList({
                 <div
                   key={vItem.key}
                   data-index={vItem.index}
-                  ref={virtualizer.measureElement}
                   style={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     width: '100%',
+                    height: `${vItem.size}px`,
                     transform: `translateY(${vItem.start}px)`,
                   }}
                 >
                   {row.type === 'header' ? (
-                    // 分组标题行
+                    // 分组标题行（行高固定，不用动态测量）
                     <div
-                      className="sticky top-0 z-10 px-4 py-1 text-[11px] font-medium"
+                      className="px-4 py-1 text-[11px] font-medium"
                       style={{
                         color: 'var(--ink-3)',
                         background: 'var(--bg-alt)',

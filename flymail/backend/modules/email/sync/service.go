@@ -37,6 +37,26 @@ type AccountConfigProvider interface {
 	IsEnabled(id uint) (bool, error)
 }
 
+// Event 是推送给前端的同步事件。
+type Event struct {
+	Type      string `json:"type"` // "new_mail"
+	AccountID uint   `json:"account_id"`
+	FolderID  uint   `json:"folder_id"`
+	NewCount  int    `json:"new_count"`
+}
+
+// Publisher 由 sse.Hub 适配实现（Manager 只依赖发布能力）。
+type Publisher interface {
+	Publish(payload []byte)
+}
+
+// AccountLister 是 Manager 调度所需的账户能力。account.Service 满足之。
+type AccountLister interface {
+	ListEnabledIDs() ([]uint, error)
+	IMAPConfig(id uint) (types.IMAPConfig, error)
+	TouchLastSync(id uint, t time.Time) error
+}
+
 // Phase 表示同步所处阶段。
 type Phase string
 

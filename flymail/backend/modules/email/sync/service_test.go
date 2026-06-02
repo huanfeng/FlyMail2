@@ -100,6 +100,10 @@ func (f *fakeSession) MarkUnstarred(uids ...imapv2.UID) error {
 	return nil
 }
 
+func (f *fakeSession) CanIDLE() bool                            { return false }
+func (f *fakeSession) StartIDLE() (*coreimap.IdleHandle, error) { return nil, nil }
+func (f *fakeSession) SetIDLEHandler(func(coreimap.IDLEEvent))  {}
+
 func (f *fakeSession) Close() error { return nil }
 
 // hasMarkRead 线程安全地检查 MarkRead 是否被调用过（包含指定 uid）。

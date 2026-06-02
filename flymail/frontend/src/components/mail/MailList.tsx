@@ -480,7 +480,7 @@ export function MailList({
                 marginBottom: 4,
               }}
             >
-              {query || filter !== 'all' ? t('list.nothingHere') : t('list.nothingHere')}
+              {t('list.nothingHere')}
             </div>
             <div>
               {query || filter !== 'all' ? t('list.searchNoResult') : t('list.noMessages')}

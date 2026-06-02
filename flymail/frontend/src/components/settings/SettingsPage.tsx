@@ -6,6 +6,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
+import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { setListStyle } from '@/lib/list-prefs'
@@ -618,6 +619,7 @@ function MailSection({ listStyle, onChangeListStyle }: MailSectionProps) {
 
 function SecuritySection() {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const changePassword = useChangePassword()
 
   const [oldPwd, setOldPwd] = React.useState('')
@@ -643,6 +645,7 @@ function SecuritySection() {
       {
         onSuccess: () => {
           setStatus({ type: 'success', text: t('settings.security.success') })
+          toast(t('settings.security.success'))
           setOldPwd('')
           setNewPwd('')
           setConfirmPwd('')

@@ -3,7 +3,9 @@ package sync
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -109,6 +111,52 @@ func (h *handler) markRead(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// AttachmentHandler 流式返回附件。鉴权：Authorization: Bearer 头 或 ?access_token= query
+// （img/iframe/预览新标签无法设头，故支持 query，见 KI-2）。默认 inline 便于图片/PDF 预览，
+// ?dl=1 则强制下载。
+func AttachmentHandler(svc *Service, verify func(token string) error) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("access_token")
+		if token == "" {
+			token = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		}
+		if verify(token) != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		mid, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+			return
+		}
+		idx, err := strconv.Atoi(c.Param("idx"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid index"})
+			return
+		}
+		res, err := svc.AttachmentContent(uint(mid), idx)
+		if err != nil {
+			if errors.Is(err, ErrAttachmentNotFound) || errors.Is(err, message.ErrMessageNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "attachment not found"})
+				return
+			}
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		disp := "inline"
+		if c.Query("dl") == "1" {
+			disp = "attachment"
+		}
+		fn := res.Filename
+		if fn == "" {
+			fn = "attachment"
+		}
+		// RFC 5987 编码文件名，兼容中文等非 ASCII。
+		c.Header("Content-Disposition", disp+"; filename*=UTF-8''"+url.PathEscape(fn))
+		c.Data(http.StatusOK, res.ContentType, res.Data)
+	}
 }
 
 func (h *handler) markFlag(c *gin.Context) {

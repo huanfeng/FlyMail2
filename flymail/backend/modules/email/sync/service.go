@@ -1,11 +1,13 @@
 package sync
 
 import (
+	"bytes"
 	"errors"
 	gosync "sync"
 	"time"
 
 	coreimap "flymail-core/imap"
+	coreparser "flymail-core/parser"
 	"flymail-core/types"
 
 	imapv2 "github.com/emersion/go-imap/v2"
@@ -27,6 +29,8 @@ type Session interface {
 	CanIDLE() bool
 	StartIDLE() (*coreimap.IdleHandle, error)
 	SetIDLEHandler(func(coreimap.IDLEEvent))
+	// FetchRawMessage 获取指定 UID 的整封原始 RFC 5322 字节（M7 附件下载使用）。
+	FetchRawMessage(uid imapv2.UID) ([]byte, error)
 	Close() error
 }
 
@@ -248,6 +252,58 @@ func (s *Service) fail(accountID uint, err error) {
 		st.Phase = PhaseError
 		st.Error = err.Error()
 	})
+}
+
+// AttachmentResult 是附件下载的结果载体。
+type AttachmentResult struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+}
+
+// ErrAttachmentNotFound 表示请求的附件索引超出范围。
+var ErrAttachmentNotFound = errors.New("attachment not found")
+
+// AttachmentContent 按需从 IMAP 取整封邮件，解析出第 idx 个附件
+// （顺序同 MessageDetail.attachments，含内联图）。
+func (s *Service) AttachmentContent(messageID uint, idx int) (*AttachmentResult, error) {
+	m, err := s.messages.GetByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	f, err := s.folders.GetByID(m.FolderID)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.accounts.IMAPConfig(m.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.dial(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	if _, err := sess.SelectFolder(f.Path); err != nil {
+		return nil, err
+	}
+	raw, err := sess.FetchRawMessage(imapv2.UID(m.UID))
+	if err != nil {
+		return nil, err
+	}
+	atts, err := coreparser.ExtractAttachments(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if idx < 0 || idx >= len(atts) {
+		return nil, ErrAttachmentNotFound
+	}
+	a := atts[idx]
+	ct := a.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return &AttachmentResult{Filename: a.Filename, ContentType: ct, Data: a.Content}, nil
 }
 
 // AccountStats 汇总账户下的邮件数与文件夹数。

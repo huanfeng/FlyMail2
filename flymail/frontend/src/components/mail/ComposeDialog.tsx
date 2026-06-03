@@ -6,6 +6,10 @@ import { Icon } from '@/components/ui/Icon'
 import { AddressInput } from '@/components/mail/AddressInput'
 import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft, useAccounts } from '@/lib/queries'
 import { useToast } from '@/components/ui/Toast'
+import { formatBytes } from '@/lib/format'
+
+// 附件总大小上限（25 MiB），需与后端 maxAttachmentTotal 保持一致。
+const MAX_ATTACH_TOTAL = 25 * 1024 * 1024
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -88,6 +92,29 @@ export function ComposeDialog({
   // ── Form state ───────────────────────────────────────────────────────────────
   const [form, setForm] = React.useState<FormState>(() => emptyForm(accountId))
 
+  // ── 附件 ─────────────────────────────────────────────────────────────────────
+  const [attachments, setAttachments] = React.useState<File[]>([])
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const attachTotal = attachments.reduce((sum, f) => sum + f.size, 0)
+
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? [])
+    e.target.value = '' // 允许再次选择同一文件
+    if (picked.length === 0) return
+    const next = [...attachments, ...picked]
+    const total = next.reduce((sum, f) => sum + f.size, 0)
+    if (total > MAX_ATTACH_TOTAL) {
+      setValidationError(t('compose.attachTooLarge', { size: formatBytes(MAX_ATTACH_TOTAL) }))
+      return
+    }
+    setValidationError(null)
+    setAttachments(next)
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
   // 便捷 setter
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -130,6 +157,7 @@ export function ComposeDialog({
       setInfoMessage(null)
       setMinimized(false)
       setPos(null) // 每次打开回到默认右下角
+      setAttachments([]) // 附件不随草稿持久化，每次打开清空
 
       // 有抄送预填时自动展开抄送行
       const hasCc = (initial?.cc ?? []).length > 0
@@ -202,14 +230,17 @@ export function ComposeDialog({
 
     sendMutation.mutate(
       {
-        account_id: effectiveAccountId as number,
-        to: toAddrs,
-        cc: ccAddrs.length > 0 ? ccAddrs : undefined,
-        bcc: bccAddrs.length > 0 ? bccAddrs : undefined,
-        subject: form.subject,
-        body_html: form.bodyHtml,
-        in_reply_to: initial?.inReplyTo,
-        references: initial?.references,
+        req: {
+          account_id: effectiveAccountId as number,
+          to: toAddrs,
+          cc: ccAddrs.length > 0 ? ccAddrs : undefined,
+          bcc: bccAddrs.length > 0 ? bccAddrs : undefined,
+          subject: form.subject,
+          body_html: form.bodyHtml,
+          in_reply_to: initial?.inReplyTo,
+          references: initial?.references,
+        },
+        files: attachments,
       },
       {
         onSuccess: () => {
@@ -498,6 +529,29 @@ export function ComposeDialog({
           />
         </div>
 
+        {/* 附件列表 */}
+        {attachments.length > 0 && (
+          <div className="compose-attachments">
+            {attachments.map((f, i) => (
+              <div className="attach-chip" key={`${f.name}-${i}`}>
+                <Icon name="attach" size={11} />
+                <span className="ac-name" title={f.name}>{f.name}</span>
+                <span className="ac-size">{formatBytes(f.size)}</span>
+                <button
+                  className="ac-remove"
+                  type="button"
+                  title={t('compose.attachRemove')}
+                  onClick={() => removeAttachment(i)}
+                  disabled={isBusy}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+            ))}
+            <span className="ac-total">{formatBytes(attachTotal)}</span>
+          </div>
+        )}
+
         {/* 校验错误提示 */}
         {validationError && (
           <div
@@ -547,16 +601,27 @@ export function ComposeDialog({
           {isSavingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
         </button>
 
-        {/* 附件按钮：后端暂不支持附件发送，disabled 降级 */}
+        {/* 附件按钮 */}
         <button
           className="pill-btn"
-          disabled
-          title={t('compose.attachDisabled')}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isBusy}
+          title={t('compose.attach')}
           type="button"
-          style={{ cursor: 'not-allowed', opacity: 0.45 }}
         >
           <Icon name="attach" size={12} />
+          {attachments.length > 0 && (
+            <span style={{ marginLeft: 4 }}>{attachments.length}</span>
+          )}
         </button>
+        {/* 隐藏的文件选择 input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={onPickFiles}
+        />
 
         {/* spacer 推开右侧 */}
         <div style={{ flex: 1 }} />

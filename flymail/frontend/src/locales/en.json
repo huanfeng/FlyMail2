@@ -117,7 +117,9 @@
     "minimize": "Minimize",
     "showCc": "Cc",
     "showBcc": "Bcc",
-    "attachDisabled": "Attachment sending coming soon"
+    "attach": "Attach files",
+    "attachRemove": "Remove",
+    "attachTooLarge": "Attachments must not exceed {{size}}"
   },
   "notif": {
     "title": "Notifications",

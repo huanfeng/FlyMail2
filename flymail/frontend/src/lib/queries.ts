@@ -534,7 +534,18 @@ export function useAccountStats(accountId: number | null) {
 export function useSend() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (req: SendRequest) => { await api.post('/send', req) },
+    mutationFn: async ({ req, files }: { req: SendRequest; files?: File[] }) => {
+      if (files && files.length > 0) {
+        // 有附件：用 multipart/form-data，payload 为 JSON 字段，文件挂在 attachments 下。
+        const fd = new FormData()
+        fd.append('payload', JSON.stringify(req))
+        for (const f of files) fd.append('attachments', f, f.name)
+        // 显式置空 Content-Type，让浏览器/axios 自动补全带 boundary 的 multipart 头。
+        await api.post('/send', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } else {
+        await api.post('/send', req)
+      }
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['folders'] })
       void qc.invalidateQueries({ queryKey: ['messages'] })

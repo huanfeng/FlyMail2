@@ -117,7 +117,9 @@
     "minimize": "最小化",
     "showCc": "抄送",
     "showBcc": "密送",
-    "attachDisabled": "附件发送功能即将推出"
+    "attach": "添加附件",
+    "attachRemove": "移除",
+    "attachTooLarge": "附件总大小不能超过 {{size}}"
   },
   "notif": {
     "title": "通知",

@@ -32,6 +32,7 @@ type Manager struct {
 
 	dial         func(types.IMAPConfig) (Session, error)
 	pollInterval func() time.Duration
+	emit         EmitFunc
 
 	mu      gosync.Mutex
 	workers map[uint]context.CancelFunc
@@ -53,6 +54,9 @@ func NewManager(accounts AccountLister, folders *folder.Service, messages *messa
 
 // SetDial 测试注入。
 func (m *Manager) SetDial(d func(types.IMAPConfig) (Session, error)) { m.dial = d }
+
+// SetEmitter 注入通知回调（新邮件等事件）。
+func (m *Manager) SetEmitter(fn EmitFunc) { m.emit = fn }
 
 // SetPollIntervalProvider 注入轮询间隔（秒，<minPollInterval 取下限）。
 func (m *Manager) SetPollIntervalProvider(fn func() int) {
@@ -343,6 +347,11 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 				NewCount:  newCount,
 			})
 			m.pub.Publish(payload)
+		}
+		// 站内/外发通知：新邮件
+		if m.emit != nil {
+			m.emit(string(notifyMailNew), accountID,
+				"新邮件", fmt.Sprintf("收到 %d 封新邮件", newCount))
 		}
 	}
 	return nil

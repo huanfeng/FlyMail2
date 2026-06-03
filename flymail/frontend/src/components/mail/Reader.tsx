@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Star } from 'lucide-react'
 import { useMessageDetail, useMarkRead, useToggleFlag, useDeleteMessage, useMoveMessage, useFolders } from '@/lib/queries'
@@ -166,6 +166,46 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
     setMoveOpen(false)
     moveMessage.mutate({ id: messageId, folderId }, { onSuccess: () => onClose?.() })
   }
+
+  // ── iframe 自适应高度 ───────────────────────────────────────────────────────
+  // sandbox="allow-same-origin"（不含 allow-scripts）：邮件 JS 仍禁用，但父窗口可读
+  // contentDocument 量取内容高度；用父侧 ResizeObserver 在内联图加载/回流时持续校正，
+  // 避免嵌套滚动条与内容裁剪。
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const resizeObsRef = useRef<ResizeObserver | null>(null)
+
+  function fitIframeHeight() {
+    const el = iframeRef.current
+    if (!el) return
+    try {
+      const doc = el.contentDocument
+      const body = doc?.body
+      if (!body) return
+      const h = Math.max(body.scrollHeight, doc?.documentElement?.scrollHeight ?? 0)
+      if (h > 0) el.style.height = `${h + 8}px`
+    } catch {
+      // 跨域（理论上不会发生，allow-same-origin 下同源）：保持回退 minHeight
+    }
+  }
+
+  function handleIframeLoad() {
+    fitIframeHeight()
+    // 重新订阅当前文档 body 的尺寸变化（先断开旧的，避免泄漏/重复）
+    try {
+      const body = iframeRef.current?.contentDocument?.body
+      resizeObsRef.current?.disconnect()
+      if (body && typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => fitIframeHeight())
+        ro.observe(body)
+        resizeObsRef.current = ro
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 组件卸载时断开观察者
+  useEffect(() => () => resizeObsRef.current?.disconnect(), [])
 
   // 先改写 cid 内联图引用，再做远程图拦截
   // cidHtml：保留 cid 改写、跳过远程图拦截（showImages=true 时使用）
@@ -506,28 +546,20 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
               {/* HTML 正文：沙箱 iframe，防止脚本/样式逃逸 */}
               {detail.html_body ? (
                 <iframe
-                  srcDoc={bodyHtml}
-                  sandbox=""
+                  ref={iframeRef}
+                  // 注入 <base target="_blank"> 使邮件内链接在新标签打开（配合 allow-popups），
+                  // 避免点击链接替换掉 iframe 内的邮件内容。
+                  srcDoc={`<base target="_blank">${bodyHtml}`}
+                  // allow-same-origin：仅为让父窗口量取高度；不含 allow-scripts，邮件 JS 仍禁用。
+                  sandbox="allow-same-origin allow-popups"
                   title={detail.subject}
                   style={{
                     width: '100%',
-                    minHeight: 320,
+                    minHeight: 120,
                     border: 'none',
                     display: 'block',
-                    // 自适应高度：需要内容高度，用 onLoad 设置
                   }}
-                  onLoad={(e) => {
-                    // 让 iframe 自适应内容高度，避免滚动条嵌套
-                    const el = e.currentTarget
-                    try {
-                      const body = el.contentDocument?.body
-                      if (body) {
-                        el.style.height = `${body.scrollHeight + 32}px`
-                      }
-                    } catch {
-                      // 跨域时忽略
-                    }
-                  }}
+                  onLoad={handleIframeLoad}
                 />
               ) : detail.text_body ? (
                 // 纯文本：按段落分割渲染

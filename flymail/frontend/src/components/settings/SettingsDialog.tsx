@@ -24,6 +24,8 @@ import {
   useSyncStatus,
   useChangePassword,
   useAccountStats,
+  useMe,
+  useUpdateProfile,
 } from '@/lib/queries'
 import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
@@ -51,7 +53,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'appearance' | 'general' | 'accounts' | 'mail' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -766,6 +768,129 @@ function MailSection() {
 }
 
 // ════════════════════════════════════════════════════════════
+// 子组件：资料分区（管理员展示名 / 邮箱）
+// ════════════════════════════════════════════════════════════
+
+/** 从名称取首字母（最多 2 个），用于头像占位 */
+function nameInitials(name: string): string {
+  const s = name.trim()
+  if (!s) return '?'
+  return s
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+}
+
+function ProfileSection() {
+  const { t, i18n } = useTranslation()
+  const { toast } = useToast()
+  const { data: me } = useMe()
+  const updateProfile = useUpdateProfile()
+
+  const [displayName, setDisplayName] = React.useState('')
+  const [email, setEmail] = React.useState('')
+
+  // 资料加载后填充表单
+  React.useEffect(() => {
+    if (me) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDisplayName(me.display_name)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEmail(me.email)
+    }
+  }, [me])
+
+  /** 本地化日期；无值回落到「从未」 */
+  function fmtDate(s?: string): string {
+    if (!s) return t('settings.account.never')
+    try {
+      return new Date(s).toLocaleString(i18n.language)
+    } catch {
+      return s
+    }
+  }
+
+  function handleSave() {
+    updateProfile.mutate(
+      { display_name: displayName, email },
+      { onSuccess: () => toast(t('settings.profile.saved')) },
+    )
+  }
+
+  const avatarName = (displayName || me?.username || '').trim()
+
+  return (
+    <div className="settings-block">
+      <h3>{t('settings.profile.title')}</h3>
+      <p className="help">{t('settings.profile.help')}</p>
+
+      {/* 头像 + 用户名概览 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '12px 0 6px' }}>
+        <div
+          className="ac-avatar"
+          style={{ background: 'var(--accent)', width: 48, height: 48, fontSize: 18 }}
+          aria-hidden="true"
+        >
+          {nameInitials(avatarName)}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div className="ac-name" style={{ fontSize: 15 }}>{me?.username ?? '—'}</div>
+          <div className="ac-mail">{me?.email || t('settings.profile.noEmail')}</div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 380, marginTop: 8 }}>
+        {/* 用户名（只读，登录账号不可改）*/}
+        <Row label={t('settings.profile.username')} help={t('settings.profile.usernameHint')}>
+          <input type="text" value={me?.username ?? ''} readOnly disabled className="inline-input" />
+        </Row>
+
+        {/* 展示名 */}
+        <Row label={t('settings.profile.displayName')}>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder={me?.username ?? ''}
+            className="inline-input"
+          />
+        </Row>
+
+        {/* 联系邮箱 */}
+        <Row label={t('settings.profile.email')}>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="inline-input"
+          />
+        </Row>
+
+        {/* 元信息：创建时间 / 最后登录 */}
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', marginTop: 4, lineHeight: 1.7 }}>
+          <div>{t('settings.profile.created')}: {fmtDate(me?.created_at)}</div>
+          <div>{t('settings.profile.lastLogin')}: {fmtDate(me?.last_login_at)}</div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            className="pill-btn"
+            onClick={handleSave}
+            disabled={updateProfile.isPending}
+          >
+            {t('settings.profile.save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
 // 子组件：安全分区（改密码）
 // ════════════════════════════════════════════════════════════
 
@@ -886,6 +1011,7 @@ export function SettingsDialog({ listStyle, onChangeListStyle, layoutMode, onCha
 
   // 分区导航配置（对照 MailMaster：外观/通用/账户/邮件/安全/快捷键/关于）
   const sections: { id: SettingSection; labelKey: string; icon: string }[] = [
+    { id: 'profile',    labelKey: 'settings.navProfile',          icon: 'user' },
     { id: 'appearance', labelKey: 'settings.page.sectAppearance', icon: 'sun' },
     { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
@@ -949,6 +1075,7 @@ export function SettingsDialog({ listStyle, onChangeListStyle, layoutMode, onCha
             <div className="sd-body-title">{t(currentLabel)}</div>
           </div>
           <div className="sd-body-scroll">
+            {section === 'profile' && <ProfileSection />}
             {section === 'appearance' && (
               <AppearanceSection
                 listStyle={listStyle}

@@ -56,6 +56,56 @@ func TestChangePassword(t *testing.T) {
 	}
 }
 
+func TestProfileAndUpdate(t *testing.T) {
+	s := newTestService(t)
+	if err := s.SetAdminPassword("admin", "p@ss"); err != nil {
+		t.Fatalf("SetAdminPassword: %v", err)
+	}
+
+	// 初始资料：展示名/邮箱为空
+	p, err := s.Profile("admin")
+	if err != nil {
+		t.Fatalf("Profile: %v", err)
+	}
+	if p.DisplayName != "" || p.Email != "" {
+		t.Errorf("初始资料应为空, got name=%q email=%q", p.DisplayName, p.Email)
+	}
+
+	// 更新资料（含两端空白，应被去除）
+	if _, err := s.UpdateProfile("admin", "  管理员  ", " me@example.com "); err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+	p2, err := s.Profile("admin")
+	if err != nil {
+		t.Fatalf("Profile after update: %v", err)
+	}
+	if p2.DisplayName != "管理员" {
+		t.Errorf("display name = %q, want 管理员", p2.DisplayName)
+	}
+	if p2.Email != "me@example.com" {
+		t.Errorf("email = %q, want me@example.com", p2.Email)
+	}
+}
+
+func TestLoginRecordsLastLogin(t *testing.T) {
+	s := newTestService(t)
+	if err := s.SetAdminPassword("admin", "p@ss"); err != nil {
+		t.Fatalf("SetAdminPassword: %v", err)
+	}
+	// 登录前 LastLoginAt 为空
+	before, _ := s.Profile("admin")
+	if before.LastLoginAt != nil {
+		t.Error("登录前 LastLoginAt 应为 nil")
+	}
+	if _, err := s.Login("admin", "p@ss"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	after, _ := s.Profile("admin")
+	if after.LastLoginAt == nil {
+		t.Error("登录后 LastLoginAt 应被记录")
+	}
+}
+
 func TestSetAdminPasswordAndAuthenticate(t *testing.T) {
 	s := newTestService(t)
 	if err := s.SetAdminPassword("admin", "p@ssw0rd"); err != nil {

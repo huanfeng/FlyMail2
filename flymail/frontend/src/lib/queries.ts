@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -499,6 +499,27 @@ export function useUpdateSettings() {
       await api.put('/settings', { settings })
     },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+}
+
+export function useMe() {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: async (): Promise<Profile> => {
+      const { data } = await api.get<Profile>('/auth/me')
+      return data
+    },
+  })
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (req: { display_name: string; email: string }): Promise<Profile> => {
+      const { data } = await api.put<Profile>('/auth/profile', req)
+      return data
+    },
+    onSuccess: (data) => { qc.setQueryData(['me'], data) },
   })
 }
 

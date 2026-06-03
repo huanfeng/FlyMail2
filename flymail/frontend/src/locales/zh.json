@@ -8,7 +8,8 @@
     "noAccounts": "暂无账号",
     "allInboxes": "所有收件箱",
     "allUnread": "所有未读",
-    "starred": "星标"
+    "starred": "星标",
+    "logout": "退出登录"
   },
   "folder": {
     "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
@@ -142,6 +143,7 @@
   },
   "settings": {
     "title": "设置",
+    "navProfile": "资料",
     "navAccounts": "账户",
     "navGeneral": "通用",
     "navSecurity": "安全",
@@ -150,6 +152,19 @@
     "navMonitoring": "监控",
     "navShortcuts": "快捷键",
     "navAbout": "关于",
+    "profile": {
+      "title": "我的资料",
+      "help": "管理你的展示名与联系邮箱（仅本地账户信息，不影响邮箱账户）。",
+      "username": "用户名",
+      "usernameHint": "登录账号，不可修改",
+      "displayName": "展示名",
+      "email": "联系邮箱",
+      "noEmail": "未设置邮箱",
+      "created": "创建时间",
+      "lastLogin": "最后登录",
+      "save": "保存",
+      "saved": "资料已保存"
+    },
     "monitoring": {
       "title": "系统概览",
       "help": "实时聚合(每 5 秒刷新)。",

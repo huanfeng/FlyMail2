@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -69,6 +70,65 @@ func RegisterProtectedRoutes(rg *gin.RouterGroup, svc *Service) {
 	h := &handler{svc: svc}
 	g := rg.Group("/auth")
 	g.POST("/change-password", h.changePassword)
+	g.GET("/me", h.me)
+	g.PUT("/profile", h.updateProfile)
+}
+
+// profileResp 资料响应（不含密码哈希）。
+type profileResp struct {
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	Email       string     `json:"email"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+}
+
+func toProfileResp(u *AdminUser) profileResp {
+	return profileResp{
+		Username:    u.Username,
+		DisplayName: u.DisplayName,
+		Email:       u.Email,
+		CreatedAt:   u.CreatedAt,
+		LastLoginAt: u.LastLoginAt,
+	}
+}
+
+func (h *handler) me(c *gin.Context) {
+	username := c.GetString(ContextUsernameKey)
+	if username == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+	u, err := h.svc.Profile(username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取资料失败"})
+		return
+	}
+	c.JSON(http.StatusOK, toProfileResp(u))
+}
+
+type updateProfileReq struct {
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
+func (h *handler) updateProfile(c *gin.Context) {
+	username := c.GetString(ContextUsernameKey)
+	if username == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+	var req updateProfileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	u, err := h.svc.UpdateProfile(username, req.DisplayName, req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新资料失败"})
+		return
+	}
+	c.JSON(http.StatusOK, toProfileResp(u))
 }
 
 type changePasswordReq struct {

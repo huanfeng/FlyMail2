@@ -20,6 +20,15 @@ export interface AppSettings {
   sync_poll_interval: number
 }
 
+/** 管理员资料 */
+export interface Profile {
+  username: string
+  display_name: string
+  email: string
+  created_at: string
+  last_login_at?: string
+}
+
 /** SSE 实时推送事件结构 */
 export interface RealtimeEvent {
   type: 'new_mail'

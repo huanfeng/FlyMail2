@@ -8,7 +8,8 @@
     "noAccounts": "No accounts",
     "allInboxes": "All Inboxes",
     "allUnread": "All Unread",
-    "starred": "Starred"
+    "starred": "Starred",
+    "logout": "Sign out"
   },
   "folder": {
     "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
@@ -142,6 +143,7 @@
   },
   "settings": {
     "title": "Settings",
+    "navProfile": "Profile",
     "navAccounts": "Accounts",
     "navGeneral": "General",
     "navSecurity": "Security",
@@ -150,6 +152,19 @@
     "navMonitoring": "Monitoring",
     "navShortcuts": "Shortcuts",
     "navAbout": "About",
+    "profile": {
+      "title": "My Profile",
+      "help": "Manage your display name and contact email (local account info only; does not affect mailbox accounts).",
+      "username": "Username",
+      "usernameHint": "Login account, cannot be changed",
+      "displayName": "Display name",
+      "email": "Contact email",
+      "noEmail": "No email set",
+      "created": "Created",
+      "lastLogin": "Last login",
+      "save": "Save",
+      "saved": "Profile saved"
+    },
     "monitoring": {
       "title": "System Overview",
       "help": "Live aggregate (refreshes every 5s).",

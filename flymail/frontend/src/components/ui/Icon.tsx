@@ -33,6 +33,7 @@ export type IconName =
   | 'circle-dot'
   | 'mail'
   | 'user'
+  | 'logout'
 
 interface IconProps {
   name: IconName
@@ -197,6 +198,14 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
         <svg {...p}>
           <circle cx="8" cy="6" r="3"/>
           <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/>
+        </svg>
+      )
+
+    case 'logout':
+      return (
+        <svg {...p}>
+          <path d="M6 2.5H3.5a1 1 0 00-1 1v9a1 1 0 001 1H6"/>
+          <path d="M9.5 11l3-3-3-3M12.5 8H6"/>
         </svg>
       )
 

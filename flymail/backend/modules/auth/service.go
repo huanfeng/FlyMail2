@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -71,13 +72,35 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Login 校验密码并签发双 token。
+// Login 校验密码并签发双 token；成功后尽力记录最后登录时间（失败不阻断登录）。
 func (s *Service) Login(username, password string) (*TokenPair, error) {
 	u, err := s.Authenticate(username, password)
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
+	u.LastLoginAt = &now
+	_ = s.repo.Upsert(u)
 	return s.issuePair(u.Username)
+}
+
+// Profile 返回管理员资料。
+func (s *Service) Profile(username string) (*AdminUser, error) {
+	return s.repo.GetByUsername(username)
+}
+
+// UpdateProfile 更新展示名与联系邮箱（两者均可为空）。
+func (s *Service) UpdateProfile(username, displayName, email string) (*AdminUser, error) {
+	u, err := s.repo.GetByUsername(username)
+	if err != nil {
+		return nil, err
+	}
+	u.DisplayName = strings.TrimSpace(displayName)
+	u.Email = strings.TrimSpace(email)
+	if err := s.repo.Upsert(u); err != nil {
+		return nil, err
+	}
+	return u, nil
 }
 
 func (s *Service) issuePair(username string) (*TokenPair, error) {

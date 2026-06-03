@@ -6,9 +6,22 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
-import { useNotificationUnread } from '@/lib/queries'
+import { useNotificationUnread, useMe } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import type { Account, Folder } from '@/lib/types'
+import { auth } from '@/lib/auth'
+
+/** 从名称取首字母（最多 2 个），用于头像占位 */
+function nameInitials(name: string): string {
+  const s = name.trim()
+  if (!s) return '?'
+  return s
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+}
 
 // ── 文件夹类型 → 图标名称映射 ─────────────────────────────
 const FOLDER_ICON: Record<string, IconName> = {
@@ -226,6 +239,13 @@ export function AccountSidebar({
   const { t } = useTranslation()
   // 站内未读通知数（铃铛角标）
   const { data: unreadNotifs = 0 } = useNotificationUnread()
+  // 当前管理员资料（底部用户卡）
+  const { data: me } = useMe()
+
+  function handleLogout() {
+    auth.clear()
+    window.location.href = '/login'
+  }
 
   // 各账户展开状态（默认展开前两个）
   const [expanded, setExpanded] = useState<Record<number, boolean>>(() => {
@@ -355,9 +375,15 @@ export function AccountSidebar({
 
       {/* ── 底部 .sidebar-foot ─────────────────────────────── */}
       <div className="sidebar-foot">
-        {/* 当前用户信息（暂用账户数量占位） */}
-        <div className="me" style={{ cursor: 'default' }}>
-          {/* 头像方块 */}
+        {/* 当前管理员信息：点击打开设置（资料分区） */}
+        <button
+          type="button"
+          className="me"
+          style={{ cursor: 'pointer', background: 'transparent', border: 0, textAlign: 'left' }}
+          title={t('settings.navProfile')}
+          onClick={onToggleSettings}
+        >
+          {/* 头像方块（取展示名/用户名首字母） */}
           <div
             className="avatar-sq"
             style={{
@@ -373,19 +399,20 @@ export function AccountSidebar({
               flexShrink: 0,
             }}
           >
-            FM
+            {nameInitials(me?.display_name || me?.username || 'FM')}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="me-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {t('app.name')}
+              {me?.display_name || me?.username || t('app.name')}
             </div>
             <div className="me-mail" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {accounts.length > 0
-                ? t('sidebar.accountCount', { count: accounts.length })
-                : t('sidebar.noAccounts')}
+              {me?.email
+                || (accounts.length > 0
+                  ? t('sidebar.accountCount', { count: accounts.length })
+                  : t('sidebar.noAccounts'))}
             </div>
           </div>
-        </div>
+        </button>
 
         {/* 设置入口 → 切换设置浮层 */}
         <button
@@ -396,6 +423,17 @@ export function AccountSidebar({
           onClick={onToggleSettings}
         >
           <Icon name="settings" size={15} />
+        </button>
+
+        {/* 登出 */}
+        <button
+          type="button"
+          className="icon-btn"
+          title={t('sidebar.logout')}
+          aria-label={t('sidebar.logout')}
+          onClick={handleLogout}
+        >
+          <Icon name="logout" size={15} />
         </button>
       </div>
 

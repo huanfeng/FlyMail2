@@ -33,6 +33,12 @@ export interface AccountStats {
   folder_count: number
 }
 
+/** 收件人自动补全候选项（来自历史往来地址） */
+export interface Contact {
+  name: string
+  email: string
+}
+
 export interface ProxyInput {
   type: string
   host: string

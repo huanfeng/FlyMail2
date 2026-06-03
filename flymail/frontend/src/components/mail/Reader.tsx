@@ -10,6 +10,7 @@ import {
   rewriteCidLinks,
 } from '@/lib/attachments'
 import { Icon } from '@/components/ui/Icon'
+import { formatBytes } from '@/lib/format'
 
 // ── 工具函数 ─────────────────────────────────────────────
 
@@ -23,13 +24,6 @@ function blockRemoteImages(html: string): { html: string; blocked: number } {
     }),
   )
   return { html: out, blocked }
-}
-
-/** 把字节数格式化为 KB / MB 字符串 */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /** 格式化日期字符串 */

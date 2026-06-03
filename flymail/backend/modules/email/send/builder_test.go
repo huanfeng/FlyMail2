@@ -2,6 +2,10 @@ package send_test
 
 import (
 	"encoding/base64"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +161,105 @@ func TestBuildRFC5322_InReplyToWithBrackets(t *testing.T) {
 	}
 	if !strings.Contains(rawStr, "In-Reply-To: <already-bracketed@example.com>") {
 		t.Errorf("In-Reply-To wrong: %s", extractHeader(rawStr, "In-Reply-To"))
+	}
+}
+
+// TestBuildRFC5322_WithAttachments 验证带附件时输出合法 multipart/mixed，
+// 用标准库解析正文 part 与附件 part，并校验非 ASCII 文件名可解码还原。
+func TestBuildRFC5322_WithAttachments(t *testing.T) {
+	body := "<p>正文内容</p>"
+	fileData := []byte("hello attachment bytes \x00\x01\x02")
+	req := send.SendRequest{
+		AccountID: 1,
+		To:        []string{"alice@example.com"},
+		Subject:   "带附件",
+		BodyHTML:  body,
+		Attachments: []send.Attachment{
+			{Filename: "报告.pdf", ContentType: "application/pdf", Content: fileData},
+			{Filename: "data.bin", Content: []byte("binary")}, // 空 ContentType 应降级 octet-stream
+		},
+	}
+	date := time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC)
+
+	raw, err := send.BuildRFC5322("sender@example.com", req, "mid@example.com", date)
+	if err != nil {
+		t.Fatalf("BuildRFC5322 error: %v", err)
+	}
+
+	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("parse message: %v", err)
+	}
+
+	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parse content-type: %v", err)
+	}
+	if mediaType != "multipart/mixed" {
+		t.Fatalf("want multipart/mixed, got %q", mediaType)
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		t.Fatal("missing boundary")
+	}
+
+	mr := multipart.NewReader(msg.Body, boundary)
+
+	// part 1：正文
+	p1, err := mr.NextPart()
+	if err != nil {
+		t.Fatalf("read body part: %v", err)
+	}
+	if ct := p1.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("body part want text/html, got %q", ct)
+	}
+	b1, _ := io.ReadAll(p1)
+	decodedBody, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(b1), "\r\n", ""))
+	if err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if string(decodedBody) != body {
+		t.Errorf("body mismatch: got %q want %q", decodedBody, body)
+	}
+
+	// part 2：第一个附件（中文名）
+	p2, err := mr.NextPart()
+	if err != nil {
+		t.Fatalf("read attachment part: %v", err)
+	}
+	if ct := p2.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/pdf") {
+		t.Errorf("attachment 1 content-type want application/pdf, got %q", ct)
+	}
+	disp, dparams, err := mime.ParseMediaType(p2.Header.Get("Content-Disposition"))
+	if err != nil {
+		t.Fatalf("parse disposition: %v", err)
+	}
+	if disp != "attachment" {
+		t.Errorf("disposition want attachment, got %q", disp)
+	}
+	if dparams["filename"] != "报告.pdf" {
+		t.Errorf("filename decode mismatch: got %q want 报告.pdf", dparams["filename"])
+	}
+	b2, _ := io.ReadAll(p2)
+	decodedFile, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(b2), "\r\n", ""))
+	if err != nil {
+		t.Fatalf("decode attachment: %v", err)
+	}
+	if string(decodedFile) != string(fileData) {
+		t.Errorf("attachment bytes mismatch")
+	}
+
+	// part 3：第二个附件（无 ContentType → octet-stream）
+	p3, err := mr.NextPart()
+	if err != nil {
+		t.Fatalf("read attachment part 2: %v", err)
+	}
+	if ct := p3.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/octet-stream") {
+		t.Errorf("attachment 2 want octet-stream, got %q", ct)
+	}
+
+	if _, err := mr.NextPart(); err != io.EOF {
+		t.Errorf("expected EOF after attachments, got %v", err)
 	}
 }
 

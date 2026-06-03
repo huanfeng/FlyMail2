@@ -363,3 +363,19 @@ func (m *Manager) workerCount() int {
 	defer m.mu.Unlock()
 	return len(m.workers)
 }
+
+// WorkerAccountIDs 返回当前有后台同步 worker 的账户 id（监控用）。
+func (m *Manager) WorkerAccountIDs() []uint {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]uint, 0, len(m.workers))
+	for id := range m.workers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// CurrentPollSeconds 返回当前轮询间隔（秒，监控用）。
+func (m *Manager) CurrentPollSeconds() int {
+	return int(m.pollInterval() / time.Second)
+}

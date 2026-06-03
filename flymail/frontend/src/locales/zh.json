@@ -145,8 +145,33 @@
     "navSecurity": "安全",
     "navMail": "邮件",
     "navNotify": "通知",
+    "navMonitoring": "监控",
     "navShortcuts": "快捷键",
     "navAbout": "关于",
+    "monitoring": {
+      "title": "系统概览",
+      "help": "实时聚合(每 5 秒刷新)。",
+      "accounts": "账户",
+      "folders": "文件夹",
+      "messages": "邮件总数",
+      "unread": "未读",
+      "workers": "后台同步",
+      "pollInterval": "轮询间隔",
+      "uptime": "运行时长",
+      "dbSize": "数据库大小",
+      "version": "版本",
+      "accountsHealth": "账户健康",
+      "lastSync": "最后同步",
+      "worker": "后台运行中",
+      "noWorker": "无后台任务",
+      "phase": {
+        "none": "空闲",
+        "folders": "同步文件夹中",
+        "messages": "同步邮件中",
+        "done": "同步完成",
+        "error": "同步出错"
+      }
+    },
     "notify": {
       "title": "通知渠道",
       "help": "事件发生时推送到外部渠道(通用 Webhook / 飞书),并记录投递日志。",

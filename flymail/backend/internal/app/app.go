@@ -22,9 +22,13 @@ import (
 	"flymail/modules/email/message"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
+	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/setting"
 )
+
+// appVersion 监控/关于展示用的版本号（后续可由构建注入）。
+const appVersion = "dev-preview"
 
 type App struct {
 	cfg      *config.Config
@@ -88,22 +92,26 @@ func New(cfg *config.Config) (*App, error) {
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
 	manager.SetEmitter(emit)
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
+
+	// 系统监控（只读聚合）
+	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())
 	eventsHandler := sse.NewHandler(hub, func(token string) error {
 		_, err := authSvc.VerifyAccessToken(token)
 		return err
 	})
 
 	handler := server.New(server.Deps{
-		Auth:    authSvc,
-		Account: accountSvc,
-		Folder:  folderSvc,
-		Message: messageSvc,
-		Sync:    syncSvc,
-		Setting: settingSvc,
-		Send:    sendSvc,
-		Draft:   draftSvc,
-		Notify:  notifySvc,
-		Events:  eventsHandler,
+		Auth:       authSvc,
+		Account:    accountSvc,
+		Folder:     folderSvc,
+		Message:    messageSvc,
+		Sync:       syncSvc,
+		Setting:    settingSvc,
+		Send:       sendSvc,
+		Draft:      draftSvc,
+		Notify:     notifySvc,
+		Monitoring: monitoringSvc,
+		Events:     eventsHandler,
 		VerifyToken: func(token string) error {
 			_, err := authSvc.VerifyAccessToken(token)
 			return err

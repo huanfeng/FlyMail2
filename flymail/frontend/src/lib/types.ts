@@ -75,6 +75,34 @@ export interface NotifyChannelInput {
   enabled?: boolean
 }
 
+/** 系统监控概览 */
+export interface MonitoringOverview {
+  accounts: number
+  folders: number
+  messages: number
+  unread: number
+  active_workers: number
+  poll_interval_sec: number
+  uptime_sec: number
+  version: string
+  db_size_bytes: number
+}
+
+/** 单账户健康 */
+export interface AccountHealth {
+  id: number
+  name: string
+  email: string
+  enabled: boolean
+  status: string
+  last_sync_at?: string
+  message_count: number
+  folder_count: number
+  has_worker: boolean
+  sync_phase: string
+  sync_error?: string
+}
+
 /** 外发投递日志 */
 export interface NotifyLog {
   id: number

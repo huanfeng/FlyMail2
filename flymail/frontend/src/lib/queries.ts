@@ -159,6 +159,55 @@ export function useMoveMessage() {
   })
 }
 
+/** 批量操作统一的缓存失效（邮件列表/文件夹/聚合计数/邮件详情）。 */
+function invalidateMailCaches(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['messages'] })
+  void qc.invalidateQueries({ queryKey: ['folders'] })
+  void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+}
+
+/** 批量删除（移到回收站；已在回收站则永久删除）。 */
+export function useBatchDelete() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: number[]) => { await api.post('/batch/delete', { ids }) },
+    onSuccess: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 批量移动到同账户的目标文件夹。 */
+export function useBatchMove() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ids, folderId }: { ids: number[]; folderId: number }) => {
+      await api.post('/batch/move', { ids, folder_id: folderId })
+    },
+    onSuccess: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 批量标记已读/未读。 */
+export function useBatchRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ids, read }: { ids: number[]; read: boolean }) => {
+      await api.post('/batch/read', { ids, read })
+    },
+    onSuccess: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 批量加/取消星标。 */
+export function useBatchFlag() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ids, flagged }: { ids: number[]; flagged: boolean }) => {
+      await api.post('/batch/flag', { ids, flagged })
+    },
+    onSuccess: () => invalidateMailCaches(qc),
+  })
+}
+
 export function useSyncStatus(accountId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ['sync-status', accountId],

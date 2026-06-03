@@ -26,6 +26,10 @@ import {
   useTriggerSync,
   useMarkRead,
   useToggleFlag,
+  useBatchDelete,
+  useBatchMove,
+  useBatchRead,
+  useBatchFlag,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
@@ -54,6 +58,13 @@ export function ShellPage() {
   const messageId = params.get('message') ? Number(params.get('message')) : null
   // 聚合视图（跨所有账户）：inbox / unread / starred；非聚合时为 null
   const agg = parseAgg(params.get('agg'))
+
+  // 列表样式偏好（持久化到 localStorage）；提前声明供 sourceKey 使用
+  const [listStyle, setListStyleState] = useState<ListStyle>(() => getListStyle())
+  function handleChangeListStyle(style: ListStyle) {
+    setListStyle(style)
+    setListStyleState(style)
+  }
 
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
@@ -101,12 +112,70 @@ export function ShellPage() {
     else void folderInfinite.fetchNextPage()
   }
 
-  // 列表样式偏好（持久化到 localStorage）
-  const [listStyle, setListStyleState] = useState<ListStyle>(() => getListStyle())
+  // 数据源标识：搜索/聚合/文件夹 + 列表样式（驱动 MailList 滚动重置与选择清空）
+  const sourceKey = `${searching ? 'search' : (agg ?? folderId)}-${listStyle}`
 
-  function handleChangeListStyle(style: ListStyle) {
-    setListStyle(style)
-    setListStyleState(style)
+  // ── 批量选择 ──────────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  // 切换数据源/样式时清空选择，避免跨上下文误操作
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [sourceKey])
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function selectAllVisible() {
+    setSelectedIds(new Set(messages.map((m) => m.id)))
+  }
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
+
+  // 已选邮件的共同账户（跨账户为 null）；批量移动目标取该账户的文件夹
+  const selectionAccountId = useMemo(() => {
+    let acc: number | null = null
+    for (const id of selectedIds) {
+      const m = messages.find((x) => x.id === id)
+      if (!m) continue
+      if (acc === null) acc = m.account_id
+      else if (acc !== m.account_id) return null
+    }
+    return acc
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, messages])
+  const { data: moveTargets = [] } = useFolders(selectionAccountId)
+
+  const batchDelete = useBatchDelete()
+  const batchMove = useBatchMove()
+  const batchRead = useBatchRead()
+  const batchFlag = useBatchFlag()
+
+  function onBatchDelete() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    if (!window.confirm(t('list.batchDeleteConfirm', { count: ids.length }))) return
+    batchDelete.mutate(ids, { onSuccess: clearSelection })
+  }
+  function onBatchRead(read: boolean) {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    batchRead.mutate({ ids, read }, { onSuccess: clearSelection })
+  }
+  function onBatchFlag(flagged: boolean) {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    batchFlag.mutate({ ids, flagged }, { onSuccess: clearSelection })
+  }
+  function onBatchMove(targetFolderId: number) {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    batchMove.mutate({ ids, folderId: targetFolderId }, { onSuccess: clearSelection })
   }
 
   const markRead = useMarkRead()
@@ -324,7 +393,7 @@ export function ShellPage() {
             <MailList
               // 用 sourceKey（而非 React key）驱动内部滚动重置：避免重挂载打断搜索框输入焦点。
               // 搜索态固定为 'search'（不随关键词变），切文件夹/聚合/样式时重置滚动。
-              sourceKey={`${searching ? 'search' : (agg ?? folderId)}-${listStyle}`}
+              sourceKey={sourceKey}
               folder={searching || agg ? null : activeFolder}
               titleOverride={listTitle}
               subtitleOverride={listSubtitle}
@@ -339,6 +408,15 @@ export function ShellPage() {
               onLoadMore={loadMore}
               searchValue={searchQuery}
               onSearchChange={setSearchQuery}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onSelectAllVisible={selectAllVisible}
+              onClearSelection={clearSelection}
+              onBatchRead={onBatchRead}
+              onBatchFlag={onBatchFlag}
+              onBatchDelete={onBatchDelete}
+              onBatchMove={onBatchMove}
+              moveTargets={moveTargets}
             />
           )
         }

@@ -4,6 +4,8 @@ import (
 	"errors"
 
 	imapv2 "github.com/emersion/go-imap/v2"
+
+	"flymail/modules/email/message"
 )
 
 // ErrCrossAccountMove 表示尝试把邮件移动到不属于同一账户的文件夹。
@@ -108,4 +110,209 @@ func (s *Service) refreshFolderCounts(folderID uint) {
 	if terr == nil && uerr == nil {
 		_ = s.folders.SetCounts(folderID, int(total), int(unread))
 	}
+}
+
+// ── 批量操作 ────────────────────────────────────────────────────────────────
+// 思路：按 账户→文件夹 分组，每个账户只建一个 IMAP 会话，对一组 UID 一次性
+// MOVE/STORE，避免逐封 dial。不存在的邮件 id 静默跳过。
+
+// loadGrouped 把邮件 id 按 账户ID→文件夹ID 分组（跳过已不存在的）。
+func (s *Service) loadGrouped(ids []uint) (map[uint]map[uint][]*message.Message, error) {
+	groups := map[uint]map[uint][]*message.Message{}
+	for _, id := range ids {
+		m, err := s.messages.GetByID(id)
+		if err != nil {
+			if errors.Is(err, message.ErrMessageNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if groups[m.AccountID] == nil {
+			groups[m.AccountID] = map[uint][]*message.Message{}
+		}
+		groups[m.AccountID][m.FolderID] = append(groups[m.AccountID][m.FolderID], m)
+	}
+	return groups, nil
+}
+
+// withSession 为某账户建立一个 IMAP 会话并在回调内复用，结束自动关闭。
+func (s *Service) withSession(accountID uint, fn func(sess Session) error) error {
+	cfg, err := s.accounts.IMAPConfig(accountID)
+	if err != nil {
+		return err
+	}
+	sess, err := s.dial(cfg)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	return fn(sess)
+}
+
+func uidsOf(msgs []*message.Message) []imapv2.UID {
+	uids := make([]imapv2.UID, 0, len(msgs))
+	for _, m := range msgs {
+		uids = append(uids, imapv2.UID(m.UID))
+	}
+	return uids
+}
+
+// BatchDelete 批量删除：每个源文件夹一次性处理（回收站/无回收站则 EXPUNGE，否则 MOVE 到回收站）。
+func (s *Service) BatchDelete(ids []uint) error {
+	groups, err := s.loadGrouped(ids)
+	if err != nil {
+		return err
+	}
+	for accountID, byFolder := range groups {
+		trash, _ := s.folders.FindByType(accountID, "trash")
+		if err := s.withSession(accountID, func(sess Session) error {
+			for folderID, msgs := range byFolder {
+				src, err := s.folders.GetByID(folderID)
+				if err != nil {
+					return err
+				}
+				if _, err := sess.SelectFolder(src.Path); err != nil {
+					return err
+				}
+				uids := uidsOf(msgs)
+				if src.Type == "trash" || trash == nil || trash.ID == src.ID {
+					if err := sess.Delete(uids...); err != nil {
+						return err
+					}
+				} else {
+					if err := sess.Move(trash.Path, uids...); err != nil {
+						return err
+					}
+				}
+				for _, m := range msgs {
+					_ = s.messages.DeleteByID(m.ID)
+				}
+				s.refreshFolderCounts(folderID)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BatchMove 批量移动到 targetFolderID（要求全部邮件与目标同账户）。
+func (s *Service) BatchMove(ids []uint, targetFolderID uint) error {
+	dst, err := s.folders.GetByID(targetFolderID)
+	if err != nil {
+		return err
+	}
+	groups, err := s.loadGrouped(ids)
+	if err != nil {
+		return err
+	}
+	for accountID := range groups {
+		if accountID != dst.AccountID {
+			return ErrCrossAccountMove
+		}
+	}
+	byFolder := groups[dst.AccountID]
+	if byFolder == nil {
+		return nil
+	}
+	return s.withSession(dst.AccountID, func(sess Session) error {
+		for folderID, msgs := range byFolder {
+			if folderID == dst.ID {
+				continue
+			}
+			src, err := s.folders.GetByID(folderID)
+			if err != nil {
+				return err
+			}
+			if _, err := sess.SelectFolder(src.Path); err != nil {
+				return err
+			}
+			if err := sess.Move(dst.Path, uidsOf(msgs)...); err != nil {
+				return err
+			}
+			for _, m := range msgs {
+				_ = s.messages.DeleteByID(m.ID)
+			}
+			s.refreshFolderCounts(folderID)
+		}
+		return nil
+	})
+}
+
+// BatchSetRead 批量标记已读/未读（每文件夹一次 STORE，并刷新未读角标）。
+func (s *Service) BatchSetRead(ids []uint, read bool) error {
+	groups, err := s.loadGrouped(ids)
+	if err != nil {
+		return err
+	}
+	for accountID, byFolder := range groups {
+		if err := s.withSession(accountID, func(sess Session) error {
+			for folderID, msgs := range byFolder {
+				src, err := s.folders.GetByID(folderID)
+				if err != nil {
+					return err
+				}
+				if _, err := sess.SelectFolder(src.Path); err != nil {
+					return err
+				}
+				uids := uidsOf(msgs)
+				if read {
+					err = sess.MarkRead(uids...)
+				} else {
+					err = sess.MarkUnread(uids...)
+				}
+				if err != nil {
+					return err
+				}
+				for _, m := range msgs {
+					_ = s.messages.SetSeenLocal(m.ID, read)
+				}
+				if unread, uerr := s.messages.UnreadCountByFolder(folderID); uerr == nil {
+					_ = s.folders.SetUnreadCount(folderID, int(unread))
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BatchSetFlagged 批量加/取消星标（每文件夹一次 STORE）。
+func (s *Service) BatchSetFlagged(ids []uint, flagged bool) error {
+	groups, err := s.loadGrouped(ids)
+	if err != nil {
+		return err
+	}
+	for accountID, byFolder := range groups {
+		if err := s.withSession(accountID, func(sess Session) error {
+			for folderID, msgs := range byFolder {
+				src, err := s.folders.GetByID(folderID)
+				if err != nil {
+					return err
+				}
+				if _, err := sess.SelectFolder(src.Path); err != nil {
+					return err
+				}
+				uids := uidsOf(msgs)
+				if flagged {
+					err = sess.MarkStarred(uids...)
+				} else {
+					err = sess.MarkUnstarred(uids...)
+				}
+				if err != nil {
+					return err
+				}
+				for _, m := range msgs {
+					_ = s.messages.SetFlaggedLocal(m.ID, flagged)
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

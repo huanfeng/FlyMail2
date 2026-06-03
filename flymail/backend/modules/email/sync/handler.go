@@ -40,6 +40,78 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.POST("/messages/:id/flag", h.markFlag)
 	rg.POST("/messages/:id/delete", h.deleteMessage)
 	rg.POST("/messages/:id/move", h.moveMessage)
+	// 批量操作用独立前缀，避免与 /messages/:id 的路由参数冲突。
+	rg.POST("/batch/delete", h.batchDelete)
+	rg.POST("/batch/move", h.batchMove)
+	rg.POST("/batch/read", h.batchRead)
+	rg.POST("/batch/flag", h.batchFlag)
+}
+
+func (h *handler) batchDelete(c *gin.Context) {
+	var body struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.BatchDelete(body.IDs); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) batchMove(c *gin.Context) {
+	var body struct {
+		IDs      []uint `json:"ids"`
+		FolderID uint   `json:"folder_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 || body.FolderID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.BatchMove(body.IDs, body.FolderID); err != nil {
+		if errors.Is(err, ErrCrossAccountMove) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot move across accounts"})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) batchRead(c *gin.Context) {
+	var body struct {
+		IDs  []uint `json:"ids"`
+		Read bool   `json:"read"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.BatchSetRead(body.IDs, body.Read); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) batchFlag(c *gin.Context) {
+	var body struct {
+		IDs     []uint `json:"ids"`
+		Flagged bool   `json:"flagged"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.BatchSetFlagged(body.IDs, body.Flagged); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (h *handler) deleteMessage(c *gin.Context) {

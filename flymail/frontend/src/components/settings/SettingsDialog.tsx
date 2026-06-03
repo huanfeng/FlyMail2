@@ -10,6 +10,8 @@ import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { setListStyle } from '@/lib/list-prefs'
+import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
+import type { LayoutWidths } from '@/lib/layout-prefs'
 import {
   useAccounts,
   useSettings,
@@ -46,7 +48,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'appearance' | 'accounts' | 'mail' | 'security'
+type SettingSection = 'appearance' | 'general' | 'accounts' | 'mail' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -147,11 +149,18 @@ function Row({ label, help, children }: RowProps) {
 // 子组件：外观分区
 // ════════════════════════════════════════════════════════════
 
-function AppearanceSection() {
-  const { t, i18n } = useTranslation()
+interface AppearanceSectionProps {
+  listStyle: ListStyle
+  onChangeListStyle: (style: ListStyle) => void
+}
+
+function AppearanceSection({ listStyle, onChangeListStyle }: AppearanceSectionProps) {
+  const { t } = useTranslation()
   const initial = getTheme()
   const [currentMode, setCurrentMode] = React.useState<ThemeMode>(initial.mode)
   const [currentTone, setCurrentTone] = React.useState<ToneId>(initial.tone)
+  // 栏宽（与三栏拖拽共用 layout-prefs）
+  const [widths, setWidths] = React.useState<LayoutWidths>(() => loadLayoutWidths())
 
   /** 切换色调（同时保留当前亮/暗） */
   function handleTone(tone: ToneId) {
@@ -165,13 +174,17 @@ function AppearanceSection() {
     setCurrentMode(mode)
   }
 
-  /** 切换语言 */
-  function handleLang(lng: string) {
-    void i18n.changeLanguage(lng)
-    localStorage.setItem('flymail_lang', lng)
+  /** 调整栏宽：本地 state + 写 localStorage + 广播（AppLayout 即时同步） */
+  function handleWidth(key: keyof LayoutWidths, value: number) {
+    const next = { ...widths, [key]: value }
+    setWidths(next)
+    saveLayoutWidths(next)
   }
 
-  const currentLang = i18n.language.startsWith('zh') ? 'zh' : 'en'
+  function handleListStyle(style: ListStyle) {
+    setListStyle(style)
+    onChangeListStyle(style)
+  }
 
   return (
     <>
@@ -193,7 +206,7 @@ function AppearanceSection() {
         </div>
       </div>
 
-      {/* 亮/暗模式切换 */}
+      {/* 亮/暗模式 + 栏宽 + 列表密度 */}
       <div className="settings-block">
         <h3>{t('settings.page.mode')}</h3>
         <Row label={t('settings.page.colorMode')}>
@@ -220,9 +233,80 @@ function AppearanceSection() {
             </button>
           </div>
         </Row>
-      </div>
 
-      {/* 语言切换 */}
+        {/* 侧栏宽度滑块（也可直接拖拽栏间分隔线） */}
+        <Row label={t('settings.page.sidebarWidth')} help={t('settings.page.widthHint')}>
+          <div className="slider-row" style={{ width: 220 }}>
+            <input
+              type="range"
+              min={LAYOUT_LIMITS.sidebar.min}
+              max={LAYOUT_LIMITS.sidebar.max}
+              step={4}
+              value={widths.sidebar}
+              onChange={(e) => handleWidth('sidebar', Number(e.target.value))}
+            />
+            <span className="slider-val">{widths.sidebar}px</span>
+          </div>
+        </Row>
+
+        {/* 列表宽度滑块 */}
+        <Row label={t('settings.page.listWidth')}>
+          <div className="slider-row" style={{ width: 220 }}>
+            <input
+              type="range"
+              min={LAYOUT_LIMITS.list.min}
+              max={LAYOUT_LIMITS.list.max}
+              step={4}
+              value={widths.list}
+              onChange={(e) => handleWidth('list', Number(e.target.value))}
+            />
+            <span className="slider-val">{widths.list}px</span>
+          </div>
+        </Row>
+
+        {/* 列表密度（紧凑/卡片）*/}
+        <Row label={t('settings.page.density')}>
+          <div className="mode-toggle">
+            {(['compact', 'card'] as ListStyle[]).map((style) => (
+              <button
+                key={style}
+                type="button"
+                className={listStyle === style ? 'active' : ''}
+                onClick={() => handleListStyle(style)}
+              >
+                {style === 'compact' ? t('settings.mail.listCompact') : t('settings.mail.listCard')}
+              </button>
+            ))}
+          </div>
+        </Row>
+      </div>
+    </>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// 子组件：通用分区（语言 + 默认远程图片）
+// ════════════════════════════════════════════════════════════
+
+function GeneralSection() {
+  const { t, i18n } = useTranslation()
+  const currentLang = i18n.language.startsWith('zh') ? 'zh' : 'en'
+  const [loadRemoteImages, setLoadRemoteImages] = React.useState<boolean>(
+    () => localStorage.getItem(LOAD_REMOTE_IMAGES_KEY) === 'true',
+  )
+
+  function handleLang(lng: string) {
+    void i18n.changeLanguage(lng)
+    localStorage.setItem('flymail_lang', lng)
+  }
+
+  function handleRemoteImages(next: boolean) {
+    setLoadRemoteImages(next)
+    localStorage.setItem(LOAD_REMOTE_IMAGES_KEY, String(next))
+  }
+
+  return (
+    <>
       <div className="settings-block">
         <h3>{t('settings.page.language')}</h3>
         <Row label={t('settings.page.uiLanguage')}>
@@ -244,7 +328,75 @@ function AppearanceSection() {
           </div>
         </Row>
       </div>
+
+      <div className="settings-block">
+        <h3>{t('settings.general.reading')}</h3>
+        <Row label={t('settings.mail.loadRemoteImages')} help={t('settings.general.remoteImagesHint')}>
+          <Toggle on={loadRemoteImages} onChange={handleRemoteImages} />
+        </Row>
+      </div>
     </>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// 子组件：快捷键分区（静态键位表）
+// ════════════════════════════════════════════════════════════
+
+function ShortcutsSection() {
+  const { t } = useTranslation()
+  const rows: { keys: string; descKey: string }[] = [
+    { keys: 'J / K', descKey: 'settings.shortcuts.nav' },
+    { keys: 'C', descKey: 'settings.shortcuts.compose' },
+    { keys: 'R', descKey: 'settings.shortcuts.reply' },
+    { keys: '/', descKey: 'settings.shortcuts.search' },
+    { keys: 'Esc', descKey: 'settings.shortcuts.close' },
+  ]
+  return (
+    <div className="settings-block">
+      <h3>{t('settings.shortcuts.title')}</h3>
+      <p className="help">{t('settings.shortcuts.help')}</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 24px', marginTop: 6 }}>
+        {rows.map((r) => (
+          <React.Fragment key={r.keys}>
+            <kbd
+              style={{
+                padding: '3px 8px',
+                borderRadius: 4,
+                border: '1px solid var(--rule)',
+                background: 'var(--bg-alt)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11.5,
+                color: 'var(--ink)',
+                justifySelf: 'start',
+              }}
+            >
+              {r.keys}
+            </kbd>
+            <span style={{ color: 'var(--ink-2)', alignSelf: 'center', fontSize: 13 }}>
+              {t(r.descKey)}
+            </span>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// 子组件：关于分区
+// ════════════════════════════════════════════════════════════
+
+function AboutSection() {
+  const { t } = useTranslation()
+  return (
+    <div className="settings-block">
+      <h3>{t('settings.about.title')}</h3>
+      <p className="help">{t('settings.about.desc')}</p>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-3)', marginTop: 16 }}>
+        {t('settings.about.version')}
+      </div>
+    </div>
   )
 }
 
@@ -449,15 +601,10 @@ function AccountsSection() {
 }
 
 // ════════════════════════════════════════════════════════════
-// 子组件：邮件分区（同步 + 样式 + 远程图）
+// 子组件：邮件同步分区（同步深度 + 轮询间隔）
 // ════════════════════════════════════════════════════════════
 
-interface MailSectionProps {
-  listStyle: ListStyle
-  onChangeListStyle: (style: ListStyle) => void
-}
-
-function MailSection({ listStyle, onChangeListStyle }: MailSectionProps) {
+function MailSection() {
   const { t } = useTranslation()
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
@@ -467,10 +614,6 @@ function MailSection({ listStyle, onChangeListStyle }: MailSectionProps) {
   const [depthError, setDepthError] = React.useState<string | null>(null)
   const [intervalError, setIntervalError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
-
-  const [loadRemoteImages, setLoadRemoteImages] = React.useState<boolean>(
-    () => localStorage.getItem(LOAD_REMOTE_IMAGES_KEY) === 'true',
-  )
 
   // 服务端数据加载后同步到本地
   React.useEffect(() => {
@@ -486,16 +629,6 @@ function MailSection({ listStyle, onChangeListStyle }: MailSectionProps) {
       setPollInterval(settings.sync_poll_interval)
     }
   }, [settings?.sync_poll_interval])
-
-  function handleRemoteImages(next: boolean) {
-    setLoadRemoteImages(next)
-    localStorage.setItem(LOAD_REMOTE_IMAGES_KEY, String(next))
-  }
-
-  function handleListStyle(style: ListStyle) {
-    setListStyle(style)
-    onChangeListStyle(style)
-  }
 
   function handleSave() {
     setDepthError(null)
@@ -571,27 +704,6 @@ function MailSection({ listStyle, onChangeListStyle }: MailSectionProps) {
           {intervalError}
         </div>
       )}
-
-      {/* 列表样式 */}
-      <Row label={t('settings.mail.listStyle')}>
-        <div className="mode-toggle">
-          {(['compact', 'card'] as ListStyle[]).map((style) => (
-            <button
-              key={style}
-              type="button"
-              className={listStyle === style ? 'active' : ''}
-              onClick={() => handleListStyle(style)}
-            >
-              {style === 'compact' ? t('settings.mail.listCompact') : t('settings.mail.listCard')}
-            </button>
-          ))}
-        </div>
-      </Row>
-
-      {/* 远程图片开关 */}
-      <Row label={t('settings.mail.loadRemoteImages')}>
-        <Toggle on={loadRemoteImages} onChange={handleRemoteImages} />
-      </Row>
 
       {/* 保存按钮 */}
       <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -732,12 +844,15 @@ export function SettingsDialog({ listStyle, onChangeListStyle, onClose }: Settin
   const { t } = useTranslation()
   const [section, setSection] = React.useState<SettingSection>('appearance')
 
-  // 分区导航配置
+  // 分区导航配置（对照 MailMaster：外观/通用/账户/邮件/安全/快捷键/关于）
   const sections: { id: SettingSection; labelKey: string; icon: string }[] = [
     { id: 'appearance', labelKey: 'settings.page.sectAppearance', icon: 'sun' },
+    { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
-    { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'settings' },
+    { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'tag' },
+    { id: 'shortcuts',  labelKey: 'settings.navShortcuts',        icon: 'compose' },
+    { id: 'about',      labelKey: 'settings.navAbout',            icon: 'more' },
   ]
 
   // Esc 键关闭弹框
@@ -792,15 +907,15 @@ export function SettingsDialog({ listStyle, onChangeListStyle, onClose }: Settin
             <div className="sd-body-title">{t(currentLabel)}</div>
           </div>
           <div className="sd-body-scroll">
-            {section === 'appearance' && <AppearanceSection />}
-            {section === 'accounts' && <AccountsSection />}
-            {section === 'mail' && (
-              <MailSection
-                listStyle={listStyle}
-                onChangeListStyle={onChangeListStyle}
-              />
+            {section === 'appearance' && (
+              <AppearanceSection listStyle={listStyle} onChangeListStyle={onChangeListStyle} />
             )}
+            {section === 'general' && <GeneralSection />}
+            {section === 'accounts' && <AccountsSection />}
+            {section === 'mail' && <MailSection />}
             {section === 'security' && <SecuritySection />}
+            {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'about' && <AboutSection />}
           </div>
         </div>
       </div>

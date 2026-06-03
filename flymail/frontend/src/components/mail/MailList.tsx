@@ -37,6 +37,11 @@ interface Props {
   /** 搜索框值（受控，由 Shell 管理以驱动后端搜索） */
   searchValue: string
   onSearchChange: (v: string) => void
+  /**
+   * 数据源标识（搜索/聚合/文件夹 + 列表样式）。变化时内部重置滚动并重新测量虚拟列表。
+   * 注意：不用 React key 重挂载组件——否则会打断搜索框输入焦点，导致字母键落到全局快捷键。
+   */
+  sourceKey: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,6 +306,7 @@ export function MailList({
   subtitleOverride,
   searchValue,
   onSearchChange,
+  sourceKey,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -387,6 +393,13 @@ export function MailList({
     estimateSize,
     overscan: 5,
   })
+
+  // 数据源/样式切换时重置滚动 + 重新测量（替代 React key 重挂载，避免打断搜索框焦点）。
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0)
+    virtualizer.measure()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey])
 
   // ── 无限加载：接近底部时触发 ──────────────────────────────────────────────
   const virtualItems = virtualizer.getVirtualItems()

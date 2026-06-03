@@ -124,19 +124,41 @@
     "navGeneral": "General",
     "navSecurity": "Security",
     "navMail": "Mail",
+    "navShortcuts": "Shortcuts",
+    "navAbout": "About",
     "page": {
       "sub": "Manage appearance, accounts and mail sync preferences",
       "sectAppearance": "Appearance",
       "theme": "Color Tone",
       "themeHelp": "Pick a color scheme — changes take effect immediately",
-      "mode": "Light / Dark Mode",
+      "mode": "Light / Dark & Layout",
       "colorMode": "Color mode",
       "language": "Language",
       "uiLanguage": "Interface language",
-      "accountsHelp": "Manage your IMAP accounts"
+      "accountsHelp": "Manage your IMAP accounts",
+      "sidebarWidth": "Sidebar width",
+      "listWidth": "List width",
+      "widthHint": "You can also drag the dividers between columns",
+      "density": "List density"
+    },
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "help": "Available in the mail view",
+      "nav": "Next / previous message",
+      "compose": "Compose",
+      "reply": "Reply to current message",
+      "search": "Focus search",
+      "close": "Back / close"
+    },
+    "about": {
+      "title": "About FlyMail",
+      "desc": "FlyMail is a self-hosted multi-account mail client emphasizing quiet typography, draggable layout, and switchable color tones.",
+      "version": "Version Developer Preview"
     },
     "general": {
       "language": "Language",
+      "reading": "Reading",
+      "remoteImagesHint": "Show remote images in messages by default (off is more private)",
       "theme": "Theme",
       "light": "Light",
       "dark": "Dark",

@@ -322,9 +322,9 @@ export function ShellPage() {
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
           ) : (
             <MailList
-              // 按 搜索/聚合/文件夹 + 样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
-              // 搜索态 key 固定为 'search'（不随关键词变，避免每次输入重挂载，仅刷新数据）。
-              key={`${searching ? 'search' : (agg ?? folderId)}-${listStyle}`}
+              // 用 sourceKey（而非 React key）驱动内部滚动重置：避免重挂载打断搜索框输入焦点。
+              // 搜索态固定为 'search'（不随关键词变），切文件夹/聚合/样式时重置滚动。
+              sourceKey={`${searching ? 'search' : (agg ?? folderId)}-${listStyle}`}
               folder={searching || agg ? null : activeFolder}
               titleOverride={listTitle}
               subtitleOverride={listSubtitle}

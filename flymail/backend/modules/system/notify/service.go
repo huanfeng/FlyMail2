@@ -2,8 +2,11 @@ package notify
 
 import (
 	"errors"
-	"log"
 	"strings"
+
+	"flymail-core/logger"
+
+	"go.uber.org/zap"
 )
 
 // Service 提供站内通知记录、外发渠道管理与事件分发。
@@ -39,13 +42,13 @@ func (s *Service) Emit(evt Event) {
 		Title:     evt.Title,
 		Body:      evt.Body,
 	}); err != nil {
-		log.Printf("[notify] insert notification failed: %v", err)
+		logger.Error("notify: 写入站内通知失败", zap.Error(err))
 	}
 	// 外发投递入队（非阻塞）
 	select {
 	case s.ch <- evt:
 	default:
-		log.Printf("[notify] dispatch queue full, dropping outbound for %s", evt.Type)
+		logger.Warn("notify: 分发队列已满，丢弃外发", zap.String("type", string(evt.Type)))
 	}
 }
 
@@ -65,7 +68,7 @@ func (s *Service) worker() {
 func (s *Service) deliver(evt Event) {
 	channels, err := s.repo.EnabledChannelsFor(evt.Type)
 	if err != nil {
-		log.Printf("[notify] list channels failed: %v", err)
+		logger.Error("notify: 查询启用渠道失败", zap.Error(err))
 		return
 	}
 	for i := range channels {
@@ -76,7 +79,7 @@ func (s *Service) deliver(evt Event) {
 			entry.Error = err.Error()
 		}
 		if lerr := s.repo.InsertLog(entry); lerr != nil {
-			log.Printf("[notify] insert log failed: %v", lerr)
+			logger.Error("notify: 写入投递日志失败", zap.Error(lerr))
 		}
 	}
 }

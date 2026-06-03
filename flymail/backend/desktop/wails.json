@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "FlyMail",
+  "outputfilename": "FlyMail",
+  "frontend:dir": "../../frontend",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm build",
+  "author": {
+    "name": "huanfeng"
+  },
+  "info": {
+    "companyName": "FlyMail",
+    "productName": "FlyMail",
+    "productVersion": "0.1.0",
+    "comments": "FlyMail 自托管多账户邮件客户端（桌面端）"
+  }
+}

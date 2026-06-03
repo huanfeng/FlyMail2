@@ -783,7 +783,7 @@ body.is-resizing * { cursor: col-resize !important; }
 .tb-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; }
 
 .reader-scroll { flex: 1; overflow-y: auto; }
-.reader-inner { max-width: 760px; margin: 0 auto; padding: 40px 48px 120px; }
+.reader-inner { max-width: 760px; margin: 0 auto; padding: 24px 32px 72px; }
 
 .reader-subject {
   font-family: var(--font-display); font-size: 32px; font-weight: 500;
@@ -996,6 +996,8 @@ body.is-resizing * { cursor: col-resize !important; }
 .reader-slide-wrap.open .reader-slide {
   transform: translateX(0);
 }
+/* 浮动阅读面板左上角有返回键，工具栏让出左侧空间避免重叠 */
+.reader-slide .reader-toolbar { padding-left: 48px; }
 .reader-slide .reader-embedded,
 .reader-slide .reader-embedded.col {
   width: 100% !important;

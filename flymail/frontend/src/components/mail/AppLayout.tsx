@@ -213,16 +213,18 @@ export function AppLayout({
           <div className="reader-slide">
             {readerOpen && (
               <>
-                {/* 关闭按钮（浮于阅读面板右上角）*/}
+                {/* 关闭按钮（浮于阅读面板左上角，返回方向指向左侧列表，符合操作逻辑）*/}
                 <button
                   type="button"
-                  className="icon-btn"
+                  className="icon-btn reader-slide-close"
                   onClick={onMobileBack}
                   aria-label={t('reader.close')}
                   title={t('reader.close')}
-                  style={{ position: 'absolute', top: 10, right: 12, zIndex: 5 }}
+                  style={{ position: 'absolute', top: 12, left: 12, zIndex: 5 }}
                 >
-                  <Icon name="close" size={16} />
+                  <span style={{ transform: 'scaleX(-1)', display: 'inline-flex' }}>
+                    <Icon name="chevron-right" size={18} />
+                  </span>
                 </button>
                 {reader}
               </>

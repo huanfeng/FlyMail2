@@ -338,6 +338,11 @@ func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, lim
 // DeleteByID 删除单封邮件的本地行（移动/删除成功后调用）。
 func (s *Service) DeleteByID(id uint) error { return s.repo.DeleteByID(id) }
 
+// SearchContacts 收件人自动补全：返回历史往来联系人（按频率降序）。
+func (s *Service) SearchContacts(q string, limit int) ([]Contact, error) {
+	return s.repo.SearchContacts(q, limit)
+}
+
 // CountByFolder 返回文件夹内邮件总数。
 func (s *Service) CountByFolder(folderID uint) (int64, error) {
 	return s.repo.CountByFolder(folderID)

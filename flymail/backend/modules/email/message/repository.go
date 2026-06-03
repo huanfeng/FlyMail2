@@ -61,6 +61,24 @@ func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID ui
 	return list, err
 }
 
+// SearchContacts 从历史邮件的发件人中检索去重联系人，按往来频率(出现次数)降序。
+// q 为空时返回最常往来的前 N 个；否则按 地址/姓名 LIKE 过滤。
+func (r *Repository) SearchContacts(q string, limit int) ([]Contact, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	dbq := r.db.Model(&Message{}).
+		Select("from_addr as email, MAX(from_name) as name").
+		Where("from_addr <> ''")
+	if q != "" {
+		like := "%" + escapeLike(q) + "%"
+		dbq = dbq.Where("from_addr LIKE ? ESCAPE '\\' OR from_name LIKE ? ESCAPE '\\'", like, like)
+	}
+	var list []Contact
+	err := dbq.Group("from_addr").Order("COUNT(*) DESC").Limit(limit).Scan(&list).Error
+	return list, err
+}
+
 // escapeLike 转义 LIKE 通配符，避免用户输入的 % _ \ 被当作模式。
 func escapeLike(s string) string {
 	r := make([]rune, 0, len(s))

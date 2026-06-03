@@ -19,6 +19,18 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.GET("/aggregate/messages", h.listAggregate)
 	rg.GET("/aggregate/counts", h.aggregateCounts)
 	rg.GET("/search/messages", h.search)
+	rg.GET("/contacts", h.contacts)
+}
+
+func (h *handler) contacts(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	list, err := h.svc.SearchContacts(q, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"contacts": list})
 }
 
 func (h *handler) search(c *gin.Context) {

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import Editor from 'react-simple-wysiwyg'
 import type { ContentEditableEvent } from 'react-simple-wysiwyg'
 import { Icon } from '@/components/ui/Icon'
+import { AddressInput } from '@/components/mail/AddressInput'
 import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft, useAccounts } from '@/lib/queries'
 import { useToast } from '@/components/ui/Toast'
 
@@ -405,9 +406,9 @@ export function ComposeDialog({
         <div className="compose-row">
           <label>{t('compose.to')}</label>
           <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-            <input
+            <AddressInput
               value={form.toStr}
-              onChange={(e) => set('toStr', e.target.value)}
+              onChange={(v) => set('toStr', v)}
               placeholder="name@example.com"
               disabled={isBusy}
               autoFocus={!initial}
@@ -441,9 +442,9 @@ export function ComposeDialog({
         {showCc && (
           <div className="compose-row">
             <label>{t('compose.cc')}</label>
-            <input
+            <AddressInput
               value={form.ccStr}
-              onChange={(e) => set('ccStr', e.target.value)}
+              onChange={(v) => set('ccStr', v)}
               placeholder="cc@example.com"
               disabled={isBusy}
             />
@@ -454,9 +455,9 @@ export function ComposeDialog({
         {showBcc && (
           <div className="compose-row">
             <label>{t('compose.bcc')}</label>
-            <input
+            <AddressInput
               value={form.bccStr}
-              onChange={(e) => set('bccStr', e.target.value)}
+              onChange={(v) => set('bccStr', v)}
               placeholder="bcc@example.com"
               disabled={isBusy}
             />

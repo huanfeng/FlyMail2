@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -205,6 +205,21 @@ export function useBatchFlag() {
       await api.post('/batch/flag', { ids, flagged })
     },
     onSuccess: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 收件人自动补全：按输入片段检索历史往来联系人（按频率降序）。 */
+export function useContacts(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['contacts', q],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async (): Promise<Contact[]> => {
+      const { data } = await api.get<{ contacts: Contact[] }>(
+        `/contacts?q=${encodeURIComponent(q)}&limit=8`,
+      )
+      return data.contacts ?? []
+    },
   })
 }
 

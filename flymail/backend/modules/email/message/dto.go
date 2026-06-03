@@ -37,6 +37,12 @@ type MessageDetail struct {
 	References  string          `json:"references"`
 }
 
+// Contact 是收件人自动补全的候选项（来自历史往来地址）。
+type Contact struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
 func toListItem(m *Message) MessageListItem {
 	var to []types.Address
 	if m.ToJSON != "" {

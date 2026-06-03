@@ -42,6 +42,18 @@ interface Props {
    * 注意：不用 React key 重挂载组件——否则会打断搜索框输入焦点，导致字母键落到全局快捷键。
    */
   sourceKey: string
+  // ── 批量选择 ──
+  /** 已选邮件 id 集合（由 Shell 管理，切换数据源时清空） */
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+  onSelectAllVisible: () => void
+  onClearSelection: () => void
+  onBatchRead: (read: boolean) => void
+  onBatchFlag: (flagged: boolean) => void
+  onBatchDelete: () => void
+  onBatchMove: (folderId: number) => void
+  /** 批量移动目标（已选邮件共同账户的文件夹；跨账户/为空时禁用移动） */
+  moveTargets: Folder[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,6 +111,29 @@ function relTime(isoStr: string, lang: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 选择复选框：覆盖在头像上（hover/已选时显现），点击不触发打开邮件
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  return (
+    <span
+      className="mi-select"
+      onClick={(e) => { e.stopPropagation(); onToggle() }}
+      role="presentation"
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => { /* 选择由外层 span 的 onClick 处理 */ }}
+        onClick={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        aria-label="select"
+      />
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 骨架屏：首屏加载占位
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -138,11 +173,13 @@ interface CardRowProps {
   msg: MessageListItem
   active: boolean
   lang: string
+  selected: boolean
   onSelect: () => void
+  onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
 }
 
-function CardRow({ msg, active, lang, onSelect, onToggleFlag }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag }: CardRowProps) {
   const isUnread = !msg.seen
   return (
     <div
@@ -153,19 +190,23 @@ function CardRow({ msg, active, lang, onSelect, onToggleFlag }: CardRowProps) {
       className={
         'mail-item' +
         (isUnread ? ' unread' : '') +
-        (active ? ' selected' : '')
+        (active ? ' selected' : '') +
+        (selected ? ' batch-selected' : '')
       }
     >
       {/* 未读圆点（CSS 控制可见性）*/}
       <span className="mi-unread-dot" />
 
-      {/* 方形头像 */}
-      <div
-        className="avatar-sq"
-        style={{ background: 'var(--accent)' }}
-      >
-        {initials(msg.from_name, msg.from_addr)}
-      </div>
+      {/* 方形头像（含选择复选框覆盖层）*/}
+      <span className="mi-avatar-wrap">
+        <div
+          className="avatar-sq"
+          style={{ background: 'var(--accent)' }}
+        >
+          {initials(msg.from_name, msg.from_addr)}
+        </div>
+        <SelectBox checked={selected} onToggle={onToggleSelect} />
+      </span>
 
       <div style={{ minWidth: 0 }}>
         {/* 第一行：发件人 + 时间 */}
@@ -217,11 +258,13 @@ interface CompactRowProps {
   msg: MessageListItem
   active: boolean
   lang: string
+  selected: boolean
   onSelect: () => void
+  onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
 }
 
-function CompactRow({ msg, active, lang, onSelect, onToggleFlag }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag }: CompactRowProps) {
   const isUnread = !msg.seen
   return (
     <div
@@ -232,19 +275,23 @@ function CompactRow({ msg, active, lang, onSelect, onToggleFlag }: CompactRowPro
       className={
         'mail-item mail-item-row' +
         (isUnread ? ' unread' : '') +
-        (active ? ' selected' : '')
+        (active ? ' selected' : '') +
+        (selected ? ' batch-selected' : '')
       }
     >
       {/* 未读圆点 */}
       <span className="mi-unread-dot" />
 
-      {/* 方形头像（小）*/}
-      <div
-        className="avatar-sq"
-        style={{ background: 'var(--accent)' }}
-      >
-        {initials(msg.from_name, msg.from_addr)}
-      </div>
+      {/* 方形头像（小，含选择复选框覆盖层）*/}
+      <span className="mi-avatar-wrap">
+        <div
+          className="avatar-sq"
+          style={{ background: 'var(--accent)' }}
+        >
+          {initials(msg.from_name, msg.from_addr)}
+        </div>
+        <SelectBox checked={selected} onToggle={onToggleSelect} />
+      </span>
 
       {/* 发件人列 */}
       <div className="mi-top">
@@ -307,6 +354,15 @@ export function MailList({
   searchValue,
   onSearchChange,
   sourceKey,
+  selectedIds,
+  onToggleSelect,
+  onSelectAllVisible,
+  onClearSelection,
+  onBatchRead,
+  onBatchFlag,
+  onBatchDelete,
+  onBatchMove,
+  moveTargets,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -331,6 +387,9 @@ export function MailList({
 
   // ── filter chips 状态 ─────────────────────────────────────────────────────
   const [filter, setFilter] = useState<FilterType>('all')
+
+  // ── 批量移动下拉开关 ───────────────────────────────────────────────────────
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false)
 
   // ── 标题 ─────────────────────────────────────────────────────────────────
   // 聚合视图无 folder，使用 titleOverride
@@ -412,6 +471,10 @@ export function MailList({
     }
   }, [lastIndex, rows.length, hasNextPage, isFetchingNextPage, onLoadMore])
 
+  // ── 批量选择派生状态 ──────────────────────────────────────────────────────
+  const selectedCount = selectedIds.size
+  const allVisibleSelected = filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))
+
   // ── 渲染 ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full flex-col">
@@ -425,6 +488,88 @@ export function MailList({
           )}
         </div>
       </div>
+
+      {/* ── 批量操作条（有选中时显示）── */}
+      {selectedCount > 0 && (
+        <div className="batch-bar">
+          {/* 全选/取消全选 */}
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={() => (allVisibleSelected ? onClearSelection() : onSelectAllVisible())}
+            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+            aria-label={t('list.selectAll')}
+          />
+          <span className="bb-count">{t('list.selectedCount', { count: selectedCount })}</span>
+
+          <button type="button" className="bb-btn" onClick={() => onBatchRead(true)}>
+            <Icon name="check" size={13} /> {t('list.batchRead')}
+          </button>
+          <button type="button" className="bb-btn" onClick={() => onBatchRead(false)}>
+            {t('list.batchUnread')}
+          </button>
+          <button type="button" className="bb-btn" onClick={() => onBatchFlag(true)}>
+            <Icon name="star" size={13} /> {t('list.batchFlag')}
+          </button>
+
+          {/* 移动下拉（跨账户/无目标时禁用）*/}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="bb-btn"
+              onClick={() => setBatchMoveOpen((o) => !o)}
+              disabled={moveTargets.length === 0}
+              title={moveTargets.length === 0 ? t('list.batchMoveDisabled') : t('list.batchMove')}
+            >
+              <Icon name="folder" size={13} /> {t('list.batchMove')}
+            </button>
+            {batchMoveOpen && moveTargets.length > 0 && (
+              <>
+                <div onClick={() => setBatchMoveOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41,
+                    minWidth: 170, maxHeight: 280, overflowY: 'auto',
+                    background: 'var(--surface)', border: '1px solid var(--rule)',
+                    borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 4,
+                  }}
+                >
+                  {moveTargets
+                    .filter((f) => f.selectable)
+                    .map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => { setBatchMoveOpen(false); onBatchMove(f.id) }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                          padding: '7px 10px', border: 'none', background: 'transparent',
+                          borderRadius: 6, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                      >
+                        <Icon name="folder" size={13} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <button type="button" className="bb-btn" onClick={onBatchDelete} style={{ color: 'var(--destructive)' }}>
+            <Icon name="trash" size={13} /> {t('list.batchDelete')}
+          </button>
+
+          {/* 清除选择 */}
+          <button type="button" className="bb-btn" onClick={onClearSelection} title={t('list.clearSelection')}>
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      )}
 
       {/* ── 搜索栏 ── */}
       <div className="search-bar">
@@ -546,7 +691,9 @@ export function MailList({
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
                       lang={lang}
+                      selected={selectedIds.has(row.msg.id)}
                       onSelect={() => onSelectMessage(row.msg.id)}
+                      onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
                         onToggleFlag(row.msg.id, !row.msg.flagged)
@@ -557,7 +704,9 @@ export function MailList({
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
                       lang={lang}
+                      selected={selectedIds.has(row.msg.id)}
                       onSelect={() => onSelectMessage(row.msg.id)}
+                      onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
                         onToggleFlag(row.msg.id, !row.msg.flagged)

@@ -555,6 +555,33 @@ body.is-resizing * { cursor: col-resize !important; }
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: var(--accent);
 }
+
+/* 批量选择：头像位包裹 + 复选框覆盖层（hover 或已选时显现） */
+.mail-item.batch-selected { background: var(--accent-wash); }
+.mi-avatar-wrap { position: relative; }
+.mi-select {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  border-radius: 6px; background: var(--surface);
+  opacity: 0; transition: opacity 0.1s; cursor: pointer; z-index: 2;
+}
+.mail-item:hover .mi-select,
+.mail-item.batch-selected .mi-select { opacity: 1; }
+.mi-select input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+/* 批量操作条 */
+.batch-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-bottom: 1px solid var(--rule);
+  background: var(--accent-wash);
+}
+.batch-bar .bb-count { font-size: 12.5px; color: var(--ink-2); margin-right: auto; }
+.batch-bar .bb-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px; border-radius: 6px; border: 1px solid var(--rule);
+  background: var(--surface); color: var(--ink-2); font-size: 12px; cursor: pointer;
+}
+.batch-bar .bb-btn:hover { background: var(--bg-hover); color: var(--ink); }
+.batch-bar .bb-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .mail-item.unread .mi-sender,
 .mail-item.unread .mi-subject {
   color: var(--ink); font-weight: 600;

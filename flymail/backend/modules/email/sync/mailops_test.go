@@ -116,6 +116,67 @@ func TestMoveMessage(t *testing.T) {
 	}
 }
 
+func TestBatchDeleteGroupsByFolder(t *testing.T) {
+	svc, frepo, mrepo, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+	seedFolder(t, frepo, 1, "Trash", "trash")
+	a := seedMsg(t, mrepo, 1, inboxID, 100)
+	b := seedMsg(t, mrepo, 1, inboxID, 101)
+
+	if err := svc.BatchDelete([]uint{a, b}); err != nil {
+		t.Fatalf("BatchDelete: %v", err)
+	}
+	// 非回收站 → 两封都移到回收站（一次 MOVE）。
+	if sess.movedTo != "Trash" || len(sess.movedUIDs) != 2 {
+		t.Errorf("应一次移动 2 封到 Trash，movedTo=%q movedUIDs=%v", sess.movedTo, sess.movedUIDs)
+	}
+	if n, _ := mrepo.CountByFolder(inboxID); n != 0 {
+		t.Errorf("源文件夹本地行应清空，剩 %d", n)
+	}
+}
+
+func TestBatchMoveAndCrossAccountRejected(t *testing.T) {
+	svc, frepo, mrepo, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+	archiveID := seedFolder(t, frepo, 1, "Archive", "archive")
+	a := seedMsg(t, mrepo, 1, inboxID, 100)
+	b := seedMsg(t, mrepo, 1, inboxID, 101)
+
+	if err := svc.BatchMove([]uint{a, b}, archiveID); err != nil {
+		t.Fatalf("BatchMove: %v", err)
+	}
+	if sess.movedTo != "Archive" || len(sess.movedUIDs) != 2 {
+		t.Errorf("应一次移动 2 封到 Archive，movedTo=%q movedUIDs=%v", sess.movedTo, sess.movedUIDs)
+	}
+
+	// 跨账户：账户 2 的邮件 + 账户 1 的目标 → 拒绝
+	otherInbox := seedFolder(t, frepo, 2, "INBOX", "inbox")
+	c := seedMsg(t, mrepo, 2, otherInbox, 200)
+	if err := svc.BatchMove([]uint{c}, archiveID); err == nil {
+		t.Errorf("跨账户批量移动应被拒绝")
+	}
+}
+
+func TestBatchSetReadAndFlagged(t *testing.T) {
+	svc, frepo, mrepo, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+	a := seedMsg(t, mrepo, 1, inboxID, 100)
+	b := seedMsg(t, mrepo, 1, inboxID, 101)
+
+	if err := svc.BatchSetRead([]uint{a, b}, true); err != nil {
+		t.Fatalf("BatchSetRead: %v", err)
+	}
+	if len(sess.markReadUIDs) != 2 {
+		t.Errorf("应一次标记 2 封已读，markReadUIDs=%v", sess.markReadUIDs)
+	}
+	if err := svc.BatchSetFlagged([]uint{a, b}, true); err != nil {
+		t.Fatalf("BatchSetFlagged: %v", err)
+	}
+	if len(sess.markStarredUIDs) != 2 {
+		t.Errorf("应一次标星 2 封，markStarredUIDs=%v", sess.markStarredUIDs)
+	}
+}
+
 func TestMoveMessageCrossAccountRejected(t *testing.T) {
 	svc, frepo, mrepo, _ := newMailops(t)
 	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")

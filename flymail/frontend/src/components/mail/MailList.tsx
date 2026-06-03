@@ -30,6 +30,18 @@ interface Props {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
+  /** 标题覆盖：聚合视图（无 folder）时使用 */
+  titleOverride?: string
+  /** 副标题覆盖：聚合视图时使用 */
+  subtitleOverride?: string
+  /** 搜索框值（受控，由 Shell 管理以驱动后端搜索） */
+  searchValue: string
+  onSearchChange: (v: string) => void
+  /**
+   * 数据源标识（搜索/聚合/文件夹 + 列表样式）。变化时内部重置滚动并重新测量虚拟列表。
+   * 注意：不用 React key 重挂载组件——否则会打断搜索框输入焦点，导致字母键落到全局快捷键。
+   */
+  sourceKey: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,6 +302,11 @@ export function MailList({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  titleOverride,
+  subtitleOverride,
+  searchValue,
+  onSearchChange,
+  sourceKey,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -297,10 +314,8 @@ export function MailList({
   // 搜索框 ref：供快捷键 / 聚焦时使用
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // ── 搜索状态（前端过滤，后端暂无接口）─────────────────────────────────────
-  // TODO: 接后端搜索接口后，将 query 提升至父组件作为请求参数
-
-  const [query, setQuery] = useState('')
+  // 搜索为受控值：由 Shell 管理并驱动后端跨账户搜索（searchValue/onSearchChange）。
+  const query = searchValue
 
   // 监听快捷键 / 广播的自定义事件，聚焦搜索框
   useEffect(() => {
@@ -318,33 +333,26 @@ export function MailList({
   const [filter, setFilter] = useState<FilterType>('all')
 
   // ── 标题 ─────────────────────────────────────────────────────────────────
-  const title = folder
+  // 聚合视图无 folder，使用 titleOverride
+  const title = titleOverride ?? (folder
     ? folder.type === 'custom'
       ? folder.display_name
       : t(`folder.${folder.type}`)
-    : ''
+    : '')
 
   // ── 副标题：N封 / N未读 ───────────────────────────────────────────────────
   const totalCount = folder?.total_count ?? messages.length
   const unreadCount = folder?.unread_count ?? 0
-  const subLabel = unreadCount > 0
+  const subLabel = subtitleOverride ?? (unreadCount > 0
     ? `${t('list.totalCount', { count: totalCount })} · ${t('list.unreadCount', { count: unreadCount })}`
-    : t('list.totalCount', { count: totalCount })
+    : t('list.totalCount', { count: totalCount }))
 
-  // ── 前端过滤：搜索 + chips ─────────────────────────────────────────────────
-  // 搜索范围：发件人姓名/地址、主题、摘要（includes，大小写不敏感）
+  // 是否显示副标题（folder 视图或聚合视图都显示）
+  const showSub = folder != null || subtitleOverride != null
+
+  // ── 前端过滤：仅 chips（搜索已由后端完成，messages 即为结果集）──────────────
   const filtered = (() => {
     let list = messages
-    const q = query.trim().toLowerCase()
-    if (q) {
-      list = list.filter(
-        (m) =>
-          (m.from_name || '').toLowerCase().includes(q) ||
-          (m.from_addr || '').toLowerCase().includes(q) ||
-          (m.subject || '').toLowerCase().includes(q) ||
-          (m.snippet || '').toLowerCase().includes(q),
-      )
-    }
     if (filter === 'unread') list = list.filter((m) => !m.seen)
     if (filter === 'flagged') list = list.filter((m) => m.flagged)
     return list
@@ -386,6 +394,13 @@ export function MailList({
     overscan: 5,
   })
 
+  // 数据源/样式切换时重置滚动 + 重新测量（替代 React key 重挂载，避免打断搜索框焦点）。
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0)
+    virtualizer.measure()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey])
+
   // ── 无限加载：接近底部时触发 ──────────────────────────────────────────────
   const virtualItems = virtualizer.getVirtualItems()
   const lastIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
@@ -405,7 +420,7 @@ export function MailList({
       <div className="list-head">
         <div className="title-wrap">
           <div className="list-title">{title}</div>
-          {folder && (
+          {showSub && (
             <div className="list-sub">{subLabel}</div>
           )}
         </div>
@@ -420,7 +435,7 @@ export function MailList({
             type="text"
             placeholder={t('list.search')}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             aria-label={t('list.search')}
           />
           {query ? (
@@ -429,7 +444,7 @@ export function MailList({
               type="button"
               className="icon-btn"
               style={{ width: 20, height: 20 }}
-              onClick={() => setQuery('')}
+              onClick={() => onSearchChange('')}
               aria-label={t('list.clearSearch')}
             >
               <Icon name="close" size={12} />

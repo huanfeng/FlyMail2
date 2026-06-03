@@ -28,6 +28,9 @@ type fakeSession struct {
 	markUnreadUIDs  []imapv2.UID
 	markStarredUIDs []imapv2.UID
 	markUnstarred   []imapv2.UID
+	deletedUIDs     []imapv2.UID
+	movedUIDs       []imapv2.UID
+	movedTo         string
 	rawMessage      []byte // FetchRawMessage 返回的原始 RFC 5322 字节
 }
 
@@ -101,6 +104,21 @@ func (f *fakeSession) MarkUnstarred(uids ...imapv2.UID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.markUnstarred = append(f.markUnstarred, uids...)
+	return nil
+}
+
+func (f *fakeSession) Delete(uids ...imapv2.UID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedUIDs = append(f.deletedUIDs, uids...)
+	return nil
+}
+
+func (f *fakeSession) Move(mailbox string, uids ...imapv2.UID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.movedTo = mailbox
+	f.movedUIDs = append(f.movedUIDs, uids...)
 	return nil
 }
 

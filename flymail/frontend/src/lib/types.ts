@@ -84,6 +84,8 @@ export interface Address {
 
 export interface MessageListItem {
   id: number
+  account_id: number
+  folder_id: number
   uid: number
   subject: string
   from_name: string

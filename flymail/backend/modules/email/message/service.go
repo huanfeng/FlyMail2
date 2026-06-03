@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 
 	coreimap "flymail-core/imap"
 	"flymail-core/types"
@@ -280,6 +281,77 @@ func (s *Service) List(folderID uint, beforeUID uint32, limit int) ([]MessageLis
 	out := make([]MessageListItem, 0, len(rows))
 	for i := range rows {
 		out = append(out, toListItem(&rows[i]))
+	}
+	return out, nil
+}
+
+// AggCursor 是聚合列表的不透明翻页游标，由最后一行的全精度日期 + 主键 ID 组成。
+// 用全精度日期（RFC3339Nano）规避列表 DTO 日期被截断到秒导致的 keyset 边界错位。
+type AggCursor struct {
+	BeforeDate string `json:"before_date"`
+	BeforeID   uint   `json:"before_id"`
+}
+
+// ListAggregate 返回跨账户聚合列表项 + 下一页游标（无更多时为 nil）。
+// view: inbox / unread / starred。beforeDate==nil 取首页。
+func (s *Service) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int) ([]MessageListItem, *AggCursor, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.repo.ListAggregate(view, beforeDate, beforeID, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make([]MessageListItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, toListItem(&rows[i]))
+	}
+	var cur *AggCursor
+	if len(rows) == limit {
+		last := rows[len(rows)-1]
+		cur = &AggCursor{BeforeDate: last.Date.Format(time.RFC3339Nano), BeforeID: last.ID}
+	}
+	return out, cur, nil
+}
+
+// ListSearch 跨账户全文检索，返回列表项 + 下一页游标（与聚合同款 keyset）。
+func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, limit int) ([]MessageListItem, *AggCursor, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.repo.SearchMessages(q, beforeDate, beforeID, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make([]MessageListItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, toListItem(&rows[i]))
+	}
+	var cur *AggCursor
+	if len(rows) == limit {
+		last := rows[len(rows)-1]
+		cur = &AggCursor{BeforeDate: last.Date.Format(time.RFC3339Nano), BeforeID: last.ID}
+	}
+	return out, cur, nil
+}
+
+// DeleteByID 删除单封邮件的本地行（移动/删除成功后调用）。
+func (s *Service) DeleteByID(id uint) error { return s.repo.DeleteByID(id) }
+
+// CountByFolder 返回文件夹内邮件总数。
+func (s *Service) CountByFolder(folderID uint) (int64, error) {
+	return s.repo.CountByFolder(folderID)
+}
+
+// AggregateCounts 返回三个聚合入口的徽标计数。
+func (s *Service) AggregateCounts() (map[string]int64, error) {
+	out := make(map[string]int64, 3)
+	for _, v := range []string{"inbox", "unread", "starred"} {
+		n, err := s.repo.CountAggregate(v)
+		if err != nil {
+			return nil, err
+		}
+		out[v] = n
 	}
 	return out, nil
 }

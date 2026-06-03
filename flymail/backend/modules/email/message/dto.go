@@ -9,6 +9,8 @@ import (
 // MessageListItem 是列表行的对外表示（无正文）。
 type MessageListItem struct {
 	ID            uint            `json:"id"`
+	AccountID     uint            `json:"account_id"`
+	FolderID      uint            `json:"folder_id"`
 	UID           uint32          `json:"uid"`
 	Subject       string          `json:"subject"`
 	FromName      string          `json:"from_name"`
@@ -41,7 +43,8 @@ func toListItem(m *Message) MessageListItem {
 		_ = json.Unmarshal([]byte(m.ToJSON), &to)
 	}
 	return MessageListItem{
-		ID: m.ID, UID: m.UID, Subject: m.Subject, FromName: m.FromName, FromAddr: m.FromAddr,
+		ID: m.ID, AccountID: m.AccountID, FolderID: m.FolderID,
+		UID: m.UID, Subject: m.Subject, FromName: m.FromName, FromAddr: m.FromAddr,
 		To: to, Date: m.Date.Format("2006-01-02T15:04:05Z07:00"), Size: m.Size,
 		Seen: m.Seen, Flagged: m.Flagged, HasAttachment: m.HasAttachment, Snippet: m.Snippet,
 	}

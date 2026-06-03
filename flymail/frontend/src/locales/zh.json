@@ -5,7 +5,10 @@
     "accounts": "账户",
     "settings": "设置",
     "accountCount": "{{count}} 个账号",
-    "noAccounts": "暂无账号"
+    "noAccounts": "暂无账号",
+    "allInboxes": "所有收件箱",
+    "allUnread": "所有未读",
+    "starred": "星标"
   },
   "folder": {
     "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
@@ -21,6 +24,7 @@
     "nothingHere": "没有邮件",
     "noMessages": "此文件夹暂无内容",
     "searchNoResult": "未找到匹配的邮件",
+    "searchTitle": "搜索结果",
     "relTime": {
       "justNow": "刚刚",
       "minutesAgo": "{{n}}分",
@@ -49,6 +53,9 @@
     "star": "标星",
     "unstar": "取消标星",
     "markUnread": "标为未读",
+    "delete": "删除",
+    "move": "移动",
+    "deleteConfirm": "确认删除这封邮件？（移至回收站；若已在回收站则永久删除）",
     "reply": "回复",
     "replyAll": "全部回复",
     "forward": "转发",
@@ -105,7 +112,11 @@
     "sub": "暂无新通知",
     "backToInbox": "返回收件箱",
     "emptyTitle": "暂无通知",
-    "emptyHint": "新邮件到达或账户状态变化时，通知将显示在此处"
+    "emptyHint": "新邮件到达或账户状态变化时，通知将显示在此处",
+    "tabAll": "全部",
+    "tabUnread": "未读",
+    "tabMail": "邮件",
+    "tabSecurity": "安全"
   },
   "settings": {
     "title": "设置",
@@ -113,19 +124,41 @@
     "navGeneral": "通用",
     "navSecurity": "安全",
     "navMail": "邮件",
+    "navShortcuts": "快捷键",
+    "navAbout": "关于",
     "page": {
       "sub": "管理外观、账户与邮件同步偏好",
       "sectAppearance": "外观",
       "theme": "主题色调",
       "themeHelp": "选择一套配色，点击即时预览效果",
-      "mode": "亮 / 暗模式",
+      "mode": "亮 / 暗模式与布局",
       "colorMode": "配色模式",
       "language": "语言",
       "uiLanguage": "界面语言",
-      "accountsHelp": "管理已添加的 IMAP 账户"
+      "accountsHelp": "管理已添加的 IMAP 账户",
+      "sidebarWidth": "侧栏宽度",
+      "listWidth": "列表宽度",
+      "widthHint": "也可以直接拖拽栏目之间的分隔线",
+      "density": "列表密度"
+    },
+    "shortcuts": {
+      "title": "键盘快捷键",
+      "help": "在邮件视图中可用",
+      "nav": "下一封 / 上一封",
+      "compose": "写新邮件",
+      "reply": "回复当前邮件",
+      "search": "聚焦搜索框",
+      "close": "返回 / 关闭"
+    },
+    "about": {
+      "title": "关于 FlyMail",
+      "desc": "FlyMail 是一个自部署的多账户邮件客户端，强调安静的排版、可拖拽布局与可切换的主题色调。",
+      "version": "版本 开发预览"
     },
     "general": {
       "language": "语言",
+      "reading": "阅读",
+      "remoteImagesHint": "默认显示邮件中的远程图片（关闭更注重隐私）",
       "theme": "主题",
       "light": "亮色",
       "dark": "暗色",

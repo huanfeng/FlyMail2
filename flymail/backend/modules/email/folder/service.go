@@ -70,3 +70,8 @@ func (s *Service) UpdateSyncState(id uint, uidValidity, uidNext uint32, total, u
 func (s *Service) SetUnreadCount(id uint, unread int) error {
 	return s.repo.UpdateUnreadCount(id, unread)
 }
+
+// SetCounts 同时更新文件夹总数与未读数。
+func (s *Service) SetCounts(id uint, total, unread int) error {
+	return s.repo.UpdateCounts(id, total, unread)
+}

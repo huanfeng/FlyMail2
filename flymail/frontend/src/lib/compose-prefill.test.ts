@@ -6,6 +6,8 @@ import type { MessageDetail } from '@/lib/types'
 function makeDetail(overrides: Partial<MessageDetail> = {}): MessageDetail {
   return {
     id: 1,
+    account_id: 1,
+    folder_id: 1,
     uid: 1,
     subject: '测试主题',
     from_name: '张三',

@@ -103,6 +103,14 @@ func (r *Repository) UpdateUnreadCount(id uint, unread int) error {
 	return r.db.Model(&Folder{}).Where("id = ?", id).Update("unread_count", unread).Error
 }
 
+// UpdateCounts 同时更新文件夹总数与未读数（删除/移动邮件后即时刷新角标用）。
+func (r *Repository) UpdateCounts(id uint, total, unread int) error {
+	return r.db.Model(&Folder{}).Where("id = ?", id).Updates(map[string]any{
+		"total_count":  total,
+		"unread_count": unread,
+	}).Error
+}
+
 func (r *Repository) UpdateSyncState(id uint, uidValidity, uidNext uint32, total, unread int, syncedAt time.Time) error {
 	return r.db.Model(&Folder{}).Where("id = ?", id).Updates(map[string]any{
 		"uid_validity":   uidValidity,

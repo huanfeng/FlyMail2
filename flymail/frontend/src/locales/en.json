@@ -35,6 +35,7 @@
     "batchDelete": "Delete",
     "batchDeleteConfirm": "Delete the {{count}} selected messages? (Moved to Trash; permanently deleted if already in Trash)",
     "clearSelection": "Clear selection",
+    "deletedToast": "Deleted",
     "relTime": {
       "justNow": "now",
       "minutesAgo": "{{n}}m",

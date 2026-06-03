@@ -54,6 +54,8 @@ interface Props {
   onBatchMove: (folderId: number) => void
   /** 批量移动目标（已选邮件共同账户的文件夹；跨账户/为空时禁用移动） */
   moveTargets: Folder[]
+  /** 列表行 hover 快捷删除单封 */
+  onDeleteMessage: (id: number) => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,9 +179,11 @@ interface CardRowProps {
   onSelect: () => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
+  onDelete: () => void
 }
 
-function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag, onDelete }: CardRowProps) {
+  const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
     <div
@@ -235,6 +239,17 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
         )}
       </div>
 
+      {/* hover 快捷删除（星标左侧）*/}
+      <button
+        type="button"
+        className="mi-del icon-btn"
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        aria-label={t('reader.delete')}
+        title={t('reader.delete')}
+      >
+        <Icon name="trash" size={14} />
+      </button>
+
       {/* 星标按钮（hover 显示 / 已标星常显）*/}
       <button
         type="button"
@@ -262,9 +277,11 @@ interface CompactRowProps {
   onSelect: () => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
+  onDelete: () => void
 }
 
-function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag, onDelete }: CompactRowProps) {
+  const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
     <div
@@ -320,16 +337,28 @@ function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onT
       {/* 时间列 */}
       <span className="mi-time-col">{relTime(msg.date, lang)}</span>
 
-      {/* 星标按钮 */}
-      <button
-        type="button"
-        className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
-        onClick={onToggleFlag}
-        aria-label={msg.flagged ? 'Unstar' : 'Star'}
-        style={{ position: 'static', opacity: msg.flagged ? 1 : undefined }}
-      >
-        <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
-      </button>
+      {/* 删除 + 星标（同占最后一列）*/}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+        <button
+          type="button"
+          className="mi-del icon-btn"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          aria-label={t('reader.delete')}
+          title={t('reader.delete')}
+          style={{ position: 'static' }}
+        >
+          <Icon name="trash" size={14} />
+        </button>
+        <button
+          type="button"
+          className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
+          onClick={onToggleFlag}
+          aria-label={msg.flagged ? 'Unstar' : 'Star'}
+          style={{ position: 'static', opacity: msg.flagged ? 1 : undefined }}
+        >
+          <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
+        </button>
+      </span>
     </div>
   )
 }
@@ -363,6 +392,7 @@ export function MailList({
   onBatchDelete,
   onBatchMove,
   moveTargets,
+  onDeleteMessage,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -698,6 +728,7 @@ export function MailList({
                         e.stopPropagation()
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
+                      onDelete={() => onDeleteMessage(row.msg.id)}
                     />
                   ) : (
                     <CardRow
@@ -711,6 +742,7 @@ export function MailList({
                         e.stopPropagation()
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
+                      onDelete={() => onDeleteMessage(row.msg.id)}
                     />
                   )}
                 </div>

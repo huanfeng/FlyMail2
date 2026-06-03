@@ -642,6 +642,15 @@ body.is-resizing * { cursor: col-resize !important; }
 .mi-star.starred { color: #e0b04a; }
 .mi-attach { color: var(--ink-3); }
 
+/* 列表行 hover 快捷删除按钮（卡片模式绝对定位于星标左侧；紧凑模式由行内改为静态） */
+.mi-del {
+  position: absolute; right: 40px; top: 14px;
+  color: var(--ink-4);
+  opacity: 0; transition: opacity 0.1s;
+}
+.mail-item:hover .mi-del { opacity: 1; }
+.mi-del:hover { color: var(--destructive); }
+
 /* 宽布局（滑入预览）模式：单行紧凑行 */
 .mail-item.mail-item-row {
   padding: 11px 20px;

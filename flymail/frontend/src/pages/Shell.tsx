@@ -13,6 +13,7 @@ import { DraftsList } from '@/components/mail/DraftsList'
 import { Reader } from '@/components/mail/Reader'
 import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
+import { useToast } from '@/components/ui/Toast'
 import { buildReply, buildForward } from '@/lib/compose-prefill'
 import {
   useAccounts,
@@ -26,6 +27,7 @@ import {
   useTriggerSync,
   useMarkRead,
   useToggleFlag,
+  useDeleteMessage,
   useBatchDelete,
   useBatchMove,
   useBatchRead,
@@ -155,6 +157,24 @@ export function ShellPage() {
   const batchMove = useBatchMove()
   const batchRead = useBatchRead()
   const batchFlag = useBatchFlag()
+  const deleteOne = useDeleteMessage()
+  const { toast } = useToast()
+
+  // 列表行 hover 快捷删除单封：删后若正打开该邮件则清空选中，并给 Toast 反馈
+  function onDeleteOne(id: number) {
+    deleteOne.mutate(id, {
+      onSuccess: () => {
+        if (id === messageId) setParam((p) => p.delete('message'))
+        setSelectedIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        toast(t('list.deletedToast'))
+      },
+    })
+  }
 
   function onBatchDelete() {
     const ids = [...selectedIds]
@@ -417,6 +437,7 @@ export function ShellPage() {
               onBatchDelete={onBatchDelete}
               onBatchMove={onBatchMove}
               moveTargets={moveTargets}
+              onDeleteMessage={onDeleteOne}
             />
           )
         }

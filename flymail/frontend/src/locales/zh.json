@@ -35,6 +35,7 @@
     "batchDelete": "删除",
     "batchDeleteConfirm": "确认删除选中的 {{count}} 封邮件？（移至回收站；回收站内则永久删除）",
     "clearSelection": "取消选择",
+    "deletedToast": "已删除",
     "relTime": {
       "justNow": "刚刚",
       "minutesAgo": "{{n}}分",

@@ -106,6 +106,59 @@ export function useAggregateCounts() {
   })
 }
 
+/**
+ * 跨账户全文搜索（无限加载）。q 为空时禁用。
+ * 与聚合同款 (date,id) keyset 游标；query key 以 'messages' 开头便于统一失效。
+ */
+export function useInfiniteSearch(q: string) {
+  const query = q.trim()
+  return useInfiniteQuery({
+    queryKey: ['messages', 'search', query],
+    enabled: query.length > 0,
+    initialPageParam: null as AggCursor | null,
+    queryFn: async ({ pageParam }): Promise<AggregatePage> => {
+      const params = new URLSearchParams({ q: query, limit: '50' })
+      if (pageParam) {
+        params.set('before_date', pageParam.before_date)
+        params.set('before_id', String(pageParam.before_id))
+      }
+      const { data } = await api.get<AggregatePage>(`/search/messages?${params.toString()}`)
+      return { messages: data.messages ?? [], next_cursor: data.next_cursor ?? null }
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/** 删除邮件（移到回收站；已在回收站则永久删除，由后端判定）。 */
+export function useDeleteMessage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.post(`/messages/${id}/delete`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    },
+  })
+}
+
+/** 移动邮件到同账户的另一个文件夹。 */
+export function useMoveMessage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, folderId }: { id: number; folderId: number }) => {
+      await api.post(`/messages/${id}/move`, { folder_id: folderId })
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    },
+  })
+}
+
 export function useSyncStatus(accountId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ['sync-status', accountId],

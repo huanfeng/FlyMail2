@@ -19,6 +19,7 @@ import {
   useFolders,
   useInfiniteMessages,
   useInfiniteAggregate,
+  useInfiniteSearch,
   useAggregateCounts,
   useMessageDetail,
   useSyncStatus,
@@ -57,22 +58,46 @@ export function ShellPage() {
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
 
-  // 单文件夹列表（agg 激活时禁用）
-  const folderInfinite = useInfiniteMessages(agg ? null : folderId)
-  // 跨账户聚合列表（仅 agg 激活时启用）
-  const aggInfinite = useInfiniteAggregate(agg)
+  // ── 搜索（跨账户，后端）：输入防抖 300ms 再发请求 ──────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300)
+    return () => clearTimeout(id)
+  }, [searchQuery])
+  const searching = debouncedQuery.length > 0
+
+  // 三选一数据源：搜索 > 聚合 > 单文件夹（互斥，未选中的禁用以免多余请求）
+  const folderInfinite = useInfiniteMessages(searching || agg ? null : folderId)
+  const aggInfinite = useInfiniteAggregate(searching ? null : agg)
+  const searchInfinite = useInfiniteSearch(debouncedQuery)
   // 聚合入口徽标计数
   const { data: aggCounts = { inbox: 0, unread: 0, starred: 0 } } = useAggregateCounts()
 
   // 当前生效的数据源元信息
-  const messages = agg
-    ? (aggInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
-    : (folderInfinite.data?.pages.flat() ?? [])
-  const messagesLoading = agg ? aggInfinite.isLoading : folderInfinite.isLoading
-  const hasNextPage = (agg ? aggInfinite.hasNextPage : folderInfinite.hasNextPage) ?? false
-  const isFetchingNextPage = agg ? aggInfinite.isFetchingNextPage : folderInfinite.isFetchingNextPage
+  const messages = searching
+    ? (searchInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
+    : agg
+      ? (aggInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
+      : (folderInfinite.data?.pages.flat() ?? [])
+  const messagesLoading = searching
+    ? searchInfinite.isLoading
+    : agg
+      ? aggInfinite.isLoading
+      : folderInfinite.isLoading
+  const hasNextPage = (searching
+    ? searchInfinite.hasNextPage
+    : agg
+      ? aggInfinite.hasNextPage
+      : folderInfinite.hasNextPage) ?? false
+  const isFetchingNextPage = searching
+    ? searchInfinite.isFetchingNextPage
+    : agg
+      ? aggInfinite.isFetchingNextPage
+      : folderInfinite.isFetchingNextPage
   function loadMore() {
-    if (agg) void aggInfinite.fetchNextPage()
+    if (searching) void searchInfinite.fetchNextPage()
+    else if (agg) void aggInfinite.fetchNextPage()
     else void folderInfinite.fetchNextPage()
   }
 
@@ -158,6 +183,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setSearchQuery('')
     setParam((p) => {
       p.set('account', String(id))
       p.delete('folder')
@@ -170,6 +196,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setSearchQuery('')
     setParam((p) => {
       p.set('folder', String(id))
       p.delete('message')
@@ -182,6 +209,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setSearchQuery('')
     setParam((p) => {
       p.set('agg', v)
       p.delete('folder')
@@ -257,8 +285,9 @@ export function ShellPage() {
     unread: 'sidebar.allUnread',
     starred: 'sidebar.starred',
   }
-  const aggTitle = agg ? t(aggLabelKey[agg]) : undefined
-  const aggSubtitle = agg ? t('list.totalCount', { count: messages.length }) : undefined
+  // 列表标题/副标题：搜索 > 聚合 > 文件夹（文件夹由 MailList 内部据 folder 计算）
+  const listTitle = searching ? t('list.searchTitle') : agg ? t(aggLabelKey[agg]) : undefined
+  const listSubtitle = searching || agg ? t('list.totalCount', { count: messages.length }) : undefined
 
   // ── Sidebar（常驻所有视图）────────────────────────────────────────────────────
   const sidebar = (
@@ -293,11 +322,12 @@ export function ShellPage() {
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
           ) : (
             <MailList
-              // 按文件夹/聚合 + 样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
-              key={`${agg ?? folderId}-${listStyle}`}
-              folder={agg ? null : activeFolder}
-              titleOverride={aggTitle}
-              subtitleOverride={aggSubtitle}
+              // 按 搜索/聚合/文件夹 + 样式重建：切换时重置滚动位置、重建虚拟列表，避免误触翻页与定位漂移。
+              // 搜索态 key 固定为 'search'（不随关键词变，避免每次输入重挂载，仅刷新数据）。
+              key={`${searching ? 'search' : (agg ?? folderId)}-${listStyle}`}
+              folder={searching || agg ? null : activeFolder}
+              titleOverride={listTitle}
+              subtitleOverride={listSubtitle}
               messages={messages}
               loading={messagesLoading}
               activeMessageId={messageId}
@@ -307,6 +337,8 @@ export function ShellPage() {
               hasNextPage={hasNextPage}
               isFetchingNextPage={isFetchingNextPage}
               onLoadMore={loadMore}
+              searchValue={searchQuery}
+              onSearchChange={setSearchQuery}
             />
           )
         }
@@ -318,6 +350,7 @@ export function ShellPage() {
               messageId={messageId}
               onReply={onReply}
               onForward={onForward}
+              onClose={() => setParam((p) => p.delete('message'))}
             />
           )
         }

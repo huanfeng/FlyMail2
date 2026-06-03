@@ -58,10 +58,12 @@ func (f *mgrFakeSession) FetchByUIDs(uids []imapv2.UID, opts coreimap.FetchOptio
 	return nil, nil
 }
 
-func (f *mgrFakeSession) MarkRead(uids ...imapv2.UID) error      { return nil }
-func (f *mgrFakeSession) MarkUnread(uids ...imapv2.UID) error    { return nil }
-func (f *mgrFakeSession) MarkStarred(uids ...imapv2.UID) error   { return nil }
-func (f *mgrFakeSession) MarkUnstarred(uids ...imapv2.UID) error { return nil }
+func (f *mgrFakeSession) MarkRead(uids ...imapv2.UID) error             { return nil }
+func (f *mgrFakeSession) MarkUnread(uids ...imapv2.UID) error           { return nil }
+func (f *mgrFakeSession) MarkStarred(uids ...imapv2.UID) error          { return nil }
+func (f *mgrFakeSession) MarkUnstarred(uids ...imapv2.UID) error        { return nil }
+func (f *mgrFakeSession) Delete(uids ...imapv2.UID) error               { return nil }
+func (f *mgrFakeSession) Move(mailbox string, uids ...imapv2.UID) error { return nil }
 
 func (f *mgrFakeSession) CanIDLE() bool                            { return false }
 func (f *mgrFakeSession) StartIDLE() (*coreimap.IdleHandle, error) { return nil, nil }

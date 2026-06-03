@@ -26,6 +26,9 @@ type Session interface {
 	MarkUnread(uids ...imapv2.UID) error
 	MarkStarred(uids ...imapv2.UID) error
 	MarkUnstarred(uids ...imapv2.UID) error
+	// 删除/移动（P0 日常动词）：
+	Delete(uids ...imapv2.UID) error
+	Move(mailbox string, uids ...imapv2.UID) error
 	// IDLE 能力（M6）：
 	CanIDLE() bool
 	StartIDLE() (*coreimap.IdleHandle, error)

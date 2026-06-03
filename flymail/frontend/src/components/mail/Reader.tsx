@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Star } from 'lucide-react'
-import { useMessageDetail, useMarkRead, useToggleFlag } from '@/lib/queries'
+import { useMessageDetail, useMarkRead, useToggleFlag, useDeleteMessage, useMoveMessage, useFolders } from '@/lib/queries'
 import type { Address, MessageDetail } from '@/lib/types'
 import {
   attachmentUrl,
@@ -123,6 +123,8 @@ interface ReaderProps {
   messageId: number | null
   onReply?: (d: MessageDetail) => void
   onForward?: (d: MessageDetail) => void
+  /** 删除/移动成功后回调（用于清空当前选中邮件） */
+  onClose?: () => void
 }
 
 /** 从 localStorage 读取"默认加载远程图片"设置 */
@@ -132,9 +134,11 @@ function getRemoteImageDefault(): boolean {
 
 // ── 主组件 ───────────────────────────────────────────────
 
-export function Reader({ messageId, onReply, onForward }: ReaderProps) {
+export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) {
   const { t } = useTranslation()
   const [showImages, setShowImages] = useState(() => getRemoteImageDefault())
+  // 移动到文件夹的下拉菜单开关
+  const [moveOpen, setMoveOpen] = useState(false)
 
   // messageId 切换时，将 showImages 重置为 localStorage 中的默认值
   useEffect(() => {
@@ -144,6 +148,24 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
   const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
   const toggleFlag = useToggleFlag()
   const markRead = useMarkRead()
+  const deleteMessage = useDeleteMessage()
+  const moveMessage = useMoveMessage()
+  // 移动目标：当前邮件所属账户的文件夹（detail 未就绪时为 null）
+  const { data: accountFolders = [] } = useFolders(detail?.account_id ?? null)
+
+  // 删除当前邮件（移到回收站/永久删除由后端判定），成功后清空选中
+  function handleDelete() {
+    if (messageId == null) return
+    if (!window.confirm(t('reader.deleteConfirm'))) return
+    deleteMessage.mutate(messageId, { onSuccess: () => onClose?.() })
+  }
+
+  // 移动当前邮件到目标文件夹，成功后清空选中
+  function handleMove(folderId: number) {
+    if (messageId == null) return
+    setMoveOpen(false)
+    moveMessage.mutate({ id: messageId, folderId }, { onSuccess: () => onClose?.() })
+  }
 
   // 先改写 cid 内联图引用，再做远程图拦截
   // cidHtml：保留 cid 改写、跳过远程图拦截（showImages=true 时使用）
@@ -290,6 +312,92 @@ export function Reader({ messageId, onReply, onForward }: ReaderProps) {
         >
           <Icon name="inbox" size={14} />
           <span>{t('reader.markUnread')}</span>
+        </button>
+
+        <div className="tb-sep" />
+
+        {/* 移动到文件夹（下拉） */}
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            className="tb-btn"
+            onClick={() => setMoveOpen((o) => !o)}
+            title={t('reader.move')}
+            disabled={moveMessage.isPending}
+          >
+            <Icon name="folder" size={14} />
+            <span>{t('reader.move')}</span>
+          </button>
+          {moveOpen && (
+            <>
+              {/* 点击空白处关闭的透明遮罩 */}
+              <div
+                onClick={() => setMoveOpen(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: 4,
+                  zIndex: 41,
+                  minWidth: 180,
+                  maxHeight: 280,
+                  overflowY: 'auto',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--rule)',
+                  borderRadius: 8,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  padding: 4,
+                }}
+              >
+                {accountFolders
+                  .filter((f) => f.selectable && f.id !== detail.folder_id)
+                  .map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => handleMove(f.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '7px 10px',
+                        border: 'none',
+                        background: 'transparent',
+                        borderRadius: 6,
+                        fontSize: 13,
+                        color: 'var(--ink)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <Icon name="folder" size={13} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 删除 */}
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={handleDelete}
+          title={t('reader.delete')}
+          disabled={deleteMessage.isPending}
+          style={{ color: 'var(--destructive)' }}
+        >
+          <Icon name="trash" size={14} />
+          <span>{t('reader.delete')}</span>
         </button>
 
         {/* 右侧留白（弹性占位） */}

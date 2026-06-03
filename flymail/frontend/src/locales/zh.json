@@ -24,6 +24,7 @@
     "nothingHere": "没有邮件",
     "noMessages": "此文件夹暂无内容",
     "searchNoResult": "未找到匹配的邮件",
+    "searchTitle": "搜索结果",
     "relTime": {
       "justNow": "刚刚",
       "minutesAgo": "{{n}}分",
@@ -52,6 +53,9 @@
     "star": "标星",
     "unstar": "取消标星",
     "markUnread": "标为未读",
+    "delete": "删除",
+    "move": "移动",
+    "deleteConfirm": "确认删除这封邮件？（移至回收站；若已在回收站则永久删除）",
     "reply": "回复",
     "replyAll": "全部回复",
     "forward": "转发",

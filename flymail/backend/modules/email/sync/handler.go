@@ -38,6 +38,53 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.GET("/messages/:id", h.detail)
 	rg.POST("/messages/:id/read", h.markRead)
 	rg.POST("/messages/:id/flag", h.markFlag)
+	rg.POST("/messages/:id/delete", h.deleteMessage)
+	rg.POST("/messages/:id/move", h.moveMessage)
+}
+
+func (h *handler) deleteMessage(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+		return
+	}
+	if err := h.svc.DeleteMessage(uint(id)); err != nil {
+		if errors.Is(err, message.ErrMessageNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+			return
+		}
+		// 删除需连 IMAP，失败按 502（上游不可用）
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) moveMessage(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+		return
+	}
+	var body struct {
+		FolderID uint `json:"folder_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.FolderID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.MoveMessage(uint(id), body.FolderID); err != nil {
+		switch {
+		case errors.Is(err, message.ErrMessageNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
+		case errors.Is(err, ErrCrossAccountMove):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot move across accounts"})
+		default:
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 type handler struct{ svc *Service }

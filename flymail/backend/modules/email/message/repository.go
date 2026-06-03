@@ -31,6 +31,48 @@ func (r *Repository) DeleteByFolder(folderID uint) error {
 	return r.db.Where("folder_id = ?", folderID).Delete(&Message{}).Error
 }
 
+// DeleteByID 删除单封邮件的本地元数据行（移动/删除成功后清理本地缓存）。
+// 正文/附件随 message_id 外键留存，下次该 message 不再出现即可，可由后续清理流程回收。
+func (r *Repository) DeleteByID(id uint) error {
+	return r.db.Where("id = ?", id).Delete(&Message{}).Error
+}
+
+// SearchMessages 跨账户全文检索：在 主题/发件人名/发件人地址/摘要/正文 上做 LIKE。
+// 按 (date, id) 降序 keyset 分页，与聚合一致。q 已由调用方做转义。
+func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	like := "%" + escapeLike(q) + "%"
+	dbq := r.db.Model(&Message{}).
+		Joins("LEFT JOIN message_bodies ON message_bodies.message_id = messages.id").
+		Where(
+			"messages.subject LIKE ? ESCAPE '\\' OR messages.from_name LIKE ? ESCAPE '\\' OR "+
+				"messages.from_addr LIKE ? ESCAPE '\\' OR messages.snippet LIKE ? ESCAPE '\\' OR "+
+				"message_bodies.text_body LIKE ? ESCAPE '\\'",
+			like, like, like, like, like,
+		).
+		Select("messages.*")
+	if beforeDate != nil {
+		dbq = dbq.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
+	}
+	var list []Message
+	err := dbq.Order("messages.date DESC").Order("messages.id DESC").Limit(limit).Find(&list).Error
+	return list, err
+}
+
+// escapeLike 转义 LIKE 通配符，避免用户输入的 % _ \ 被当作模式。
+func escapeLike(s string) string {
+	r := make([]rune, 0, len(s))
+	for _, c := range s {
+		if c == '%' || c == '_' || c == '\\' {
+			r = append(r, '\\')
+		}
+		r = append(r, c)
+	}
+	return string(r)
+}
+
 func (r *Repository) ListByFolder(folderID uint, beforeUID uint32, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50

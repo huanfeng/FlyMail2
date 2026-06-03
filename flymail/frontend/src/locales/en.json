@@ -24,6 +24,7 @@
     "nothingHere": "Nothing here",
     "noMessages": "This folder has no messages",
     "searchNoResult": "No matching messages found",
+    "searchTitle": "Search Results",
     "relTime": {
       "justNow": "now",
       "minutesAgo": "{{n}}m",
@@ -52,6 +53,9 @@
     "star": "Star",
     "unstar": "Unstar",
     "markUnread": "Mark as unread",
+    "delete": "Delete",
+    "move": "Move",
+    "deleteConfirm": "Delete this message? (Moved to Trash; permanently deleted if already in Trash)",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",

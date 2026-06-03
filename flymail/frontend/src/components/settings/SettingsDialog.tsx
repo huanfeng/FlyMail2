@@ -11,6 +11,7 @@ import { AccountDialog } from '@/components/mail/AccountDialog'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
+import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
 import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
 import type { LayoutWidths } from '@/lib/layout-prefs'
@@ -387,38 +388,29 @@ function GeneralSection() {
 
 function ShortcutsSection() {
   const { t } = useTranslation()
-  const rows: { keys: string; descKey: string }[] = [
-    { keys: 'J / K', descKey: 'settings.shortcuts.nav' },
-    { keys: 'C', descKey: 'settings.shortcuts.compose' },
-    { keys: 'R', descKey: 'settings.shortcuts.reply' },
-    { keys: '/', descKey: 'settings.shortcuts.search' },
-    { keys: 'Esc', descKey: 'settings.shortcuts.close' },
-  ]
+  // 键位目录复用全局单一真相源（与 `?` 速查浮层同一数据源）。
+  const groups = getShortcutGroups()
   return (
     <div className="settings-block">
       <h3>{t('settings.shortcuts.title')}</h3>
-      <p className="help">{t('settings.shortcuts.help')}</p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 24px', marginTop: 6 }}>
-        {rows.map((r) => (
-          <React.Fragment key={r.keys}>
-            <kbd
-              style={{
-                padding: '3px 8px',
-                borderRadius: 4,
-                border: '1px solid var(--rule)',
-                background: 'var(--bg-alt)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 11.5,
-                color: 'var(--ink)',
-                justifySelf: 'start',
-              }}
-            >
-              {r.keys}
-            </kbd>
-            <span style={{ color: 'var(--ink-2)', alignSelf: 'center', fontSize: 13 }}>
-              {t(r.descKey)}
-            </span>
-          </React.Fragment>
+      <p className="help">{t('shortcuts.hint')}</p>
+      <div className="sc-groups" style={{ marginTop: 10 }}>
+        {groups.map((g) => (
+          <section key={g.id} className="sc-group">
+            <h3>{t(g.titleKey)}</h3>
+            <div className="sc-rows">
+              {g.items.map((it) => (
+                <div key={it.id} className="sc-row">
+                  <span className="sc-keys">
+                    {it.keys.map((k) => (
+                      <kbd key={k} className="sc-kbd">{k}</kbd>
+                    ))}
+                  </span>
+                  <span className="sc-desc">{t(it.descKey)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </div>

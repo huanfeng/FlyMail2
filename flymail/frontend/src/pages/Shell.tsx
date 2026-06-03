@@ -13,6 +13,7 @@ import { DraftsList } from '@/components/mail/DraftsList'
 import { Reader } from '@/components/mail/Reader'
 import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
+import { ShortcutsCheatsheet } from '@/components/mail/ShortcutsCheatsheet'
 import { useToast } from '@/components/ui/Toast'
 import { buildReply, buildForward } from '@/lib/compose-prefill'
 import {
@@ -233,6 +234,8 @@ export function ShellPage() {
   const [appView, setAppView] = useState<AppView>('mail')
   // ── 设置浮层 state ────────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // ── 快捷键速查浮层 state（`?` 触发）────────────────────────────────────────────
+  const [helpOpen, setHelpOpen] = useState(false)
   // ── 移动端侧栏抽屉 state ───────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -364,6 +367,10 @@ export function ShellPage() {
     composeOpen,
     // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
     onEscape: onMobileBack,
+    // ? 切换速查浮层；Esc 时优先关闭它
+    onToggleHelp: () => setHelpOpen((o) => !o),
+    onCloseHelp: () => setHelpOpen(false),
+    helpOpen,
   })
 
   function onOpenDrafts(accId: number) {
@@ -504,6 +511,8 @@ export function ShellPage() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      {/* 快捷键速查浮层（? 触发）*/}
+      {helpOpen && <ShortcutsCheatsheet onClose={() => setHelpOpen(false)} />}
     </>
   )
 }

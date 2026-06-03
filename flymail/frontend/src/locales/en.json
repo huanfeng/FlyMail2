@@ -141,6 +141,20 @@
     "markAllRead": "Mark all read",
     "clear": "Clear"
   },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "hint": "Press ? anytime to open this panel",
+    "groupNav": "Navigation",
+    "groupActions": "Actions",
+    "groupSearch": "Search",
+    "groupGeneral": "General",
+    "nav": "Next / previous message",
+    "compose": "Compose",
+    "reply": "Reply to current message",
+    "search": "Focus search",
+    "help": "Show / hide shortcuts panel",
+    "close": "Back / close"
+  },
   "settings": {
     "title": "Settings",
     "navProfile": "Profile",
@@ -236,13 +250,7 @@
       "layoutTwoSlide": "Two columns + slide-in"
     },
     "shortcuts": {
-      "title": "Keyboard Shortcuts",
-      "help": "Available in the mail view",
-      "nav": "Next / previous message",
-      "compose": "Compose",
-      "reply": "Reply to current message",
-      "search": "Focus search",
-      "close": "Back / close"
+      "title": "Keyboard Shortcuts"
     },
     "about": {
       "title": "About FlyMail",

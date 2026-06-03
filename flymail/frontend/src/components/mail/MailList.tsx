@@ -186,8 +186,12 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
     <div
       role="button"
       tabIndex={0}
+      aria-current={active ? 'true' : undefined}
       onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+      onKeyDown={(e) => {
+        // Enter / Space 打开邮件；Space 需 preventDefault 阻止页面滚动
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect() }
+      }}
       className={
         'mail-item' +
         (isUnread ? ' unread' : '') +
@@ -284,8 +288,12 @@ function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onT
     <div
       role="button"
       tabIndex={0}
+      aria-current={active ? 'true' : undefined}
       onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+      onKeyDown={(e) => {
+        // Enter / Space 打开邮件；Space 需 preventDefault 阻止页面滚动
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect() }
+      }}
       className={
         'mail-item mail-item-row' +
         (isUnread ? ' unread' : '') +

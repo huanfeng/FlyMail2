@@ -27,7 +27,7 @@ func (s *Service) enqueueWriteback(op wbOp) {
 	case s.wbCh <- op:
 	default:
 		logger.Warn("sync/writeback: 队列已满，丢弃回写操作",
-			zap.Uint("uid", uint(op.uid)), zap.Uint("account_id", op.accountID))
+			zap.Uint32("uid", uint32(op.uid)), zap.Uint("account_id", op.accountID))
 	}
 }
 
@@ -105,14 +105,14 @@ func (s *Service) retryOrDrop(op wbOp, err error) {
 	op.attempt++
 	if op.attempt >= maxRetry {
 		logger.Error("sync/writeback: 放弃回写",
-			zap.Uint("uid", uint(op.uid)), zap.Uint("account_id", op.accountID),
+			zap.Uint32("uid", uint32(op.uid)), zap.Uint("account_id", op.accountID),
 			zap.Int("attempt", op.attempt), zap.Error(err))
 		return
 	}
 	backoff := time.Duration(op.attempt) * time.Second
 	logger.Warn("sync/writeback: 重试回写",
 		zap.Int("attempt", op.attempt), zap.Int("max_retry", maxRetry),
-		zap.Uint("uid", uint(op.uid)), zap.Duration("backoff", backoff), zap.Error(err))
+		zap.Uint32("uid", uint32(op.uid)), zap.Duration("backoff", backoff), zap.Error(err))
 	// 用 AfterFunc 异步延迟重新入队，避免在单 worker 内 sleep 阻塞整个队列。
 	time.AfterFunc(backoff, func() { s.enqueueWriteback(op) })
 }

@@ -31,6 +31,8 @@ type LogConfig struct {
 	MaxAgeDays int    `mapstructure:"max_age_days"` // 备份保留天数
 	Compress   bool   `mapstructure:"compress"`     // 是否压缩旧备份
 	Console    bool   `mapstructure:"console"`      // 是否同时输出到控制台
+	Level      string `mapstructure:"level"`        // debug/info/warn/error，默认 info
+	Format     string `mapstructure:"format"`       // json/console，默认 json
 }
 
 type Config struct {
@@ -79,6 +81,8 @@ func Load(opts LoadOptions) (*Config, error) {
 	v.SetDefault("log.max_age_days", 30)
 	v.SetDefault("log.compress", false)
 	v.SetDefault("log.console", true)
+	v.SetDefault("log.level", "info")
+	v.SetDefault("log.format", "json")
 
 	v.SetEnvPrefix("FLYMAIL")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

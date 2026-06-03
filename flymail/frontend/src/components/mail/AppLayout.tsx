@@ -26,11 +26,28 @@ interface AppLayoutProps {
   /** 移动端侧栏抽屉是否打开（桌面端忽略，侧栏常驻）。 */
   drawerOpen: boolean
   onDrawerOpenChange: (open: boolean) => void
-  /** 移动端从阅读面板返回列表（清空当前邮件/退出通知）。 */
+  /** 移动端从阅读面板返回列表（清空当前邮件/退出通知）。也用于双栏模式关闭浮动阅读。 */
   onMobileBack: () => void
+  /** 布局模式：three（三栏并排）/ two-slide（双栏 + 右侧浮动阅读）。移动端一律按三栏单栏处理。 */
+  layoutMode: 'three' | 'two-slide'
 }
 
 type PaneKey = 'sidebar' | 'list'
+
+/** 监听媒体查询是否匹配（用于桌面/移动布局切换）。 */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    const m = window.matchMedia(query)
+    const handler = () => setMatches(m.matches)
+    handler()
+    m.addEventListener('change', handler)
+    return () => m.removeEventListener('change', handler)
+  }, [query])
+  return matches
+}
 
 /**
  * 三栏布局外壳，复刻 MailMaster .app/.col/.col-resize 结构。
@@ -47,8 +64,13 @@ export function AppLayout({
   drawerOpen,
   onDrawerOpenChange,
   onMobileBack,
+  layoutMode,
 }: AppLayoutProps) {
   const { t } = useTranslation()
+  // 移动端(≤768)一律按三栏单栏处理，双栏浮动仅桌面生效
+  const isMobile = useMediaQuery('(max-width: 768px)')
+  const effLayout = isMobile ? 'three' : layoutMode
+  const readerOpen = mobilePane === 'reader'
   const [w, setW] = useState<Widths>(loadLayoutWidths)
   // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
   const wRef = useRef(w)
@@ -116,7 +138,11 @@ export function AppLayout({
 
   return (
     // .app：桌面三栏 flex；窄屏据 data-mobile-pane 单栏切换，drawer-open 控制侧栏抽屉
-    <div className={'app' + (drawerOpen ? ' drawer-open' : '')} data-mobile-pane={mobilePane}>
+    <div
+      className={'app' + (drawerOpen ? ' drawer-open' : '')}
+      data-mobile-pane={mobilePane}
+      data-layout={effLayout === 'two-slide' ? 'two-slide' : undefined}
+    >
       {/* 移动端顶栏：列表面板显示汉堡(开抽屉)，阅读面板显示返回。桌面端 CSS 隐藏。*/}
       <div className="mobile-bar">
         {mobilePane === 'reader' ? (
@@ -160,24 +186,50 @@ export function AppLayout({
         {...makeResizeHandlers('sidebar')}
       />
 
-      {/* 列表栏：.col.list，宽度由 CSS 变量 --list-w 控制 */}
-      <div className="col list">
+      {/* 列表栏：.col.list；双栏模式加 .list-wide 占满剩余宽度 */}
+      <div className={'col list' + (effLayout === 'two-slide' ? ' list-wide' : '')}>
         {list}
       </div>
 
-      {/* 列表与阅读区之间的拖拽手柄 */}
-      <div
-        className="col-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整列表宽度"
-        {...makeResizeHandlers('list')}
-      />
+      {effLayout === 'three' ? (
+        <>
+          {/* 列表与阅读区之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整列表宽度"
+            {...makeResizeHandlers('list')}
+          />
 
-      {/* 第三栏：.col.reader，占剩余空间（邮件视图=Reader，通知视图=通知屏）*/}
-      <div className="col reader">
-        {reader}
-      </div>
+          {/* 第三栏：.col.reader（邮件视图=Reader，通知视图=通知屏）*/}
+          <div className="col reader">
+            {reader}
+          </div>
+        </>
+      ) : (
+        // 双栏模式：阅读面板从右侧滑入浮层，不占列表空间，可关闭
+        <div className={'reader-slide-wrap' + (readerOpen ? ' open' : '')}>
+          <div className="reader-slide">
+            {readerOpen && (
+              <>
+                {/* 关闭按钮（浮于阅读面板右上角）*/}
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={onMobileBack}
+                  aria-label={t('reader.close')}
+                  title={t('reader.close')}
+                  style={{ position: 'absolute', top: 10, right: 12, zIndex: 5 }}
+                >
+                  <Icon name="close" size={16} />
+                </button>
+                {reader}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

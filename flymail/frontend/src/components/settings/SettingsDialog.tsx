@@ -25,6 +25,7 @@ import {
 } from '@/lib/queries'
 import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
+import type { LayoutMode } from '@/lib/layout-mode'
 import type { Account, SyncPhase } from '@/lib/types'
 
 // ── 常量 ─────────────────────────────────────────────────
@@ -55,6 +56,9 @@ interface SettingsDialogProps {
   /** 当前列表样式（Shell 管理），使改动立即对邮件列表生效 */
   listStyle: ListStyle
   onChangeListStyle: (style: ListStyle) => void
+  /** 当前布局模式（三栏 / 双栏浮动阅读） */
+  layoutMode: LayoutMode
+  onChangeLayoutMode: (mode: LayoutMode) => void
   /** 关闭弹框的回调 */
   onClose: () => void
 }
@@ -152,9 +156,11 @@ function Row({ label, help, children }: RowProps) {
 interface AppearanceSectionProps {
   listStyle: ListStyle
   onChangeListStyle: (style: ListStyle) => void
+  layoutMode: LayoutMode
+  onChangeLayoutMode: (mode: LayoutMode) => void
 }
 
-function AppearanceSection({ listStyle, onChangeListStyle }: AppearanceSectionProps) {
+function AppearanceSection({ listStyle, onChangeListStyle, layoutMode, onChangeLayoutMode }: AppearanceSectionProps) {
   const { t } = useTranslation()
   const initial = getTheme()
   const [currentMode, setCurrentMode] = React.useState<ThemeMode>(initial.mode)
@@ -203,6 +209,38 @@ function AppearanceSection({ listStyle, onChangeListStyle }: AppearanceSectionPr
               onClick={() => handleTone(tone.id)}
             />
           ))}
+        </div>
+      </div>
+
+      {/* 布局模式：三栏 / 双栏 + 右侧浮动阅读 */}
+      <div className="settings-block">
+        <h3>{t('settings.page.layout')}</h3>
+        <p className="help">{t('settings.page.layoutHelp')}</p>
+        <div className="layout-swatches">
+          <button
+            type="button"
+            className={'layout-sw' + (layoutMode === 'three' ? ' active' : '')}
+            onClick={() => onChangeLayoutMode('three')}
+          >
+            <svg viewBox="0 0 52 32" width="52" height="32">
+              <rect x="1" y="1" width="12" height="30" rx="2" fill="var(--bg-alt)" stroke="var(--rule)" />
+              <rect x="15" y="1" width="16" height="30" rx="2" fill="var(--bg-alt)" stroke="var(--rule)" />
+              <rect x="33" y="1" width="18" height="30" rx="2" fill="var(--surface)" stroke="var(--rule)" />
+            </svg>
+            <span>{t('settings.page.layoutThree')}</span>
+          </button>
+          <button
+            type="button"
+            className={'layout-sw' + (layoutMode === 'two-slide' ? ' active' : '')}
+            onClick={() => onChangeLayoutMode('two-slide')}
+          >
+            <svg viewBox="0 0 52 32" width="52" height="32">
+              <rect x="1" y="1" width="12" height="30" rx="2" fill="var(--bg-alt)" stroke="var(--rule)" />
+              <rect x="15" y="1" width="36" height="30" rx="2" fill="var(--bg-alt)" stroke="var(--rule)" />
+              <rect x="31" y="3" width="20" height="28" rx="2" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.2" />
+            </svg>
+            <span>{t('settings.page.layoutTwoSlide')}</span>
+          </button>
         </div>
       </div>
 
@@ -840,7 +878,7 @@ function SecuritySection() {
 // 主组件：SettingsDialog（覆盖层弹框）
 // ════════════════════════════════════════════════════════════
 
-export function SettingsDialog({ listStyle, onChangeListStyle, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ listStyle, onChangeListStyle, layoutMode, onChangeLayoutMode, onClose }: SettingsDialogProps) {
   const { t } = useTranslation()
   const [section, setSection] = React.useState<SettingSection>('appearance')
 
@@ -908,7 +946,12 @@ export function SettingsDialog({ listStyle, onChangeListStyle, onClose }: Settin
           </div>
           <div className="sd-body-scroll">
             {section === 'appearance' && (
-              <AppearanceSection listStyle={listStyle} onChangeListStyle={onChangeListStyle} />
+              <AppearanceSection
+                listStyle={listStyle}
+                onChangeListStyle={onChangeListStyle}
+                layoutMode={layoutMode}
+                onChangeLayoutMode={onChangeLayoutMode}
+              />
             )}
             {section === 'general' && <GeneralSection />}
             {section === 'accounts' && <AccountsSection />}

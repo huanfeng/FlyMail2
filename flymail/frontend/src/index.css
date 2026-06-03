@@ -605,7 +605,8 @@ body.is-resizing * { cursor: col-resize !important; }
   opacity: 0; transition: opacity 0.1s; cursor: pointer; z-index: 2;
 }
 .mail-item:hover .mi-select,
-.mail-item.batch-selected .mi-select { opacity: 1; }
+.mail-item.batch-selected .mi-select,
+.mail-list.selecting .mi-select { opacity: 1; }
 .mi-select input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
 
 /* 批量操作条 */

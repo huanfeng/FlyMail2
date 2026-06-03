@@ -66,6 +66,7 @@
     "markUnread": "标为未读",
     "delete": "删除",
     "move": "移动",
+    "close": "关闭",
     "deleteConfirm": "确认删除这封邮件？（移至回收站；若已在回收站则永久删除）",
     "reply": "回复",
     "replyAll": "全部回复",
@@ -150,7 +151,11 @@
       "sidebarWidth": "侧栏宽度",
       "listWidth": "列表宽度",
       "widthHint": "也可以直接拖拽栏目之间的分隔线",
-      "density": "列表密度"
+      "density": "列表密度",
+      "layout": "布局",
+      "layoutHelp": "选择三栏式，或双栏 + 右侧滑入的浮动阅读面板",
+      "layoutThree": "三栏",
+      "layoutTwoSlide": "双栏 + 浮动阅读"
     },
     "shortcuts": {
       "title": "键盘快捷键",

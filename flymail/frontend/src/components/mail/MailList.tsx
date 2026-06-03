@@ -6,6 +6,7 @@ import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
 import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
+import { searchShortcutHint } from '@/lib/platform'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -117,21 +118,17 @@ function relTime(isoStr: string, lang: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  // 用 <label> 包裹原生 checkbox：点击整块都可靠切换（label 原生联动 input → onChange），
+  // label 上 stopPropagation 阻止冒泡到行（避免误打开邮件）。
   return (
-    <span
-      className="mi-select"
-      onClick={(e) => { e.stopPropagation(); onToggle() }}
-      role="presentation"
-    >
+    <label className="mi-select" onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         checked={checked}
-        onChange={() => { /* 选择由外层 span 的 onClick 处理 */ }}
-        onClick={(e) => e.stopPropagation()}
-        tabIndex={-1}
+        onChange={onToggle}
         aria-label="select"
       />
-    </span>
+    </label>
   )
 }
 
@@ -625,8 +622,8 @@ export function MailList({
               <Icon name="close" size={12} />
             </button>
           ) : (
-            /* 无输入时显示快捷键提示 */
-            <span className="kbd">⌘K</span>
+            /* 无输入时显示快捷键提示（按平台显示 ⌘K / Ctrl K）*/
+            <span className="kbd">{searchShortcutHint()}</span>
           )}
         </div>
       </div>
@@ -651,8 +648,8 @@ export function MailList({
         ))}
       </div>
 
-      {/* ── 列表区域 ── */}
-      <div ref={scrollRef} className="mail-list">
+      {/* ── 列表区域（有选中时加 selecting，常显所有复选框便于多选）── */}
+      <div ref={scrollRef} className={'mail-list' + (selectedCount > 0 ? ' selecting' : '')}>
 
         {/* 首屏加载骨架 */}
         {loading && <SkeletonList />}

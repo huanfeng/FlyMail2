@@ -38,6 +38,8 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { getListStyle, setListStyle } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
+import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
+import type { LayoutMode } from '@/lib/layout-mode'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
 
 /** 校验 URL 中的 agg 参数是否为合法聚合视图 */
@@ -66,6 +68,13 @@ export function ShellPage() {
   function handleChangeListStyle(style: ListStyle) {
     setListStyle(style)
     setListStyleState(style)
+  }
+
+  // 布局模式偏好（三栏 / 双栏浮动阅读）
+  const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => getLayoutMode())
+  function handleChangeLayoutMode(mode: LayoutMode) {
+    setLayoutMode(mode)
+    setLayoutModeState(mode)
   }
 
   const { data: accounts = [] } = useAccounts()
@@ -353,6 +362,8 @@ export function ShellPage() {
     selectMessage,
     onCloseCompose: () => setComposeOpen(false),
     composeOpen,
+    // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
+    onEscape: onMobileBack,
   })
 
   function onOpenDrafts(accId: number) {
@@ -422,6 +433,7 @@ export function ShellPage() {
         drawerOpen={drawerOpen}
         onDrawerOpenChange={setDrawerOpen}
         onMobileBack={onMobileBack}
+        layoutMode={layoutMode}
         list={
           view === 'drafts' && accountId != null ? (
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
@@ -487,6 +499,8 @@ export function ShellPage() {
         <SettingsDialog
           listStyle={listStyle}
           onChangeListStyle={handleChangeListStyle}
+          layoutMode={layoutMode}
+          onChangeLayoutMode={handleChangeLayoutMode}
           onClose={() => setSettingsOpen(false)}
         />
       )}

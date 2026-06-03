@@ -54,6 +54,50 @@ func TestSetEnabledAndDefault(t *testing.T) {
 	}
 }
 
+func TestSetEnabledEmitsAccountStatus(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	resp, err := svc.Create(account.CreateAccountRequest{
+		Name: "Acc", Email: "a@example.com", Password: "pw",
+		IMAPHost: "imap.example.com", IMAPPort: 993,
+		SMTPHost: "smtp.example.com", SMTPPort: 465,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var calls int
+	var gotType string
+	var gotAccount uint
+	var gotBody string
+	svc.SetEmitter(func(eventType string, accountID uint, title, body string) {
+		calls++
+		gotType = eventType
+		gotAccount = accountID
+		gotBody = body
+	})
+
+	if err := svc.SetEnabled(resp.ID, false); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	if calls != 1 || gotType != "account_status" || gotAccount != resp.ID {
+		t.Fatalf("应触发 account_status 通知: calls=%d type=%s account=%d", calls, gotType, gotAccount)
+	}
+	if gotBody == "" {
+		t.Errorf("通知正文不应为空")
+	}
+}
+
+func TestSetEnabledNoEmitOnError(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	var calls int
+	svc.SetEmitter(func(string, uint, string, string) { calls++ })
+	// 账户不存在 → SetEnabled 失败，不应触发通知
+	_ = svc.SetEnabled(9999, false)
+	if calls != 0 {
+		t.Errorf("失败时不应触发通知，calls=%d", calls)
+	}
+}
+
 func TestSetEnabledNotFound(t *testing.T) {
 	svc, _, _ := newSvc(t)
 	err := svc.SetEnabled(9999, false)

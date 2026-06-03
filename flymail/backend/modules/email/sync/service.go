@@ -38,6 +38,16 @@ type Session interface {
 	Close() error
 }
 
+// EmitFunc 是通知事件回调（解耦：sync 包不依赖 notify 包，由 app 装配指向 notify.Emit）。
+// 参数：事件类型、相关账户 id（0 表示无）、标题、正文。
+type EmitFunc func(eventType string, accountID uint, title, body string)
+
+// 事件类型字符串（与 notify 包常量保持一致；此处镜像以避免反向依赖 notify）。
+const (
+	notifyMailNew    = "mail_new"
+	notifySyncFailed = "sync_failed"
+)
+
 // AccountConfigProvider 由 account.Service 实现。
 type AccountConfigProvider interface {
 	IMAPConfig(id uint) (types.IMAPConfig, error)
@@ -103,6 +113,7 @@ type Service struct {
 
 	dial        func(types.IMAPConfig) (Session, error)
 	syncDepthFn func() int
+	emit        EmitFunc
 
 	mu       gosync.Mutex
 	statuses map[uint]*Status
@@ -110,6 +121,9 @@ type Service struct {
 
 	wbCh chan wbOp
 }
+
+// SetEmitter 注入通知回调（同步失败等事件）。
+func (s *Service) SetEmitter(fn EmitFunc) { s.emit = fn }
 
 // NewService 创建 Sync 服务。
 func NewService(accounts AccountConfigProvider, folders *folder.Service, messages *message.Service) *Service {
@@ -256,6 +270,10 @@ func (s *Service) fail(accountID uint, err error) {
 		st.Phase = PhaseError
 		st.Error = err.Error()
 	})
+	// 站内/外发通知：同步失败
+	if s.emit != nil {
+		s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
+	}
 }
 
 // AttachmentResult 是附件下载的结果载体。

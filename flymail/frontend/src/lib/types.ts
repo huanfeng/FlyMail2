@@ -39,6 +39,53 @@ export interface Contact {
   email: string
 }
 
+/** 站内通知事件类型 */
+export type NotifyEventType = 'mail_new' | 'sync_failed' | 'account_status'
+
+/** 站内通知记录 */
+export interface Notification {
+  id: number
+  type: NotifyEventType | string
+  account_id: number
+  title: string
+  body: string
+  read: boolean
+  created_at: string
+}
+
+/** 外发推送渠道 */
+export interface NotifyChannel {
+  id: number
+  name: string
+  kind: 'webhook' | 'feishu' | string
+  url: string
+  has_secret: boolean
+  events: string[]
+  enabled: boolean
+  created_at: string
+}
+
+/** 渠道创建/更新入参 */
+export interface NotifyChannelInput {
+  name: string
+  kind: string
+  url: string
+  secret?: string
+  events: string[]
+  enabled?: boolean
+}
+
+/** 外发投递日志 */
+export interface NotifyLog {
+  id: number
+  channel_id: number
+  channel_name: string
+  type: string
+  status: 'ok' | 'failed' | string
+  error?: string
+  created_at: string
+}
+
 export interface ProxyInput {
   type: string
   host: string

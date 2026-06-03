@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
+import { useNotificationUnread } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import type { Account, Folder } from '@/lib/types'
 
@@ -223,6 +224,8 @@ export function AccountSidebar({
   onOpenDrafts,
 }: Props) {
   const { t } = useTranslation()
+  // 站内未读通知数（铃铛角标）
+  const { data: unreadNotifs = 0 } = useNotificationUnread()
 
   // 各账户展开状态（默认展开前两个）
   const [expanded, setExpanded] = useState<Record<number, boolean>>(() => {
@@ -274,6 +277,7 @@ export function AccountSidebar({
           onClick={() => onSetView(activeView === 'notif' ? 'mail' : 'notif')}
         >
           <Icon name="bell" size={14} />
+          {unreadNotifs > 0 && <span className="bell-badge" />}
         </button>
       </div>
 

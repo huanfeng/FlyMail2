@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
+import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { setListStyle } from '@/lib/list-prefs'
 import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
@@ -49,7 +50,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'appearance' | 'general' | 'accounts' | 'mail' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'appearance' | 'general' | 'accounts' | 'mail' | 'notify' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -888,6 +889,7 @@ export function SettingsDialog({ listStyle, onChangeListStyle, layoutMode, onCha
     { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
+    { id: 'notify',     labelKey: 'settings.navNotify',           icon: 'bell' },
     { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'tag' },
     { id: 'shortcuts',  labelKey: 'settings.navShortcuts',        icon: 'compose' },
     { id: 'about',      labelKey: 'settings.navAbout',            icon: 'more' },
@@ -956,6 +958,7 @@ export function SettingsDialog({ listStyle, onChangeListStyle, layoutMode, onCha
             {section === 'general' && <GeneralSection />}
             {section === 'accounts' && <AccountsSection />}
             {section === 'mail' && <MailSection />}
+            {section === 'notify' && <NotifyChannelsSection />}
             {section === 'security' && <SecuritySection />}
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'about' && <AboutSection />}

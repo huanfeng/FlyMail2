@@ -22,6 +22,7 @@ import (
 	"flymail/modules/email/message"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
+	"flymail/modules/system/notify"
 	"flymail/modules/system/setting"
 )
 
@@ -76,9 +77,16 @@ func New(cfg *config.Config) (*App, error) {
 	sendSvc := send.NewService(accountSvc, folderSvc)
 	draftSvc := draft.NewService(draft.NewRepository(db))
 
+	// 通知中心：站内记录 + 外发推送。emit 回调注入到各事件源（解耦）。
+	notifySvc := notify.NewService(notify.NewRepository(db))
+	emit := notifySvc.EmitFunc()
+	syncSvc.SetEmitter(emit)
+	accountSvc.SetEmitter(emit)
+
 	// SSE Hub + 后台同步管理器（IDLE + 轮询，新邮件经 Hub 推送）。
 	hub := sse.NewHub()
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
+	manager.SetEmitter(emit)
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
 	eventsHandler := sse.NewHandler(hub, func(token string) error {
 		_, err := authSvc.VerifyAccessToken(token)
@@ -94,6 +102,7 @@ func New(cfg *config.Config) (*App, error) {
 		Setting: settingSvc,
 		Send:    sendSvc,
 		Draft:   draftSvc,
+		Notify:  notifySvc,
 		Events:  eventsHandler,
 		VerifyToken: func(token string) error {
 			_, err := authSvc.VerifyAccessToken(token)

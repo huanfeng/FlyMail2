@@ -1,14 +1,14 @@
-// Package logging 提供统一的文件日志（按大小轮转）+ 控制台输出，
-// 并把标准库 log 与 gin 的输出都接到同一组 writer。
+// Package logging 基于 flymail-core/logger(zap) 提供结构化 JSON 日志。
+// 主输出 <Dir>/flymail.log（lumberjack 轮转）+ 可选 stdout；
+// warn/error 另写 <Dir>/warn_error.log；并把标准库 log 收编进 zap。
 package logging
 
 import (
-	"io"
-	"log"
-	"os"
 	"path/filepath"
 
-	lumberjack "gopkg.in/natefinch/lumberjack.v2"
+	"flymail-core/logger"
+
+	"go.uber.org/zap"
 )
 
 // Options 控制日志输出与轮转策略。
@@ -19,12 +19,13 @@ type Options struct {
 	MaxBackups int    // 保留备份数，默认 5
 	MaxAgeDays int    // 备份保留天数，默认 30
 	Compress   bool   // 是否 gzip 压缩旧备份，默认 false
-	Console    bool   // 是否同时输出到 stdout，默认 true
+	Console    bool   // 是否同时输出到 stdout
+	Level      string // debug/info/warn/error，默认 info
+	Format     string // json/console，默认 json
 }
 
-// Setup 初始化日志：创建目录、配置轮转文件写入器，并把标准库 log 输出
-// 重定向到「文件(+控制台)」。返回组合 writer（供 gin 复用）与关闭函数。
-func Setup(opts Options) (io.Writer, func() error, error) {
+// Setup 初始化全局 zap logger（flymail-core/logger 单例），返回 close 函数（内部 Sync）。
+func Setup(opts Options) (func() error, error) {
 	if opts.Filename == "" {
 		opts.Filename = "flymail.log"
 	}
@@ -37,26 +38,37 @@ func Setup(opts Options) (io.Writer, func() error, error) {
 	if opts.MaxAgeDays <= 0 {
 		opts.MaxAgeDays = 30
 	}
-	if err := os.MkdirAll(opts.Dir, 0o755); err != nil {
-		return nil, nil, err
+	if opts.Level == "" {
+		opts.Level = "info"
+	}
+	if opts.Format == "" {
+		opts.Format = "json"
 	}
 
-	lj := &lumberjack.Logger{
-		Filename:   filepath.Join(opts.Dir, opts.Filename),
-		MaxSize:    opts.MaxSizeMB,
-		MaxBackups: opts.MaxBackups,
-		MaxAge:     opts.MaxAgeDays,
-		Compress:   opts.Compress,
-	}
-
-	var w io.Writer = lj
+	outputs := []string{filepath.Join(opts.Dir, opts.Filename)}
 	if opts.Console {
-		w = io.MultiWriter(os.Stdout, lj)
+		outputs = append(outputs, "stdout")
 	}
 
-	log.SetOutput(w)
-	// 纯文本行：2026/06/02 10:30:01 <msg>。沿用标准库 log 风格，便于 tail/肉眼阅读。
-	log.SetFlags(log.LstdFlags)
+	cfg := &logger.Config{
+		Level:         opts.Level,
+		Development:   false,
+		OutputPaths:   outputs,
+		EncoderFormat: opts.Format,
+		WarnErrorPath: filepath.Join(opts.Dir, "warn_error.log"),
+		Rotation: &logger.RotationConfig{
+			MaxSize:    opts.MaxSizeMB,
+			MaxBackups: opts.MaxBackups,
+			MaxAge:     opts.MaxAgeDays,
+			Compress:   opts.Compress,
+		},
+	}
+	if err := logger.Init(cfg); err != nil {
+		return nil, err
+	}
 
-	return w, lj.Close, nil
+	// 把标准库 log（残留 log.Printf 与第三方）收编进 zap（迁移期安全网）。
+	_ = zap.RedirectStdLog(logger.Logger)
+
+	return func() error { return logger.Close() }, nil
 }

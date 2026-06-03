@@ -145,8 +145,33 @@
     "navSecurity": "Security",
     "navMail": "Mail",
     "navNotify": "Notifications",
+    "navMonitoring": "Monitoring",
     "navShortcuts": "Shortcuts",
     "navAbout": "About",
+    "monitoring": {
+      "title": "System Overview",
+      "help": "Live aggregate (refreshes every 5s).",
+      "accounts": "Accounts",
+      "folders": "Folders",
+      "messages": "Total messages",
+      "unread": "Unread",
+      "workers": "Background sync",
+      "pollInterval": "Poll interval",
+      "uptime": "Uptime",
+      "dbSize": "Database size",
+      "version": "Version",
+      "accountsHealth": "Account Health",
+      "lastSync": "Last sync",
+      "worker": "Running",
+      "noWorker": "Idle",
+      "phase": {
+        "none": "Idle",
+        "folders": "Syncing folders",
+        "messages": "Syncing messages",
+        "done": "Sync complete",
+        "error": "Sync error"
+      }
+    },
     "notify": {
       "title": "Notification Channels",
       "help": "Push to external channels (generic Webhook / Feishu) when events occur, with delivery logs.",

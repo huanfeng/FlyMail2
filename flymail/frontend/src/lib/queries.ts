@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -339,6 +339,34 @@ export function useNotifyLogs() {
     queryFn: async (): Promise<NotifyLog[]> => {
       const { data } = await api.get<{ logs: NotifyLog[] }>('/notify/logs?limit=50')
       return data.logs ?? []
+    },
+  })
+}
+
+// ── 系统监控 ──────────────────────────────────────────────────────────────────
+
+/** 系统概览（打开监控面板时自动刷新）。enabled 控制仅在面板可见时轮询。 */
+export function useMonitoringOverview(enabled: boolean) {
+  return useQuery({
+    queryKey: ['monitoring-overview'],
+    enabled,
+    refetchInterval: enabled ? 5000 : false,
+    queryFn: async (): Promise<MonitoringOverview> => {
+      const { data } = await api.get<MonitoringOverview>('/monitoring/overview')
+      return data
+    },
+  })
+}
+
+/** 各账户健康。 */
+export function useMonitoringAccounts(enabled: boolean) {
+  return useQuery({
+    queryKey: ['monitoring-accounts'],
+    enabled,
+    refetchInterval: enabled ? 5000 : false,
+    queryFn: async (): Promise<AccountHealth[]> => {
+      const { data } = await api.get<{ accounts: AccountHealth[] }>('/monitoring/accounts')
+      return data.accounts ?? []
     },
   })
 }

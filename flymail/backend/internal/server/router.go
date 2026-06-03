@@ -12,6 +12,7 @@ import (
 	"flymail/modules/email/message"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
+	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/setting"
 	"flymail/web"
@@ -22,16 +23,17 @@ import (
 
 // Deps 路由依赖，后续里程碑在此追加 service。
 type Deps struct {
-	Auth    *auth.Service
-	Account *account.Service
-	Folder  *folder.Service
-	Message *message.Service
-	Sync    *syncmod.Service
-	Setting *setting.Service
-	Send    *send.Service
-	Draft   *draft.Service
-	Notify  *notify.Service
-	Events  http.HandlerFunc
+	Auth       *auth.Service
+	Account    *account.Service
+	Folder     *folder.Service
+	Message    *message.Service
+	Sync       *syncmod.Service
+	Setting    *setting.Service
+	Send       *send.Service
+	Draft      *draft.Service
+	Notify     *notify.Service
+	Monitoring *monitoring.Service
+	Events     http.HandlerFunc
 	// VerifyToken 校验 access token（供 SSE/附件等无法走 Bearer 中间件的端点自鉴权）。
 	VerifyToken func(token string) error
 }
@@ -93,6 +95,9 @@ func New(deps Deps) http.Handler {
 		}
 		if deps.Notify != nil {
 			notify.RegisterRoutes(protected, deps.Notify)
+		}
+		if deps.Monitoring != nil {
+			monitoring.RegisterRoutes(protected, deps.Monitoring)
 		}
 	}
 

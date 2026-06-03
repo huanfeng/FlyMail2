@@ -120,6 +120,20 @@ func New(cfg *config.Config) (*App, error) {
 	return &App{cfg: cfg, srv: &http.Server{Handler: handler}, manager: manager, logClose: logClose}, nil
 }
 
+// Handler 返回装配好的 HTTP 处理器（gin 引擎）。
+// 桌面形态（Wails）将其作为 AssetServer.Handler 复用，无需 TCP 监听。
+func (a *App) Handler() http.Handler { return a.srv.Handler }
+
+// StartBackground 启动后台同步管理器（IDLE + 轮询，Shutdown 时取消）。
+// 桌面形态无需 HTTP 监听，单独调用此方法即可；server 形态由 Start 内部调用。
+func (a *App) StartBackground() {
+	if a.manager != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		a.cancel = cancel
+		a.manager.Start(ctx)
+	}
+}
+
 // Start 在指定地址监听（addr 为空则用配置 host:port）。返回实际监听地址。
 func (a *App) Start(addr string) (string, error) {
 	if addr == "" {
@@ -132,12 +146,7 @@ func (a *App) Start(addr string) (string, error) {
 	a.addr = ln.Addr().String()
 	go func() { _ = a.srv.Serve(ln) }()
 
-	// 启动后台同步管理器（监听窗口期内常驻，Shutdown 时取消）。
-	if a.manager != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		a.cancel = cancel
-		a.manager.Start(ctx)
-	}
+	a.StartBackground()
 	return a.addr, nil
 }
 

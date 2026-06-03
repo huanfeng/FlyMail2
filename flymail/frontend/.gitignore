@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 tmp
+
+# Wails 生成的 JS 绑定（Handler 模式下未使用）
+wailsjs

@@ -92,12 +92,43 @@ export function ComposeDialog({
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  // ── 浮窗自由拖动（拖标题栏）─────────────────────────────────────────────────
+  // pos 为 null 时用 CSS 默认右下角；拖动后切换为 left/top 绝对定位并夹紧在视口内。
+  const winRef = React.useRef<HTMLDivElement>(null)
+  const dragRef = React.useRef<{ dx: number; dy: number } | null>(null)
+  const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null)
+
+  function onHeadPointerDown(e: React.PointerEvent) {
+    // 点到标题栏按钮（最小化/关闭）时不触发拖动
+    if ((e.target as HTMLElement).closest('button')) return
+    const el = winRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    dragRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    setPos({ x: rect.left, y: rect.top }) // 从当前位置接管，避免跳变
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  function onHeadPointerMove(e: React.PointerEvent) {
+    if (!dragRef.current) return
+    const el = winRef.current
+    const w = el?.offsetWidth ?? 0
+    const h = el?.offsetHeight ?? 0
+    const x = Math.max(0, Math.min(window.innerWidth - w, e.clientX - dragRef.current.dx))
+    const y = Math.max(0, Math.min(window.innerHeight - h, e.clientY - dragRef.current.dy))
+    setPos({ x, y })
+  }
+  function onHeadPointerUp(e: React.PointerEvent) {
+    dragRef.current = null
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+  }
+
   // 打开时用 initial 预填，关闭时重置 UI 状态
   React.useEffect(() => {
     if (open) {
       setValidationError(null)
       setInfoMessage(null)
       setMinimized(false)
+      setPos(null) // 每次打开回到默认右下角
 
       // 有抄送预填时自动展开抄送行
       const hasCc = (initial?.cc ?? []).length > 0
@@ -285,11 +316,29 @@ export function ComposeDialog({
   // ────────────────────────────────────────────────────────────────────────────
   // 浮窗主体 .compose-window
   // ────────────────────────────────────────────────────────────────────────────
-  return (
-    <div className="compose-window" onMouseDown={(e) => e.stopPropagation()}>
+  // 拖动后用 left/top 绝对定位；移动端(≤768)保持 CSS 全屏，不应用 pos
+  const winStyle: React.CSSProperties | undefined =
+    pos && window.innerWidth > 768
+      ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
+      : undefined
 
-      {/* ── 标题栏 .compose-head ─────────────────────────────────────────────── */}
-      <div className="compose-head">
+  return (
+    <div
+      ref={winRef}
+      className="compose-window"
+      style={winStyle}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+
+      {/* ── 标题栏 .compose-head（可拖动）─────────────────────────────────────── */}
+      <div
+        className="compose-head"
+        style={{ cursor: 'move', touchAction: 'none' }}
+        onPointerDown={onHeadPointerDown}
+        onPointerMove={onHeadPointerMove}
+        onPointerUp={onHeadPointerUp}
+        onPointerCancel={onHeadPointerUp}
+      >
         <Icon name="compose" size={12} />
         <h3>{title}</h3>
         {/* spacer */}

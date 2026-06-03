@@ -27,6 +27,8 @@ interface KeyboardShortcutsOptions {
   onCloseCompose: () => void
   /** Compose 是否打开中（打开时屏蔽单键，但 Esc 仍生效） */
   composeOpen: boolean
+  /** Esc 且 Compose 未打开时调用（清空选中邮件 / 关闭双栏浮动阅读） */
+  onEscape?: () => void
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -64,6 +66,7 @@ export function useKeyboardShortcuts({
   selectMessage,
   onCloseCompose,
   composeOpen,
+  onEscape,
 }: KeyboardShortcutsOptions): void {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -71,7 +74,16 @@ export function useKeyboardShortcuts({
       if (e.key === 'Escape') {
         if (composeOpen) {
           onCloseCompose()
+        } else {
+          onEscape?.()
         }
+        return
+      }
+
+      // ⌘K / Ctrl+K：聚焦搜索（组合键，无论焦点位置都生效）
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent(FOCUS_SEARCH_EVENT))
         return
       }
 
@@ -148,5 +160,6 @@ export function useKeyboardShortcuts({
     selectMessage,
     onCloseCompose,
     composeOpen,
+    onEscape,
   ])
 }

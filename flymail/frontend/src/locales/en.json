@@ -66,6 +66,7 @@
     "markUnread": "Mark as unread",
     "delete": "Delete",
     "move": "Move",
+    "close": "Close",
     "deleteConfirm": "Delete this message? (Moved to Trash; permanently deleted if already in Trash)",
     "reply": "Reply",
     "replyAll": "Reply All",
@@ -150,7 +151,11 @@
       "sidebarWidth": "Sidebar width",
       "listWidth": "List width",
       "widthHint": "You can also drag the dividers between columns",
-      "density": "List density"
+      "density": "List density",
+      "layout": "Layout",
+      "layoutHelp": "Choose three columns, or two columns with a slide-in reading panel",
+      "layoutThree": "Three columns",
+      "layoutTwoSlide": "Two columns + slide-in"
     },
     "shortcuts": {
       "title": "Keyboard Shortcuts",

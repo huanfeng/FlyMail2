@@ -38,6 +38,8 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { getListStyle, setListStyle } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
+import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
+import type { LayoutMode } from '@/lib/layout-mode'
 import type { Account, Draft, MessageDetail } from '@/lib/types'
 
 /** 校验 URL 中的 agg 参数是否为合法聚合视图 */
@@ -66,6 +68,13 @@ export function ShellPage() {
   function handleChangeListStyle(style: ListStyle) {
     setListStyle(style)
     setListStyleState(style)
+  }
+
+  // 布局模式偏好（三栏 / 双栏浮动阅读）
+  const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => getLayoutMode())
+  function handleChangeLayoutMode(mode: LayoutMode) {
+    setLayoutMode(mode)
+    setLayoutModeState(mode)
   }
 
   const { data: accounts = [] } = useAccounts()
@@ -224,6 +233,8 @@ export function ShellPage() {
   const [appView, setAppView] = useState<AppView>('mail')
   // ── 设置浮层 state ────────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // ── 移动端侧栏抽屉 state ───────────────────────────────────────────────────────
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   // ── 中栏视图 state（邮件视图内部：messages / drafts）───────────────────────────
   const [view, setView] = useState<'messages' | 'drafts'>('messages')
@@ -272,6 +283,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
       p.set('account', String(id))
@@ -285,6 +297,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
       p.set('folder', String(id))
@@ -298,6 +311,7 @@ export function ShellPage() {
     setView('messages')
     setAppView('mail')
     setSettingsOpen(false)
+    setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
       p.set('agg', v)
@@ -348,6 +362,8 @@ export function ShellPage() {
     selectMessage,
     onCloseCompose: () => setComposeOpen(false),
     composeOpen,
+    // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
+    onEscape: onMobileBack,
   })
 
   function onOpenDrafts(accId: number) {
@@ -374,6 +390,13 @@ export function ShellPage() {
     unread: 'sidebar.allUnread',
     starred: 'sidebar.starred',
   }
+  // 移动端单栏：有选中邮件或处于通知视图时显示阅读面板，否则显示列表面板
+  const mobilePane: 'list' | 'reader' = messageId != null || appView === 'notif' ? 'reader' : 'list'
+  function onMobileBack() {
+    setAppView('mail')
+    setParam((p) => p.delete('message'))
+  }
+
   // 列表标题/副标题：搜索 > 聚合 > 文件夹（文件夹由 MailList 内部据 folder 计算）
   const listTitle = searching ? t('list.searchTitle') : agg ? t(aggLabelKey[agg]) : undefined
   const listSubtitle = searching || agg ? t('list.totalCount', { count: messages.length }) : undefined
@@ -394,11 +417,11 @@ export function ShellPage() {
       onSelectFolder={selectFolder}
       onSelectAggregate={selectAggregate}
       onSync={onSync}
-      onAddAccount={onAddAccount}
-      onSetView={setAppView}
-      onToggleSettings={() => setSettingsOpen((o) => !o)}
-      onCompose={onCompose}
-      onOpenDrafts={onOpenDrafts}
+      onAddAccount={() => { onAddAccount(); setDrawerOpen(false) }}
+      onSetView={(v) => { setAppView(v); setDrawerOpen(false) }}
+      onToggleSettings={() => { setSettingsOpen((o) => !o); setDrawerOpen(false) }}
+      onCompose={() => { onCompose(); setDrawerOpen(false) }}
+      onOpenDrafts={(id) => { onOpenDrafts(id); setDrawerOpen(false) }}
     />
   )
 
@@ -406,6 +429,11 @@ export function ShellPage() {
     <>
       <AppLayout
         sidebar={sidebar}
+        mobilePane={mobilePane}
+        drawerOpen={drawerOpen}
+        onDrawerOpenChange={setDrawerOpen}
+        onMobileBack={onMobileBack}
+        layoutMode={layoutMode}
         list={
           view === 'drafts' && accountId != null ? (
             <DraftsList accountId={accountId} onOpenDraft={openDraft} />
@@ -471,6 +499,8 @@ export function ShellPage() {
         <SettingsDialog
           listStyle={listStyle}
           onChangeListStyle={handleChangeListStyle}
+          layoutMode={layoutMode}
+          onChangeLayoutMode={handleChangeLayoutMode}
           onClose={() => setSettingsOpen(false)}
         />
       )}

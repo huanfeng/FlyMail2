@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   LAYOUT_EVENT,
   LAYOUT_LIMITS as LIMITS,
@@ -7,6 +8,7 @@ import {
   saveLayoutWidths,
   type LayoutWidths as Widths,
 } from '@/lib/layout-prefs'
+import { Icon } from '@/components/ui/Icon'
 
 interface AppLayoutProps {
   sidebar: ReactNode
@@ -16,9 +18,36 @@ interface AppLayoutProps {
    * 通知屏，左侧 sidebar + list 仍可见。设置为浮层 modal，不经此处。
    */
   reader: ReactNode
+  /**
+   * 移动端当前显示的主面板：'list'（列表）或 'reader'（阅读/通知）。
+   * 桌面端忽略（三栏并排），仅窄屏单栏时据此切换。
+   */
+  mobilePane: 'list' | 'reader'
+  /** 移动端侧栏抽屉是否打开（桌面端忽略，侧栏常驻）。 */
+  drawerOpen: boolean
+  onDrawerOpenChange: (open: boolean) => void
+  /** 移动端从阅读面板返回列表（清空当前邮件/退出通知）。也用于双栏模式关闭浮动阅读。 */
+  onMobileBack: () => void
+  /** 布局模式：three（三栏并排）/ two-slide（双栏 + 右侧浮动阅读）。移动端一律按三栏单栏处理。 */
+  layoutMode: 'three' | 'two-slide'
 }
 
 type PaneKey = 'sidebar' | 'list'
+
+/** 监听媒体查询是否匹配（用于桌面/移动布局切换）。 */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    const m = window.matchMedia(query)
+    const handler = () => setMatches(m.matches)
+    handler()
+    m.addEventListener('change', handler)
+    return () => m.removeEventListener('change', handler)
+  }, [query])
+  return matches
+}
 
 /**
  * 三栏布局外壳，复刻 MailMaster .app/.col/.col-resize 结构。
@@ -27,7 +56,21 @@ type PaneKey = 'sidebar' | 'list'
  * - 拖拽：pointer capture，拖拽时给手柄加 .dragging、给 body 加 .is-resizing。
  * - 宽度偏好与设置弹框滑块共用 layout-prefs；设置改动经 LAYOUT_EVENT 即时同步到此。
  */
-export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
+export function AppLayout({
+  sidebar,
+  list,
+  reader,
+  mobilePane,
+  drawerOpen,
+  onDrawerOpenChange,
+  onMobileBack,
+  layoutMode,
+}: AppLayoutProps) {
+  const { t } = useTranslation()
+  // 移动端(≤768)一律按三栏单栏处理，双栏浮动仅桌面生效
+  const isMobile = useMediaQuery('(max-width: 768px)')
+  const effLayout = isMobile ? 'three' : layoutMode
+  const readerOpen = mobilePane === 'reader'
   const [w, setW] = useState<Widths>(loadLayoutWidths)
   // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
   const wRef = useRef(w)
@@ -94,12 +137,45 @@ export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
   }
 
   return (
-    // .app：全屏 flex 容器，class 与 index.css 中的 .app 对应
-    <div className="app">
-      {/* 侧栏：.col.sidebar，宽度由 CSS 变量 --sidebar-w 控制，常驻所有视图 */}
+    // .app：桌面三栏 flex；窄屏据 data-mobile-pane 单栏切换，drawer-open 控制侧栏抽屉
+    <div
+      className={'app' + (drawerOpen ? ' drawer-open' : '')}
+      data-mobile-pane={mobilePane}
+      data-layout={effLayout === 'two-slide' ? 'two-slide' : undefined}
+    >
+      {/* 移动端顶栏：列表面板显示汉堡(开抽屉)，阅读面板显示返回。桌面端 CSS 隐藏。*/}
+      <div className="mobile-bar">
+        {mobilePane === 'reader' ? (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onMobileBack}
+            aria-label={t('notif.backToInbox')}
+          >
+            <span style={{ transform: 'scaleX(-1)', display: 'inline-flex' }}>
+              <Icon name="chevron-right" size={18} />
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => onDrawerOpenChange(true)}
+            aria-label={t('app.name')}
+          >
+            <Icon name="more" size={18} />
+          </button>
+        )}
+        <div className="brand-name" style={{ fontSize: 15 }}>{t('app.name')}</div>
+      </div>
+
+      {/* 侧栏：.col.sidebar，桌面常驻；窄屏为左侧抽屉 */}
       <div className="col sidebar">
         {sidebar}
       </div>
+
+      {/* 抽屉遮罩（仅窄屏 + 抽屉打开时可见，点击关闭）*/}
+      <div className="drawer-backdrop" onClick={() => onDrawerOpenChange(false)} />
 
       {/* 侧栏与列表之间的拖拽手柄 */}
       <div
@@ -110,24 +186,52 @@ export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
         {...makeResizeHandlers('sidebar')}
       />
 
-      {/* 列表栏：.col.list，宽度由 CSS 变量 --list-w 控制 */}
-      <div className="col list">
+      {/* 列表栏：.col.list；双栏模式加 .list-wide 占满剩余宽度 */}
+      <div className={'col list' + (effLayout === 'two-slide' ? ' list-wide' : '')}>
         {list}
       </div>
 
-      {/* 列表与阅读区之间的拖拽手柄 */}
-      <div
-        className="col-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整列表宽度"
-        {...makeResizeHandlers('list')}
-      />
+      {effLayout === 'three' ? (
+        <>
+          {/* 列表与阅读区之间的拖拽手柄 */}
+          <div
+            className="col-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整列表宽度"
+            {...makeResizeHandlers('list')}
+          />
 
-      {/* 第三栏：.col.reader，占剩余空间（邮件视图=Reader，通知视图=通知屏）*/}
-      <div className="col reader">
-        {reader}
-      </div>
+          {/* 第三栏：.col.reader（邮件视图=Reader，通知视图=通知屏）*/}
+          <div className="col reader">
+            {reader}
+          </div>
+        </>
+      ) : (
+        // 双栏模式：阅读面板从右侧滑入浮层，不占列表空间，可关闭
+        <div className={'reader-slide-wrap' + (readerOpen ? ' open' : '')}>
+          <div className="reader-slide">
+            {readerOpen && (
+              <>
+                {/* 关闭按钮（浮于阅读面板左上角，返回方向指向左侧列表，符合操作逻辑）*/}
+                <button
+                  type="button"
+                  className="icon-btn reader-slide-close"
+                  onClick={onMobileBack}
+                  aria-label={t('reader.close')}
+                  title={t('reader.close')}
+                  style={{ position: 'absolute', top: 12, left: 12, zIndex: 5 }}
+                >
+                  <span style={{ transform: 'scaleX(-1)', display: 'inline-flex' }}>
+                    <Icon name="chevron-right" size={18} />
+                  </span>
+                </button>
+                {reader}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

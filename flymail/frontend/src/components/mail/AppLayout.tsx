@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   LAYOUT_EVENT,
   LAYOUT_LIMITS as LIMITS,
@@ -7,6 +8,7 @@ import {
   saveLayoutWidths,
   type LayoutWidths as Widths,
 } from '@/lib/layout-prefs'
+import { Icon } from '@/components/ui/Icon'
 
 interface AppLayoutProps {
   sidebar: ReactNode
@@ -16,6 +18,16 @@ interface AppLayoutProps {
    * 通知屏，左侧 sidebar + list 仍可见。设置为浮层 modal，不经此处。
    */
   reader: ReactNode
+  /**
+   * 移动端当前显示的主面板：'list'（列表）或 'reader'（阅读/通知）。
+   * 桌面端忽略（三栏并排），仅窄屏单栏时据此切换。
+   */
+  mobilePane: 'list' | 'reader'
+  /** 移动端侧栏抽屉是否打开（桌面端忽略，侧栏常驻）。 */
+  drawerOpen: boolean
+  onDrawerOpenChange: (open: boolean) => void
+  /** 移动端从阅读面板返回列表（清空当前邮件/退出通知）。 */
+  onMobileBack: () => void
 }
 
 type PaneKey = 'sidebar' | 'list'
@@ -27,7 +39,16 @@ type PaneKey = 'sidebar' | 'list'
  * - 拖拽：pointer capture，拖拽时给手柄加 .dragging、给 body 加 .is-resizing。
  * - 宽度偏好与设置弹框滑块共用 layout-prefs；设置改动经 LAYOUT_EVENT 即时同步到此。
  */
-export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
+export function AppLayout({
+  sidebar,
+  list,
+  reader,
+  mobilePane,
+  drawerOpen,
+  onDrawerOpenChange,
+  onMobileBack,
+}: AppLayoutProps) {
+  const { t } = useTranslation()
   const [w, setW] = useState<Widths>(loadLayoutWidths)
   // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
   const wRef = useRef(w)
@@ -94,12 +115,41 @@ export function AppLayout({ sidebar, list, reader }: AppLayoutProps) {
   }
 
   return (
-    // .app：全屏 flex 容器，class 与 index.css 中的 .app 对应
-    <div className="app">
-      {/* 侧栏：.col.sidebar，宽度由 CSS 变量 --sidebar-w 控制，常驻所有视图 */}
+    // .app：桌面三栏 flex；窄屏据 data-mobile-pane 单栏切换，drawer-open 控制侧栏抽屉
+    <div className={'app' + (drawerOpen ? ' drawer-open' : '')} data-mobile-pane={mobilePane}>
+      {/* 移动端顶栏：列表面板显示汉堡(开抽屉)，阅读面板显示返回。桌面端 CSS 隐藏。*/}
+      <div className="mobile-bar">
+        {mobilePane === 'reader' ? (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onMobileBack}
+            aria-label={t('notif.backToInbox')}
+          >
+            <span style={{ transform: 'scaleX(-1)', display: 'inline-flex' }}>
+              <Icon name="chevron-right" size={18} />
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => onDrawerOpenChange(true)}
+            aria-label={t('app.name')}
+          >
+            <Icon name="more" size={18} />
+          </button>
+        )}
+        <div className="brand-name" style={{ fontSize: 15 }}>{t('app.name')}</div>
+      </div>
+
+      {/* 侧栏：.col.sidebar，桌面常驻；窄屏为左侧抽屉 */}
       <div className="col sidebar">
         {sidebar}
       </div>
+
+      {/* 抽屉遮罩（仅窄屏 + 抽屉打开时可见，点击关闭）*/}
+      <div className="drawer-backdrop" onClick={() => onDrawerOpenChange(false)} />
 
       {/* 侧栏与列表之间的拖拽手柄 */}
       <div

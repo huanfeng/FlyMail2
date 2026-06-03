@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -219,6 +219,126 @@ export function useContacts(q: string, enabled: boolean) {
         `/contacts?q=${encodeURIComponent(q)}&limit=8`,
       )
       return data.contacts ?? []
+    },
+  })
+}
+
+// ── 通知中心 ──────────────────────────────────────────────────────────────────
+
+interface NotificationsPage {
+  notifications: Notification[]
+  unread_count: number
+}
+
+/** 站内通知 feed（无限加载，before_id 游标）。 */
+export function useNotifications() {
+  return useInfiniteQuery({
+    queryKey: ['notifications'],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }): Promise<NotificationsPage> => {
+      const { data } = await api.get<NotificationsPage>(`/notifications?limit=30&before_id=${pageParam ?? 0}`)
+      return { notifications: data.notifications ?? [], unread_count: data.unread_count ?? 0 }
+    },
+    getNextPageParam: (lastPage) => {
+      const arr = lastPage.notifications
+      return arr.length < 30 ? undefined : arr[arr.length - 1].id
+    },
+  })
+}
+
+/** 轻量未读计数（铃铛角标用，定时刷新）。 */
+export function useNotificationUnread() {
+  return useQuery({
+    queryKey: ['notifications-unread'],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<number> => {
+      const { data } = await api.get<NotificationsPage>('/notifications?limit=1')
+      return data.unread_count ?? 0
+    },
+  })
+}
+
+function invalidateNotifs(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['notifications'] })
+  void qc.invalidateQueries({ queryKey: ['notifications-unread'] })
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.post('/notifications/read', { id }) },
+    onSuccess: () => invalidateNotifs(qc),
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => { await api.post('/notifications/read-all') },
+    onSuccess: () => invalidateNotifs(qc),
+  })
+}
+
+export function useClearNotifications() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => { await api.post('/notifications/clear') },
+    onSuccess: () => invalidateNotifs(qc),
+  })
+}
+
+// ── 外发渠道 ──────────────────────────────────────────────────────────────────
+
+export function useNotifyChannels() {
+  return useQuery({
+    queryKey: ['notify-channels'],
+    queryFn: async (): Promise<NotifyChannel[]> => {
+      const { data } = await api.get<{ channels: NotifyChannel[] }>('/notify/channels')
+      return data.channels ?? []
+    },
+  })
+}
+
+export function useCreateNotifyChannel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NotifyChannelInput) => { await api.post('/notify/channels', input) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['notify-channels'] }) },
+  })
+}
+
+export function useUpdateNotifyChannel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: number; input: NotifyChannelInput }) => {
+      await api.put(`/notify/channels/${id}`, input)
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['notify-channels'] }) },
+  })
+}
+
+export function useDeleteNotifyChannel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.delete(`/notify/channels/${id}`) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['notify-channels'] }) },
+  })
+}
+
+export function useTestNotifyChannel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.post(`/notify/channels/${id}/test`) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['notify-logs'] }) },
+  })
+}
+
+export function useNotifyLogs() {
+  return useQuery({
+    queryKey: ['notify-logs'],
+    queryFn: async (): Promise<NotifyLog[]> => {
+      const { data } = await api.get<{ logs: NotifyLog[] }>('/notify/logs?limit=50')
+      return data.logs ?? []
     },
   })
 }

@@ -141,6 +141,20 @@
     "markAllRead": "全部已读",
     "clear": "清空"
   },
+  "shortcuts": {
+    "title": "键盘快捷键",
+    "hint": "随时按 ? 打开此面板",
+    "groupNav": "导航",
+    "groupActions": "操作",
+    "groupSearch": "搜索",
+    "groupGeneral": "通用",
+    "nav": "下一封 / 上一封",
+    "compose": "写新邮件",
+    "reply": "回复当前邮件",
+    "search": "聚焦搜索框",
+    "help": "显示 / 隐藏快捷键面板",
+    "close": "返回 / 关闭"
+  },
   "settings": {
     "title": "设置",
     "navProfile": "资料",
@@ -236,13 +250,7 @@
       "layoutTwoSlide": "双栏 + 浮动阅读"
     },
     "shortcuts": {
-      "title": "键盘快捷键",
-      "help": "在邮件视图中可用",
-      "nav": "下一封 / 上一封",
-      "compose": "写新邮件",
-      "reply": "回复当前邮件",
-      "search": "聚焦搜索框",
-      "close": "返回 / 关闭"
+      "title": "键盘快捷键"
     },
     "about": {
       "title": "关于 FlyMail",

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { MessageListItem } from '@/lib/types'
+import { KEY } from '@/lib/shortcuts'
 
 // ────────────────────────────────────────────────────────────────────────────
 // 自定义事件名：用于跨组件通信（聚焦搜索框）
@@ -27,8 +28,14 @@ interface KeyboardShortcutsOptions {
   onCloseCompose: () => void
   /** Compose 是否打开中（打开时屏蔽单键，但 Esc 仍生效） */
   composeOpen: boolean
-  /** Esc 且 Compose 未打开时调用（清空选中邮件 / 关闭双栏浮动阅读） */
+  /** Esc 且 Compose / 帮助浮层均未打开时调用（清空选中邮件 / 关闭双栏浮动阅读） */
   onEscape?: () => void
+  /** `?` 切换快捷键速查浮层 */
+  onToggleHelp: () => void
+  /** 关闭快捷键速查浮层（Esc 时优先于其它 Esc 行为） */
+  onCloseHelp: () => void
+  /** 速查浮层是否打开中（打开时屏蔽单键，Esc 优先关闭它） */
+  helpOpen: boolean
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -54,8 +61,10 @@ function isInInputField(target: EventTarget | null): boolean {
  * - /       : 聚焦列表搜索框
  * - r       : 回复当前邮件（仅有选中邮件时生效）
  * - j / k   : 列表下一封 / 上一封
- * - Esc     : 关闭 Compose / 取消选中
+ * - ?       : 切换快捷键速查浮层
+ * - Esc     : 关闭速查浮层 / 关闭 Compose / 取消选中
  *
+ * 键位目录的单一真相源见 lib/shortcuts.ts（KEY 常量 + getShortcutGroups）。
  * 注意：输入框/textarea/contenteditable 聚焦时不触发单键。
  */
 export function useKeyboardShortcuts({
@@ -67,12 +76,17 @@ export function useKeyboardShortcuts({
   onCloseCompose,
   composeOpen,
   onEscape,
+  onToggleHelp,
+  onCloseHelp,
+  helpOpen,
 }: KeyboardShortcutsOptions): void {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Esc 优先处理（无论焦点位置）
-      if (e.key === 'Escape') {
-        if (composeOpen) {
+      // Esc 优先处理（无论焦点位置）：帮助浮层 > Compose > 通用返回
+      if (e.key === KEY.escape) {
+        if (helpOpen) {
+          onCloseHelp()
+        } else if (composeOpen) {
           onCloseCompose()
         } else {
           onEscape?.()
@@ -87,8 +101,17 @@ export function useKeyboardShortcuts({
         return
       }
 
-      // 在输入型元素内或 Compose 打开时，屏蔽单键快捷键
-      if (isInInputField(e.target) || composeOpen) return
+      // ? : 切换快捷键速查浮层。在其它单键屏蔽之前处理（即使浮层已开也能再次按 ? 关闭），
+      //     但输入框内不触发，避免打字时误开。
+      if (e.key === KEY.help) {
+        if (isInInputField(e.target)) return
+        e.preventDefault()
+        onToggleHelp()
+        return
+      }
+
+      // 在输入型元素内 / Compose 打开 / 帮助浮层打开时，屏蔽其余单键快捷键
+      if (isInInputField(e.target) || composeOpen || helpOpen) return
 
       // 忽略带修饰键的组合（让浏览器原生快捷键正常工作）
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -97,22 +120,22 @@ export function useKeyboardShortcuts({
 
       switch (key) {
         // c 或 n：撰写新邮件
-        case 'c':
-        case 'n': {
+        case KEY.composeC:
+        case KEY.composeN: {
           e.preventDefault()
           onCompose()
           break
         }
 
         // /：聚焦列表搜索框（通过自定义事件通知 MailList）
-        case '/': {
+        case KEY.focusSearch: {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent(FOCUS_SEARCH_EVENT))
           break
         }
 
         // r：回复当前邮件
-        case 'r': {
+        case KEY.reply: {
           if (onReply != null) {
             e.preventDefault()
             onReply()
@@ -121,7 +144,7 @@ export function useKeyboardShortcuts({
         }
 
         // j：列表下一封
-        case 'j': {
+        case KEY.next: {
           e.preventDefault()
           if (messages.length === 0) break
           const idx = messages.findIndex((m) => m.id === activeMessageId)
@@ -133,7 +156,7 @@ export function useKeyboardShortcuts({
         }
 
         // k：列表上一封
-        case 'k': {
+        case KEY.prev: {
           e.preventDefault()
           if (messages.length === 0) break
           const idx = messages.findIndex((m) => m.id === activeMessageId)
@@ -161,5 +184,8 @@ export function useKeyboardShortcuts({
     onCloseCompose,
     composeOpen,
     onEscape,
+    onToggleHelp,
+    onCloseHelp,
+    helpOpen,
   ])
 }

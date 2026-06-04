@@ -1603,3 +1603,95 @@ body.is-resizing * { cursor: col-resize !important; }
   animation: spin 1s linear infinite;
   display: inline-block;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   键盘可达性：列表行 / chip 焦点环（仅键盘聚焦时显示）
+   ════════════════════════════════════════════════════════════════════════ */
+.mail-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.chip:focus-visible,
+.bb-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   快捷键键位表（速查浮层 + 设置分区共用 .sc-* 类）
+   ════════════════════════════════════════════════════════════════════════ */
+.sc-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px 28px;
+}
+.sc-group h3 {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600; margin: 0 0 8px;
+}
+.sc-rows { display: flex; flex-direction: column; gap: 8px; }
+.sc-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.sc-keys { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.sc-kbd {
+  min-width: 20px; padding: 2px 7px; border-radius: 5px;
+  border: 1px solid var(--rule); border-bottom-width: 2px;
+  background: var(--bg-alt); color: var(--ink);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+  text-align: center;
+}
+.sc-desc { color: var(--ink-2); font-size: 13px; }
+
+/* 速查浮层（? 触发的居中 modal）*/
+.shortcuts-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  display: grid; place-items: center; padding: 20px;
+  background: rgba(0, 0, 0, 0.32);
+  animation: fadeIn 0.14s ease;
+}
+.shortcuts-card {
+  width: min(680px, 100%); max-height: min(80vh, 620px);
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+  animation: pop 0.16s ease;
+  overflow: hidden;
+}
+.shortcuts-card .sc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px 14px; border-bottom: 1px solid var(--rule);
+}
+.shortcuts-card .sc-head h2 {
+  font-family: var(--font-display); font-size: 18px; font-weight: 500; margin: 0;
+}
+.shortcuts-card .sc-groups {
+  padding: 20px 22px; overflow-y: auto;
+}
+.shortcuts-card .sc-foot {
+  padding: 12px 22px; border-top: 1px solid var(--rule);
+  color: var(--ink-3); font-size: 12px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   响应式：窄屏细节打磨
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* 列表标题/搜索栏收紧左右内边距 */
+  .list-head { padding: 10px 14px; height: 50px; }
+  .list-title { font-size: 18px; }
+  .search-bar { padding: 8px 12px; }
+  .filter-chips { padding: 6px 12px 2px; }
+
+  /* 批量操作条按钮多、窄屏放不下时横向滚动而非换行错位 */
+  .batch-bar {
+    overflow-x: auto; flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .batch-bar::-webkit-scrollbar { display: none; }
+  .batch-bar .bb-btn { flex: 0 0 auto; }
+
+  /* 速查浮层贴边、单列堆叠 */
+  .shortcuts-backdrop { padding: 12px; align-items: start; padding-top: 8vh; }
+  .shortcuts-card .sc-groups { grid-template-columns: 1fr; gap: 16px; }
+}

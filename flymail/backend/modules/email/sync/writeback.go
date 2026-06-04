@@ -1,10 +1,12 @@
 package sync
 
 import (
-	"log"
 	"time"
 
+	"flymail-core/logger"
+
 	imapv2 "github.com/emersion/go-imap/v2"
+	"go.uber.org/zap"
 )
 
 const maxRetry = 3
@@ -24,7 +26,8 @@ func (s *Service) enqueueWriteback(op wbOp) {
 	select {
 	case s.wbCh <- op:
 	default:
-		log.Printf("[sync/writeback] queue full, dropping writeback op uid=%d accountID=%d", op.uid, op.accountID)
+		logger.Warn("sync/writeback: 队列已满，丢弃回写操作",
+			zap.Uint32("uid", uint32(op.uid)), zap.Uint("account_id", op.accountID))
 	}
 }
 
@@ -48,12 +51,14 @@ func (s *Service) writebackLoop() {
 func (s *Service) processWriteback(op wbOp) {
 	f, err := s.folders.GetByID(op.folderID)
 	if err != nil {
-		log.Printf("[sync/writeback] GetByID folder %d failed: %v", op.folderID, err)
+		logger.Error("sync/writeback: 取文件夹失败",
+			zap.Uint("folder_id", op.folderID), zap.Error(err))
 		return
 	}
 	cfg, err := s.accounts.IMAPConfig(op.accountID)
 	if err != nil {
-		log.Printf("[sync/writeback] IMAPConfig account %d failed: %v", op.accountID, err)
+		logger.Error("sync/writeback: 取 IMAP 配置失败",
+			zap.Uint("account_id", op.accountID), zap.Error(err))
 		return
 	}
 	sess, err := s.dial(cfg)
@@ -99,13 +104,15 @@ func (s *Service) processWriteback(op wbOp) {
 func (s *Service) retryOrDrop(op wbOp, err error) {
 	op.attempt++
 	if op.attempt >= maxRetry {
-		log.Printf("[sync/writeback] giving up uid=%d accountID=%d after %d attempts: %v",
-			op.uid, op.accountID, op.attempt, err)
+		logger.Error("sync/writeback: 放弃回写",
+			zap.Uint32("uid", uint32(op.uid)), zap.Uint("account_id", op.accountID),
+			zap.Int("attempt", op.attempt), zap.Error(err))
 		return
 	}
 	backoff := time.Duration(op.attempt) * time.Second
-	log.Printf("[sync/writeback] retry %d/%d uid=%d in %v: %v",
-		op.attempt, maxRetry, op.uid, backoff, err)
+	logger.Warn("sync/writeback: 重试回写",
+		zap.Int("attempt", op.attempt), zap.Int("max_retry", maxRetry),
+		zap.Uint32("uid", uint32(op.uid)), zap.Duration("backoff", backoff), zap.Error(err))
 	// 用 AfterFunc 异步延迟重新入队，避免在单 worker 内 sleep 阻塞整个队列。
 	time.AfterFunc(backoff, func() { s.enqueueWriteback(op) })
 }

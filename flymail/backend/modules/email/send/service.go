@@ -5,15 +5,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	coreimap "flymail-core/imap"
+	"flymail-core/logger"
 	coresmtp "flymail-core/smtp"
 	"flymail-core/types"
 
 	imapv2 "github.com/emersion/go-imap/v2"
+	"go.uber.org/zap"
 
 	"flymail/modules/email/account"
 	"flymail/modules/email/folder"
@@ -116,15 +117,18 @@ func (s *Service) Send(req SendRequest) error {
 	// 尽力 APPEND 到"已发送"（失败只记日志，不返回错误）
 	sentFolder, err := s.folders.FindByType(req.AccountID, "sent")
 	if err != nil {
-		log.Printf("send: find sent folder: %v", err)
+		logger.Warn("send: 查找已发送文件夹失败",
+			zap.Uint("account_id", req.AccountID), zap.Error(err))
 	}
 	if sentFolder != nil {
 		imapCfg, err := s.accounts.IMAPConfig(req.AccountID)
 		if err != nil {
-			log.Printf("send: get imap config for append: %v", err)
+			logger.Warn("send: 取 IMAP 配置以 APPEND 失败",
+				zap.Uint("account_id", req.AccountID), zap.Error(err))
 		} else {
 			if err := s.appendFn(imapCfg, sentFolder.Path, raw); err != nil {
-				log.Printf("send: append to sent folder %q: %v", sentFolder.Path, err)
+				logger.Warn("send: APPEND 到已发送文件夹失败",
+					zap.String("folder", sentFolder.Path), zap.Error(err))
 			}
 		}
 	}

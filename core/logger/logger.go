@@ -2,6 +2,7 @@ package logger
 
 import (
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -13,6 +14,8 @@ var (
 	Logger *zap.Logger
 	// Sugar is the sugared logger for convenience
 	Sugar *zap.SugaredLogger
+	// closers holds io.Closer writers (e.g. lumberjack) so Close() can release file handles.
+	closers []func() error
 )
 
 // Config represents logger configuration
@@ -21,6 +24,11 @@ type Config struct {
 	Development bool            `mapstructure:"development"`  // development mode
 	OutputPaths []string        `mapstructure:"output_paths"` // output destinations
 	Rotation    *RotationConfig `mapstructure:"rotation"`     // log rotation config
+
+	// 以下为可选增量字段；零值时沿用历史行为，保证既有调用方不受影响。
+	EncoderFormat            string `mapstructure:"encoder_format"`              // "json"/"console"；空→按 Development 推断
+	WarnErrorPath            string `mapstructure:"warn_error_path"`             // 分离 warn/error 文件路径；空→沿用 ./logs/warn_error.log
+	DisableSeparateWarnError bool   `mapstructure:"disable_separate_warn_error"` // true→不生成分离文件
 }
 
 // RotationConfig represents log rotation configuration
@@ -48,6 +56,9 @@ func DefaultConfig() *Config {
 
 // Init initializes the global logger
 func Init(cfg *Config) error {
+	// Reset closers from any previous Init call
+	closers = nil
+
 	// Parse log level
 	level, err := zapcore.ParseLevel(cfg.Level)
 	if err != nil {
@@ -89,6 +100,7 @@ func Init(cfg *Config) error {
 						MaxAge:     cfg.Rotation.MaxAge,
 						Compress:   cfg.Rotation.Compress,
 					}
+					closers = append(closers, lj.Close)
 					allWriters = append(allWriters, zapcore.AddSync(lj))
 				} else {
 					file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
@@ -103,32 +115,42 @@ func Init(cfg *Config) error {
 		allWriters = append(allWriters, zapcore.AddSync(os.Stdout))
 	}
 
-	// Create separate warn/error file output in non-development mode
-	if !cfg.Development {
-		if err := os.MkdirAll("./logs", 0755); err != nil {
-			return err
+	// 分离的 warn/error 文件输出。
+	// 兼容：WarnErrorPath 为空且非 development 时，沿用历史默认 ./logs/warn_error.log。
+	if !cfg.DisableSeparateWarnError {
+		warnErrorPath := cfg.WarnErrorPath
+		if warnErrorPath == "" && !cfg.Development {
+			warnErrorPath = "./logs/warn_error.log"
 		}
-
-		if cfg.Rotation != nil {
-			lj := &lumberjack.Logger{
-				Filename:   "./logs/warn_error.log",
-				MaxSize:    cfg.Rotation.MaxSize,
-				MaxBackups: cfg.Rotation.MaxBackups,
-				MaxAge:     cfg.Rotation.MaxAge,
-				Compress:   cfg.Rotation.Compress,
+		if warnErrorPath != "" {
+			if dir := filepath.Dir(warnErrorPath); dir != "" {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					return err
+				}
 			}
-			warnErrorWriters = append(warnErrorWriters, zapcore.AddSync(lj))
-		} else {
-			warnErrorFile, err := os.OpenFile("./logs/warn_error.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-			if err != nil {
-				return err
+			if cfg.Rotation != nil {
+				lj := &lumberjack.Logger{
+					Filename:   warnErrorPath,
+					MaxSize:    cfg.Rotation.MaxSize,
+					MaxBackups: cfg.Rotation.MaxBackups,
+					MaxAge:     cfg.Rotation.MaxAge,
+					Compress:   cfg.Rotation.Compress,
+				}
+				closers = append(closers, lj.Close)
+				warnErrorWriters = append(warnErrorWriters, zapcore.AddSync(lj))
+			} else {
+				warnErrorFile, err := os.OpenFile(warnErrorPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+				if err != nil {
+					return err
+				}
+				warnErrorWriters = append(warnErrorWriters, zapcore.AddSync(warnErrorFile))
 			}
-			warnErrorWriters = append(warnErrorWriters, zapcore.AddSync(warnErrorFile))
 		}
 	}
 
 	var encoder zapcore.Encoder
-	if cfg.Development {
+	useConsole := cfg.EncoderFormat == "console" || (cfg.EncoderFormat == "" && cfg.Development)
+	if useConsole {
 		encoder = zapcore.NewConsoleEncoder(encoderConfig)
 	} else {
 		encoder = zapcore.NewJSONEncoder(encoderConfig)
@@ -170,6 +192,23 @@ func Sync() error {
 		return Logger.Sync()
 	}
 	return nil
+}
+
+// Close flushes and closes all underlying writers (e.g. lumberjack file handles).
+// Call this during shutdown or in tests to release file handles before cleanup.
+// After Close returns, Logger and Sugar are nil; subsequent log calls become no-ops.
+func Close() error {
+	_ = Sync()
+	var lastErr error
+	for _, fn := range closers {
+		if err := fn(); err != nil {
+			lastErr = err
+		}
+	}
+	closers = nil
+	Logger = nil
+	Sugar = nil
+	return lastErr
 }
 
 // Debug logs a message at debug level
@@ -288,4 +327,9 @@ func ErrorWithTag(tag string, msg string, fields ...zap.Field) {
 		fields = append(fields, zap.String("tag", tag))
 		Logger.Error(msg, fields...)
 	}
+}
+
+// String is a convenience re-export of zap.String for use within this package and tests.
+func String(key, val string) zap.Field {
+	return zap.String(key, val)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"flymail/internal/logging"
 	"flymail/modules/auth"
 	"flymail/modules/email/account"
 	"flymail/modules/email/draft"
@@ -42,12 +43,11 @@ type Deps struct {
 func New(deps Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	// 请求日志写入统一日志（gin.DefaultWriter 已在 app 装配时指向轮转文件）；
-	// 跳过健康检查与长连接 SSE，避免噪音。
-	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/api/v1/healthz", "/api/v1/events"},
-	}))
-	r.Use(gin.Recovery())
+	// request_id 必须最先注册，使后续访问日志能带上它。
+	r.Use(logging.RequestID())
+	// 结构化访问日志；跳过健康检查与长连接 SSE，避免噪音。
+	r.Use(logging.GinLogger("/api/v1/healthz", "/api/v1/events"))
+	r.Use(logging.GinRecovery())
 	r.Use(cors.Default())
 
 	api := r.Group("/api/v1")

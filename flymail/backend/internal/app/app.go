@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"flymail/internal/config"
 	"flymail/internal/crypto"
 	"flymail/internal/database"
@@ -41,20 +39,20 @@ type App struct {
 
 // New 构建 App：初始化日志、开库、迁移、装配 handler。
 func New(cfg *config.Config) (*App, error) {
-	// 最先初始化统一日志：标准库 log 与 gin 输出都接到轮转文件(+控制台)。
-	logWriter, logClose, err := logging.Setup(logging.Options{
+	// 最先初始化统一日志：core zap 全局单例，标准库 log 经 RedirectStdLog 收编。
+	logClose, err := logging.Setup(logging.Options{
 		Dir:        cfg.LogDir(),
 		MaxSizeMB:  cfg.Log.MaxSizeMB,
 		MaxBackups: cfg.Log.MaxBackups,
 		MaxAgeDays: cfg.Log.MaxAgeDays,
 		Compress:   cfg.Log.Compress,
 		Console:    cfg.Log.Console,
+		Level:      cfg.Log.Level,
+		Format:     cfg.Log.Format,
 	})
 	if err != nil {
 		return nil, err
 	}
-	gin.DefaultWriter = logWriter
-	gin.DefaultErrorWriter = logWriter
 
 	db, err := database.Open(cfg.DBPath())
 	if err != nil {

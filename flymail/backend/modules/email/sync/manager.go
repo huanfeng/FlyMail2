@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	gosync "sync"
 	"time"
 
 	coreimap "flymail-core/imap"
+	"flymail-core/logger"
 	"flymail-core/types"
+	"go.uber.org/zap"
 
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
@@ -132,8 +133,8 @@ func (m *Manager) reconcile() {
 
 func (m *Manager) worker(ctx context.Context, accountID uint) {
 	defer m.wg.Done()
-	log.Printf("sync-manager: 账户 %d worker 启动", accountID)
-	defer log.Printf("sync-manager: 账户 %d worker 退出", accountID)
+	logger.Info("sync-manager: worker 启动", zap.Uint("account_id", accountID))
+	defer logger.Info("sync-manager: worker 退出", zap.Uint("account_id", accountID))
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
@@ -144,7 +145,8 @@ func (m *Manager) worker(ctx context.Context, accountID uint) {
 			return
 		}
 		if err != nil {
-			log.Printf("sync-manager: 账户 %d 会话结束(%v)，%v 后重连", accountID, err, backoff)
+			logger.Warn("sync-manager: 会话结束，准备重连",
+				zap.Uint("account_id", accountID), zap.Duration("backoff", backoff), zap.Error(err))
 			select {
 			case <-ctx.Done():
 				return
@@ -172,7 +174,8 @@ func (m *Manager) runSession(ctx context.Context, accountID uint) error {
 	}
 	defer sess.Close()
 
-	log.Printf("sync-manager: 账户 %d 已连接 (IDLE 支持=%v)", accountID, sess.CanIDLE())
+	logger.Info("sync-manager: 已连接",
+		zap.Uint("account_id", accountID), zap.Bool("idle", sess.CanIDLE()))
 
 	// 初始全文件夹增量同步。
 	if err := m.pollAll(accountID, sess); err != nil {
@@ -283,8 +286,10 @@ func stopTimer(t *time.Timer) {
 // 返回遇到的第一个文件夹同步错误（多为连接断开）；会先尝试完所有文件夹，
 // 以保证 INBOX 等仍能在本轮被同步，再由调用方据错误决定是否重连。
 func (m *Manager) pollAll(accountID uint, sess Session) error {
+	start := time.Now()
 	if err := m.folders.SyncFolders(accountID, sess); err != nil {
-		log.Printf("sync-manager: 账户 %d 列文件夹失败: %v", accountID, err)
+		logger.Error("sync-manager: 列文件夹失败",
+			zap.Uint("account_id", accountID), zap.Error(err))
 		return err
 	}
 	fs, err := m.folders.List(accountID)
@@ -312,6 +317,8 @@ func (m *Manager) pollAll(accountID uint, sess Session) error {
 	if attempted > 0 && failed == attempted {
 		return firstErr
 	}
+	logger.Info("sync-manager: 一轮同步完成",
+		zap.Uint("account_id", accountID), zap.Duration("duration", time.Since(start)))
 	return nil
 }
 
@@ -329,15 +336,19 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 		accountID, f.ID, f.Path, f.UIDValidity, f.UIDNext, f.TotalCount, sess,
 	)
 	if err != nil {
-		log.Printf("sync-manager: 账户 %d 文件夹 %q 增量同步失败: %v", accountID, f.Path, err)
+		logger.Error("sync-manager: 增量同步失败",
+			zap.Uint("account_id", accountID), zap.String("folder", f.Path), zap.Error(err))
 		return err
 	}
 	if err := m.folders.UpdateSyncState(f.ID, state.UIDValidity, state.UIDNext, state.Total, state.Unread, time.Now()); err != nil {
-		log.Printf("sync-manager: 账户 %d 文件夹 %q 回写状态失败: %v", accountID, f.Path, err)
+		logger.Warn("sync-manager: 回写同步状态失败",
+			zap.Uint("account_id", accountID), zap.String("folder", f.Path), zap.Error(err))
 	}
 	// 始终输出一行同步结果，便于诊断（本地总数/未读/锚点 uidNext/本次新增）。
-	log.Printf("sync-manager: 账户 %d 文件夹 %q 同步完成 本地=%d 未读=%d uidNext=%d 新增=%d",
-		accountID, f.Path, state.Total, state.Unread, state.UIDNext, newCount)
+	logger.Info("sync-manager: 文件夹同步完成",
+		zap.Uint("account_id", accountID), zap.String("folder", f.Path),
+		zap.Int("local", state.Total), zap.Int("unread", state.Unread),
+		zap.Uint32("uid_next", uint32(state.UIDNext)), zap.Int("new", newCount))
 	if newCount > 0 {
 		if m.pub != nil {
 			payload, _ := json.Marshal(Event{

@@ -28,8 +28,15 @@ func greenmailIMAPAddr() string {
 	return greenmailHost() + ":" + strconv.Itoa(greenmailIMAPPort())
 }
 
+func greenmailSMTPPort() int {
+	if n, err := strconv.Atoi(os.Getenv("GREENMAIL_SMTP_PORT")); err == nil && n > 0 {
+		return n
+	}
+	return 3025
+}
+
 func greenmailSMTPAddr() string {
-	return greenmailHost() + ":" + envOr("GREENMAIL_SMTP_PORT", "3025")
+	return greenmailHost() + ":" + strconv.Itoa(greenmailSMTPPort())
 }
 
 func greenmailAPIBase() string {

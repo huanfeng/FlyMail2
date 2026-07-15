@@ -14,10 +14,11 @@ import (
 var mailboxSeq int64
 
 // uniqueMailbox 生成隔离用唯一收件地址。带时间戳：GreenMail -KeepUp 复用时跨 run 也不冲突。
+// 域名须带点号：flymail 账户创建的 binding:"email" 校验不接受 @localhost。
 func uniqueMailbox(t *testing.T) string {
 	t.Helper()
 	n := atomic.AddInt64(&mailboxSeq, 1)
-	return fmt.Sprintf("e2e-%d-%d@localhost", time.Now().UnixNano()%1e9, n)
+	return fmt.Sprintf("e2e-%d-%d@e2e.local", time.Now().UnixNano()%1e9, n)
 }
 
 // sendSeed 经 GreenMail SMTP 投递一封纯文本邮件到 to 的 INBOX。

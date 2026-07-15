@@ -5,8 +5,22 @@ import (
 	"errors"
 	"time"
 
+	coreimap "flymail-core/imap"
 	"flymail-core/types"
 )
+
+// runnerHost 提供 runner 所需的同步动作（Task 5 由 Manager 实现，内部据 accountID
+// 路由到 folders/messages 服务）。host 为 nil 时 runner 退化为纯任务服务器（Task 3）。
+type runnerHost interface {
+	// FullSync 执行一轮全文件夹增量同步；yield 在每个文件夹边界被调用，供 runner 让位前台任务。
+	FullSync(accountID uint, sess Session, yield func()) error
+	// InboxSync 只增量同步收件箱（IDLE 唤醒用）。
+	InboxSync(accountID uint, sess Session) error
+	// SelectInbox 为进入 IDLE 选中收件箱；ok=false 表示无收件箱可 IDLE。
+	SelectInbox(accountID uint, sess Session) (ok bool, err error)
+	// PollInterval 返回当前轮询间隔。
+	PollInterval() time.Duration
+}
 
 const (
 	// idleCloseInterval 非 IDLE 档账户一轮任务处理完后的空闲关闭等待。
@@ -37,9 +51,11 @@ type runner struct {
 	cfg       func() (types.IMAPConfig, error)
 	dial      func(types.IMAPConfig) (Session, error)
 	breaker   *breaker
+	host      runnerHost // nil = 纯任务模式（无轮询/IDLE）
 
-	fg chan task // 前台队列（交互：详情/附件/手动触发，优先）
-	bg chan task // 后台队列（回写/IDLE 唤醒同步）
+	fg     chan task     // 前台队列（交互：详情/附件/手动触发，优先）
+	bg     chan task     // 后台队列（回写/IDLE 唤醒同步）
+	idleCh chan struct{} // IDLE 新邮件事件唤醒（连接的 IDLE 回调写入）
 
 	// 可注入以便测试（默认见 newRunner）。
 	idleClose time.Duration
@@ -63,6 +79,7 @@ func newRunner(accountID uint, cfg func() (types.IMAPConfig, error), dial func(t
 		breaker:   newBreaker(),
 		fg:        make(chan task),
 		bg:        make(chan task, 64),
+		idleCh:    make(chan struct{}, 1),
 		idleClose: idleCloseInterval,
 		now:       time.Now,
 	}
@@ -119,7 +136,9 @@ func (r *runner) submitBackground(run func(Session) error) bool {
 	}
 }
 
-// loop 是 runner 主循环：无连接时阻塞等任务；有连接时前台优先、其次后台、再空闲关闭。
+// loop 是 runner 主循环，统一处理任务服务与（host 模式下的）IDLE↔轮询。
+// 唤醒源：前台队列 > 后台队列 > IDLE 新邮件 > 轮询 tick > 29min 刷新 > 空闲关闭 > ctx。
+// host==nil 时轮询/IDLE 相关通道恒为 nil，退化为纯任务服务器（见 Task 3）。
 func (r *runner) loop() {
 	defer close(r.done)
 	var sess Session
@@ -129,40 +148,173 @@ func (r *runner) loop() {
 		}
 	}()
 
+	hasHost := r.host != nil
+
 	idleTimer := time.NewTimer(r.idleClose)
 	stopTimer(idleTimer)
 	defer idleTimer.Stop()
 
-	for {
-		if sess == nil {
-			// 无连接：阻塞等任务，不计空闲关闭（不空转持有连接）。
-			select {
-			case <-r.ctx.Done():
-				return
-			case t := <-r.fg:
-				r.exec(&sess, t, true)
-			case t := <-r.bg:
-				r.exec(&sess, t, false)
-			}
-			continue
+	refreshTimer := time.NewTimer(idleRefreshInterval)
+	stopTimer(refreshTimer)
+	defer refreshTimer.Stop()
+
+	// 轮询计时器：host 模式下首轮加错峰相位，之后每 pollInterval 触发一次全量同步。
+	pollTimer := time.NewTimer(time.Hour)
+	stopTimer(pollTimer)
+	defer pollTimer.Stop()
+	if hasHost {
+		pollTimer.Reset(r.pollPhase())
+	}
+
+	// 当前 IDLE 句柄（仅 host 模式、连接可 IDLE 且空闲时非 nil）。
+	var idleHandle *coreimap.IdleHandle
+
+	// stopIdle 结束当前 IDLE。返回 false 表示 Stop 失败（连接脏，调用方应关闭重建）。
+	stopIdle := func(reason string) bool {
+		stopTimer(refreshTimer)
+		if idleHandle == nil {
+			return true
 		}
-		// 有连接：前台优先 → 后台 → 空闲关闭 → 退出。
-		idleTimer.Reset(r.idleClose)
+		err := idleHandle.Stop(reason)
+		idleHandle = nil
+		return err == nil
+	}
+
+	for {
+		if r.ctx.Err() != nil {
+			stopIdle("shutdown")
+			return
+		}
+		stopTimer(idleTimer)
+
+		// 有连接且可 IDLE 且当前空闲：进入 IDLE（选中收件箱→StartIDLE→装刷新计时）。
+		if hasHost && sess != nil && idleHandle == nil && sess.CanIDLE() {
+			if ok, _ := r.host.SelectInbox(r.accountID, sess); ok {
+				if h, err := sess.StartIDLE(); err == nil {
+					idleHandle = h
+					refreshTimer.Reset(idleRefreshInterval)
+				}
+			}
+		}
+
+		// 非 IDLE 连接才计空闲关闭（IDLE 连接靠 IDLE 保活）。
+		var idleCloseC <-chan time.Time
+		if sess != nil && idleHandle == nil {
+			idleTimer.Reset(r.idleClose)
+			idleCloseC = idleTimer.C
+		}
+		var idleDone <-chan error
+		var refreshC <-chan time.Time
+		if idleHandle != nil {
+			idleDone = idleHandle.Done()
+			refreshC = refreshTimer.C
+		}
+		var pollC <-chan time.Time
+		if hasHost {
+			pollC = pollTimer.C
+		}
+
 		select {
 		case <-r.ctx.Done():
-			stopTimer(idleTimer)
+			stopIdle("shutdown")
 			return
 		case t := <-r.fg:
-			stopTimer(idleTimer)
+			if !stopIdle("task") && sess != nil {
+				_ = sess.Close()
+				sess = nil
+			}
 			r.exec(&sess, t, true)
 		case t := <-r.bg:
-			stopTimer(idleTimer)
+			if !stopIdle("task") && sess != nil {
+				_ = sess.Close()
+				sess = nil
+			}
 			r.execPreferFG(&sess, t)
-		case <-idleTimer.C:
+		case <-r.idleCh:
+			if !stopIdle("new-mail") && sess != nil {
+				_ = sess.Close()
+				sess = nil
+			}
+			if sess != nil {
+				if err := r.host.InboxSync(r.accountID, sess); err != nil {
+					_ = sess.Close()
+					sess = nil
+					r.breaker.RecordFailure()
+				} else {
+					r.breaker.RecordSuccess()
+				}
+			}
+		case <-pollC:
+			if !stopIdle("poll") && sess != nil {
+				_ = sess.Close()
+				sess = nil
+			}
+			r.doPoll(&sess)
+			pollTimer.Reset(r.host.PollInterval())
+		case <-refreshC:
+			// 29min 刷新：结束 IDLE，下一轮循环重新进入 IDLE。
+			_ = stopIdle("refresh")
+		case <-idleDone:
+			// IDLE 连接被服务器关闭：丢弃连接，下一轮由任务/轮询重建。
+			stopIdle("done")
+			if sess != nil {
+				_ = sess.Close()
+				sess = nil
+			}
+			r.breaker.RecordFailure()
+		case <-idleCloseC:
 			_ = sess.Close()
 			sess = nil
 		}
 	}
+}
+
+// doPoll 执行一轮全量同步（host 模式）：熔断/退避门控 → 懒建连 → FullSync（文件夹边界让位前台）。
+func (r *runner) doPoll(sess *Session) {
+	if !r.breaker.AllowBackground() {
+		return
+	}
+	if *sess == nil {
+		if !r.nextDialAt.IsZero() && r.now().Before(r.nextDialAt) {
+			return
+		}
+		s, err := r.dialConn()
+		if err != nil {
+			r.onDialFailure()
+			return
+		}
+		r.onDialSuccess()
+		*sess = s
+	}
+	if err := r.host.FullSync(r.accountID, *sess, func() { r.drainForeground(sess) }); err != nil {
+		_ = (*sess).Close()
+		*sess = nil
+		r.onDialFailure()
+		return
+	}
+	r.breaker.RecordSuccess()
+}
+
+// drainForeground 非阻塞排干当前就绪的前台任务（全量同步在文件夹边界调用，实现协作让位）。
+func (r *runner) drainForeground(sess *Session) {
+	for {
+		select {
+		case ft := <-r.fg:
+			r.exec(sess, ft, true)
+		default:
+			return
+		}
+	}
+}
+
+// pollPhase 返回首轮同步的错峰相位：hash(accountID) % pollInterval，避免重启后众账户同时开跑。
+func (r *runner) pollPhase() time.Duration {
+	pi := r.host.PollInterval()
+	if pi <= 0 {
+		return 0
+	}
+	h := uint64(r.accountID) * 2654435761
+	return time.Duration(h % uint64(pi))
 }
 
 // execPreferFG 在执行一个已选中的后台任务前，先排干当前就绪的前台任务（严格前台优先）。
@@ -217,13 +369,25 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 	reply(t, nil)
 }
 
-// dialConn 取配置并建连。
+// dialConn 取配置并建连；host 模式下顺带装 IDLE 新邮件回调（唤醒主循环去同步收件箱）。
 func (r *runner) dialConn() (Session, error) {
 	cfg, err := r.cfg()
 	if err != nil {
 		return nil, err
 	}
-	return r.dial(cfg)
+	s, err := r.dial(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if r.host != nil {
+		s.SetIDLEHandler(func(coreimap.IDLEEvent) {
+			select {
+			case r.idleCh <- struct{}{}:
+			default:
+			}
+		})
+	}
+	return s, nil
 }
 
 // onDialFailure 记熔断失败并推进重连退避（1s→60s 封顶）。

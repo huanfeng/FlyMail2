@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	gosync "sync"
@@ -82,6 +83,7 @@ type AccountLister interface {
 type Phase string
 
 const (
+	PhaseQueued   Phase = "queued" // 排队等待全局同步名额（前端未识别按进行中展示）
 	PhaseFolders  Phase = "folders"
 	PhaseMessages Phase = "messages"
 	PhaseDone     Phase = "done"
@@ -105,6 +107,17 @@ var ErrSyncRunning = errors.New("sync already running for this account")
 // ErrAccountDisabled 表示账户已停用，拒绝同步。
 var ErrAccountDisabled = errors.New("account is disabled")
 
+// orchestrator 是 Service 投递任务到账户 runner 的门面（*Manager 实现）。
+// 为 nil 时 Service 退化为旧的每操作直连路径（供不接 Manager 的单测使用）。
+type orchestrator interface {
+	// TriggerSync 前台优先执行一次全量同步（含 queued 重试与状态上报），阻塞至完成或 ctx 取消。
+	TriggerSync(ctx context.Context, accountID uint) error
+	// ForegroundOp 前台任务（详情/附件），阻塞等结果。
+	ForegroundOp(ctx context.Context, accountID uint, run func(Session) error) error
+	// BackgroundOp 后台任务（回写），非阻塞投递。
+	BackgroundOp(accountID uint, run func(Session) error) bool
+}
+
 // Service 编排单账户的首次同步（文件夹 → 收件箱消息），并通过内存 map 对外暴露进度。
 type Service struct {
 	accounts AccountConfigProvider
@@ -114,12 +127,20 @@ type Service struct {
 	dial        func(types.IMAPConfig) (Session, error)
 	syncDepthFn func() int
 	emit        EmitFunc
+	orch        orchestrator
 
-	mu       gosync.Mutex
-	statuses map[uint]*Status
-	running  map[uint]bool
+	status  *statusStore
+	mu      gosync.Mutex
+	running map[uint]bool
 
 	wbCh chan wbOp
+}
+
+// SetManager 注入 runner 编排器（Manager），并让二者共享同一份同步状态存储
+// （后台同步与手动触发的进度写入同一处，唯一写入方均为账户 runner）。
+func (s *Service) SetManager(m *Manager) {
+	s.orch = m
+	m.setStatusStore(s.status)
 }
 
 // SetEmitter 注入通知回调（同步失败等事件）。
@@ -133,7 +154,7 @@ func NewService(accounts AccountConfigProvider, folders *folder.Service, message
 		messages:    messages,
 		dial:        defaultDial,
 		syncDepthFn: func() int { return 0 },
-		statuses:    map[uint]*Status{},
+		status:      newStatusStore(),
 		running:     map[uint]bool{},
 		wbCh:        make(chan wbOp, 256),
 	}
@@ -169,37 +190,42 @@ func (s *Service) Trigger(accountID uint) error {
 		return ErrSyncRunning
 	}
 	s.running[accountID] = true
-	now := time.Now()
-	s.statuses[accountID] = &Status{
-		AccountID: accountID,
-		Phase:     PhaseFolders,
-		StartedAt: now,
-		UpdatedAt: now,
-	}
 	s.mu.Unlock()
 
-	go s.run(accountID)
+	// 初始置 queued：等待 runner 拾取/全局同步名额；runner 执行后转 folders→messages→done。
+	s.status.begin(accountID, PhaseQueued)
+	go s.runTrigger(accountID)
 	return nil
+}
+
+// runTrigger 执行一次手动触发的同步：有 Manager 则投递前台全量同步任务到账户 runner，
+// 否则退回旧的直连路径（单测无 Manager 时）。
+func (s *Service) runTrigger(accountID uint) {
+	defer func() {
+		s.mu.Lock()
+		s.running[accountID] = false
+		s.mu.Unlock()
+	}()
+
+	if s.orch == nil {
+		s.run(accountID)
+		return
+	}
+	// runner 内部会写状态（folders/messages/done/queued）；此处仅在失败时补通知。
+	if err := s.orch.TriggerSync(context.Background(), accountID); err != nil && !errors.Is(err, context.Canceled) {
+		if s.emit != nil {
+			s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
+		}
+	}
 }
 
 // StatusOf 返回指定账户的同步状态快照。
 func (s *Service) StatusOf(accountID uint) (Status, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	st, ok := s.statuses[accountID]
-	if !ok {
-		return Status{}, false
-	}
-	return *st, true
+	return s.status.get(accountID)
 }
 
 func (s *Service) setStatus(accountID uint, fn func(*Status)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if st := s.statuses[accountID]; st != nil {
-		fn(st)
-		st.UpdatedAt = time.Now()
-	}
+	s.status.update(accountID, fn)
 }
 
 func (s *Service) run(accountID uint) {

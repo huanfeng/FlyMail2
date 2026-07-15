@@ -53,7 +53,12 @@ type Manager struct {
 
 	syncMu     gosync.Mutex
 	syncActive int // 当前正在执行全量同步的 runner 数
+
+	status *statusStore // 与 Service 共享；FullSync 借此上报进度（可能为 nil）
 }
+
+// setStatusStore 由 Service.SetManager 调用，共享同步进度存储。
+func (m *Manager) setStatusStore(s *statusStore) { m.status = s }
 
 func NewManager(accounts AccountLister, folders *folder.Service, messages *message.Service, pub Publisher) *Manager {
 	return &Manager{
@@ -196,6 +201,89 @@ func (m *Manager) newAccountRunner(accountID uint) *runner {
 	return r
 }
 
+// ensureRunner 返回账户 runner，不存在则即时创建并启动（Trigger/详情/附件/回写按需拉起）。
+func (m *Manager) ensureRunner(accountID uint) *runner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runners[accountID]; ok {
+		return r
+	}
+	r := m.newAccountRunner(accountID)
+	ctx := m.rootCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.start(ctx)
+	m.runners[accountID] = r
+	return r
+}
+
+// ── orchestrator 实现（供 Service 投递任务）─────────────────────────────────────
+
+// TriggerSync 前台优先执行一次全量同步，阻塞至完成或 ctx 取消。
+func (m *Manager) TriggerSync(ctx context.Context, accountID uint) error {
+	r := m.ensureRunner(accountID)
+	return r.submitForeground(ctx, func(sess Session) error {
+		return m.triggeredFullSync(ctx, accountID, sess)
+	})
+}
+
+// ForegroundOp 投递前台任务并等待结果（详情/附件）。
+func (m *Manager) ForegroundOp(ctx context.Context, accountID uint, run func(Session) error) error {
+	r := m.ensureRunner(accountID)
+	return r.submitForeground(ctx, run)
+}
+
+// BackgroundOp 非阻塞投递后台任务（回写）。
+func (m *Manager) BackgroundOp(accountID uint, run func(Session) error) bool {
+	r := m.ensureRunner(accountID)
+	return r.submitBackground(run)
+}
+
+// triggeredFullSync 是手动触发的全量同步：抢不到全局名额则置 queued 并短延迟重试。
+func (m *Manager) triggeredFullSync(ctx context.Context, accountID uint, sess Session) error {
+	for {
+		err := m.FullSync(accountID, sess, nil)
+		if errors.Is(err, errSyncSlotBusy) {
+			m.statusPhase(accountID, PhaseQueued)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(syncSlotRetry):
+			}
+			continue
+		}
+		return err
+	}
+}
+
+// ── 状态上报辅助（status 为 nil 时静默）──────────────────────────────────────
+func (m *Manager) statusBegin(accountID uint, p Phase) {
+	if m.status != nil {
+		m.status.begin(accountID, p)
+	}
+}
+
+func (m *Manager) statusPhase(accountID uint, p Phase) {
+	if m.status != nil {
+		m.status.markPhase(accountID, p)
+	}
+}
+
+func (m *Manager) statusFail(accountID uint, err error) {
+	if m.status != nil {
+		m.status.fail(accountID, err.Error())
+	}
+}
+
+func (m *Manager) statusDone(accountID uint) {
+	if m.status == nil {
+		return
+	}
+	total, _ := m.messages.CountByAccount(accountID)
+	m.status.markDone(accountID, int(total))
+}
+
 // recomputeIdleQuotaLocked 取启用账户中 id 最小的前 maxIdle 个授予常驻 IDLE 名额。调用方须持 m.mu。
 func (m *Manager) recomputeIdleQuotaLocked(ids []uint) {
 	limit := m.maxIdle()
@@ -222,15 +310,19 @@ func (m *Manager) FullSync(accountID uint, sess Session, yield func()) error {
 	defer m.releaseSyncSlot()
 
 	start := time.Now()
+	m.statusBegin(accountID, PhaseFolders)
 	if err := m.folders.SyncFolders(accountID, sess); err != nil {
 		logger.Error("sync-manager: 列文件夹失败",
 			zap.Uint("account_id", accountID), zap.Error(err))
+		m.statusFail(accountID, err)
 		return err
 	}
 	fs, err := m.folders.List(accountID)
 	if err != nil {
+		m.statusFail(accountID, err)
 		return err
 	}
+	m.statusPhase(accountID, PhaseMessages)
 	var firstErr error
 	attempted, failed := 0, 0
 	for i := range fs {
@@ -252,8 +344,10 @@ func (m *Manager) FullSync(accountID uint, sess Session, yield func()) error {
 	_ = m.accounts.TouchLastSync(accountID, time.Now())
 	// 仅当所有尝试的文件夹都失败时判定为连接故障，返回错误触发重连。
 	if attempted > 0 && failed == attempted {
+		m.statusFail(accountID, firstErr)
 		return firstErr
 	}
+	m.statusDone(accountID)
 	logger.Info("sync-manager: 一轮同步完成",
 		zap.Uint("account_id", accountID), zap.Duration("duration", time.Since(start)))
 	return nil

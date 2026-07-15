@@ -97,6 +97,8 @@ func New(cfg *config.Config) (*App, error) {
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
 	manager.SetEmitter(emit)
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
+	// 手动触发/详情/附件/回写经 Manager 投递到账户 runner，并与 Manager 共享同步进度存储。
+	syncSvc.SetManager(manager)
 
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())

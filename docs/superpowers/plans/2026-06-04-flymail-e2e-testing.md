@@ -1,6 +1,6 @@
 # FlyMail 后端 E2E 测试基建 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development 或 superpowers:executing-plans 逐任务实现。步骤用 `- [ ]` 复选框跟踪。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development 或 superpowers:executing-plans 逐任务实现。步骤用 `- [x]` 复选框跟踪。
 
 **Goal:** 建立基于 GreenMail（Docker）的真协议 E2E 测试，经 HTTP API 全栈驱动，覆盖收信/回写/发送·删除·移动/IDLE·SSE 四条链路。
 
@@ -71,7 +71,7 @@
 
 **Files:** Create `docker-compose.e2e.yml`、`e2e.sh`（仓库根）
 
-- [ ] **Step 1: docker-compose.e2e.yml**
+- [x] **Step 1: docker-compose.e2e.yml**
 ```yaml
 services:
   greenmail:
@@ -84,7 +84,7 @@ services:
       GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.verbose"
 ```
 
-- [ ] **Step 2: e2e.sh**
+- [x] **Step 2: e2e.sh**
 ```bash
 #!/usr/bin/env bash
 # 在 Linux 上运行 FlyMail 后端 E2E（需 Docker）。
@@ -121,9 +121,9 @@ exit $RC
 ```
 > 注意：`/api/service/readiness` 端点名在 Task 5 探针里再核实；若不对，e2e.sh 健康检查改用 `/api/messages` 或 TCP 探测 3143。
 
-- [ ] **Step 3: 标记可执行（Linux 上）**：`chmod +x e2e.sh`（Windows 上 git 提交后 Linux 端 `chmod`；或在 README 注明）。
+- [x] **Step 3: 标记可执行（Linux 上）**：`chmod +x e2e.sh`（Windows 上 git 提交后 Linux 端 `chmod`；或在 README 注明）。
 
-- [ ] **Step 4: Commit**（由 controller 提交，见执行约定）
+- [x] **Step 4: Commit**（由 controller 提交，见执行约定）
 ```
 git add docker-compose.e2e.yml e2e.sh
 git commit -m "test(e2e): GreenMail 容器编排与运行脚本"
@@ -135,7 +135,7 @@ git commit -m "test(e2e): GreenMail 容器编排与运行脚本"
 
 **Files:** Create `flymail/backend/internal/e2e/env.go`、`env_test.go`
 
-- [ ] **Step 1: 写纯函数单测 env_test.go**（可在 Windows 跑，不需 GreenMail）
+- [x] **Step 1: 写纯函数单测 env_test.go**（可在 Windows 跑，不需 GreenMail）
 ```go
 package e2e
 
@@ -169,9 +169,9 @@ func TestGreenmailAddrs_EnvOverride(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 跑测试看失败**：`cd flymail/backend && go test ./internal/e2e/ -run TestGreenmailAddrs -v` → 编译失败（函数未定义）。
+- [x] **Step 2: 跑测试看失败**：`cd flymail/backend && go test ./internal/e2e/ -run TestGreenmailAddrs -v` → 编译失败（函数未定义）。
 
-- [ ] **Step 3: 实现 env.go**
+- [x] **Step 3: 实现 env.go**
 ```go
 // Package e2e 提供基于 GreenMail 的端到端测试（需 E2E_GREENMAIL=1 + Docker）。
 package e2e
@@ -202,9 +202,9 @@ func requireE2E(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: 跑测试看通过**：`go test ./internal/e2e/ -run TestGreenmailAddrs -v` → PASS（2 例）。
+- [x] **Step 4: 跑测试看通过**：`go test ./internal/e2e/ -run TestGreenmailAddrs -v` → PASS（2 例）。
 
-- [ ] **Step 5: Commit**：`test(e2e): GreenMail 连接信息 env 可配 + 纯函数单测`
+- [x] **Step 5: Commit**：`test(e2e): GreenMail 连接信息 env 可配 + 纯函数单测`
 
 ---
 
@@ -217,7 +217,7 @@ func requireE2E(t *testing.T) {
 - `internal/app/app.go` 的 `New/Handler/StartBackground/Shutdown` 签名。
 - 默认管理员如何产生：读 `modules/auth` 的 service/migrate 与 `internal/database`，确认首次启动是否 seed 默认管理员（用户名/密码），还是需要显式创建。**这是登录的前提，必须查清并在 harness 暴露 `adminUser/adminPass`。**
 
-- [ ] **Step 1: 实现 harness.go**（骨架，字段按核对结果微调）
+- [x] **Step 1: 实现 harness.go**（骨架，字段按核对结果微调）
 ```go
 package e2e
 
@@ -261,9 +261,9 @@ func newTestApp(t *testing.T) *testApp {
 ```
 > **必须核对**：① `crypto.New` 对 EncryptionKey 的长度要求（AES-128/256 → 16/32 字节），否则 `app.New` 报错；② 默认管理员：若 migrate 不 seed，harness 需在此调用 auth service 或 DB 直接建一个已知管理员，并暴露 `adminUser()/adminPass()`。把结果做成 harness 的辅助方法。
 
-- [ ] **Step 2: 编译验证**：`go build ./internal/e2e/`（无 GreenMail 也能编译）。`go vet ./internal/e2e/`。
+- [x] **Step 2: 编译验证**：`go build ./internal/e2e/`（无 GreenMail 也能编译）。`go vet ./internal/e2e/`。
 
-- [ ] **Step 3: Commit**：`test(e2e): 进程内 app harness（临时库+httptest+后台同步）`
+- [x] **Step 3: Commit**：`test(e2e): 进程内 app harness（临时库+httptest+后台同步）`
 
 ---
 
@@ -273,7 +273,7 @@ func newTestApp(t *testing.T) *testApp {
 
 **核对来源：** `core/imap` 的 `Dial(types.IMAPConfig)` 与 Session 方法（SelectFolder/FetchByUIDRange/ListFolders）；`core/types/connection.go` 的 IMAPConfig 字段；auth login 的请求/响应 DTO（`modules/auth/handler.go` 的 login struct + token 响应字段名）；account create 的请求 DTO（`modules/email/account/handler.go` + dto）。
 
-- [ ] **Step 1: greenmail.go**
+- [x] **Step 1: greenmail.go**
 ```go
 package e2e
 
@@ -322,7 +322,7 @@ func imapConnect(t *testing.T, mailbox string) *coreimap.Session {
 ```
 > 核对：IMAPConfig 字段（Host/Port/Username/Password/Security）与 `SecurityNone` 常量名；GREENMAIL_IMAP_PORT 若非 3143 需用 env（这里硬编码 3143，建议改读 env 解析出的 port）。
 
-- [ ] **Step 2: client.go**（HTTP 辅助；DTO 字段务必核对 handler）
+- [x] **Step 2: client.go**（HTTP 辅助；DTO 字段务必核对 handler）
 ```go
 package e2e
 
@@ -402,9 +402,9 @@ func (c *apiClient) triggerSyncAndWait(accountID int, timeout time.Duration) {
 ```
 > 还需：`itoa`(strconv.Itoa 包装)、`eventually(t, timeout, interval, cond func() bool)` helper、`createAccount(...)` 调 `POST /api/v1/accounts`（请求字段名核对 account create DTO：name/email/imap_host/imap_port/imap_security/smtp_host/smtp_port/password/username）并返回账户 id。把这些补全。
 
-- [ ] **Step 3: 编译 + vet**：`go build ./internal/e2e/ && go vet ./internal/e2e/`。
+- [x] **Step 3: 编译 + vet**：`go build ./internal/e2e/ && go vet ./internal/e2e/`。
 
-- [ ] **Step 4: Commit**：`test(e2e): GreenMail SMTP/IMAP 辅助与 HTTP client`
+- [x] **Step 4: Commit**：`test(e2e): GreenMail SMTP/IMAP 辅助与 HTTP client`
 
 ---
 
@@ -412,7 +412,7 @@ func (c *apiClient) triggerSyncAndWait(accountID int, timeout time.Duration) {
 
 **目的**：第一个真正连 GreenMail 的测试。摸清 GreenMail 默认文件夹集合、是否支持 MOVE、IDLE 行为，输出诊断日志，供后续测试自适应。
 
-- [ ] **Step 1: 实现 probe_test.go**
+- [x] **Step 1: 实现 probe_test.go**
 ```go
 package e2e
 
@@ -440,9 +440,9 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 编译 + Windows skip 验证**：`go test ./internal/e2e/ -run TestProbe -v` → 输出 `SKIP`（无 E2E_GREENMAIL）。
+- [x] **Step 2: 编译 + Windows skip 验证**：`go test ./internal/e2e/ -run TestProbe -v` → 输出 `SKIP`（无 E2E_GREENMAIL）。
 
-- [ ] **Step 3: Commit**：`test(e2e): GreenMail 连通性与能力探针`
+- [x] **Step 3: Commit**：`test(e2e): GreenMail 连通性与能力探针`
 
 > **用户 Linux 执行点**：此测试需在 Linux 跑出 `t.Logf` 结果（默认文件夹/MOVE/IDLE），据此微调 Task 8 的预建文件夹与断言分支。
 
@@ -450,7 +450,7 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 
 ## Task 6: 收信链路（sync_test.go）
 
-- [ ] **Step 1: 实现**（结构如下，DTO 字段核对）
+- [x] **Step 1: 实现**（结构如下，DTO 字段核对）
   1. `ta := newTestApp(t)`；`c := &apiClient{t, ta.baseURL, ""}`；`c.login(adminUser, adminPass)`。
   2. `mb := uniqueMailbox(t)`；`acctID := c.createAccount(指向 GreenMail, email=mb)`。
   3. `sendSeed` 投 3 封不同主题到 mb。
@@ -460,20 +460,20 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
   7. `GET /api/v1/messages/{id}` → 断言正文含种子 body。
   8. 断言 inbox `unread_count==3`。
 
-- [ ] **Step 2: 编译 + skip 验证。Step 3: Commit** `test(e2e): 收信链路（SMTP 种子→同步→列表/详情/未读）`
+- [x] **Step 2: 编译 + skip 验证。Step 3: Commit** `test(e2e): 收信链路（SMTP 种子→同步→列表/详情/未读）`
 
 ---
 
 ## Task 7: 回写链路（writeback_test.go）
 
-- [ ] **Step 1: 实现**
+- [x] **Step 1: 实现**
   1. 复用收信流程拿到一封邮件 id 与其 IMAP UID（UID 从 message list DTO 取，字段名核对）。
   2. `POST /api/v1/messages/{id}/read`（已读）。
   3. `eventually(t, 15s, 300ms, ...)`：`imapConnect(mb)` → SelectFolder INBOX → FETCH 该 UID 的 flags → 含 `\Seen`。
   4. 同理 `POST /messages/{id}/flag` → 断言 `\Flagged`。
 > 核对：Session 是否有读取单 UID flags 的方法；若无，用 FetchByUIDRange 取 flags 字段（ParsedEmail 的 flags）。
 
-- [ ] **Step 2: 编译 + skip。Step 3: Commit** `test(e2e): 回写链路（已读/星标→IMAP \Seen/\Flagged）`
+- [x] **Step 2: 编译 + skip。Step 3: Commit** `test(e2e): 回写链路（已读/星标→IMAP \Seen/\Flagged）`
 
 ---
 
@@ -481,10 +481,10 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 
 > **自适应**：依据 Task 5 探针结果。若 GreenMail 默认无 Sent/Trash，则：发送 APPEND 测试改为「断言对方邮箱收到」即可（APPEND 到 Sent 是尽力而为，flymail 仅 warn）；删除断言走「无回收站→EXPUNGE 永久删除」分支（邮件从 INBOX 消失）。若 harness 经 IMAP `CREATE` 预建了 Sent/Trash，则断言移动到对应文件夹。实现时二选一并注释说明依据。
 
-- [ ] **Step 1: 发送**：建两个邮箱账户或一个账户发往另一 GreenMail 地址 `to2`；`POST /api/v1/send`（字段核对 send DTO：account_id/to/subject/body_html 等）→ `imapConnect(to2)` 验证 INBOX 收到。
-- [ ] **Step 2: 删除**：对一封邮件 `POST /messages/{id}/delete` → `eventually` 用 imapConnect 验证该 UID 从源文件夹消失（或移到 Trash，依探针）。
-- [ ] **Step 3: 移动**（若有目标文件夹）：`POST /messages/{id}/move`（目标 folder id，请求字段核对）→ IMAP 验证。
-- [ ] **Step 4: 编译 + skip。Step 5: Commit** `test(e2e): 发送/删除/移动链路`
+- [x] **Step 1: 发送**：建两个邮箱账户或一个账户发往另一 GreenMail 地址 `to2`；`POST /api/v1/send`（字段核对 send DTO：account_id/to/subject/body_html 等）→ `imapConnect(to2)` 验证 INBOX 收到。
+- [x] **Step 2: 删除**：对一封邮件 `POST /messages/{id}/delete` → `eventually` 用 imapConnect 验证该 UID 从源文件夹消失（或移到 Trash，依探针）。
+- [x] **Step 3: 移动**（若有目标文件夹）：`POST /messages/{id}/move`（目标 folder id，请求字段核对）→ IMAP 验证。
+- [x] **Step 4: 编译 + skip。Step 5: Commit** `test(e2e): 发送/删除/移动链路`
 
 ---
 
@@ -492,12 +492,12 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 
 > **最易 flaky**。timeout 放宽（30s）。若 GreenMail IDLE 推送不可靠，降级：投递后等待轮询间隔触发同步，仍经 SSE 验证 new_mail；在测试注释记录降级。
 
-- [ ] **Step 1: 实现**
+- [x] **Step 1: 实现**
   1. `newTestApp` + login + 建账户（enabled，使 manager 起 worker 进 IDLE）。
   2. 用 `http.Client` GET `/api/v1/events?access_token={token}`，流式读 `text/event-stream`（解析 `event:`/`data:` 行，事件名/数据结构核对 internal/sse 与前端 useRealtimeSync）。
   3. `sendSeed` 投新邮件。
   4. `eventually(30s)`：从 SSE 流读到 `new_mail`（或等价）事件。
-- [ ] **Step 2: 编译 + skip。Step 3: Commit** `test(e2e): IDLE/SSE 新邮件实时推送`
+- [x] **Step 2: 编译 + skip。Step 3: Commit** `test(e2e): IDLE/SSE 新邮件实时推送`
 
 ---
 
@@ -505,12 +505,12 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 
 **Files:** Create `flymail/backend/internal/e2e/README.md`
 
-- [ ] **Step 1: README.md**：说明
+- [x] **Step 1: README.md**：说明
   - 模式 A（推荐）：在 Linux 服务器 `./e2e.sh`（仓库根）。
   - 模式 B：GreenMail 远程常驻，Windows 设 `GREENMAIL_HOST=<ip>` 后 `cd flymail/backend && E2E_GREENMAIL=1 go test ./internal/e2e/... -p 1 -v`。
   - 默认管理员凭证 / 如何登录。
-- [ ] **Step 2: Commit** `docs(e2e): 运行说明`
-- [ ] **Step 3（用户在 Linux 执行）**：
+- [x] **Step 2: Commit** `docs(e2e): 运行说明`
+- [x] **Step 3（用户在 Linux 执行）**：
   1. 同步代码到 Linux → `./e2e.sh`。
   2. 先看 `TestProbe` 输出（默认文件夹/能力），据此回报，必要时调整 Task 8。
   3. 跑全套，记录通过/失败；失败项反馈给开发迭代。
@@ -520,5 +520,15 @@ func TestProbe_GreenMailCapabilities(t *testing.T) {
 ## 完成定义（DoD）
 
 - 脚手架（env/harness/greenmail/client）+ 5 个测试文件齐全，Windows 上 `go build ./internal/e2e/` + `go vet` 通过、`go test`（未设 env）全部 SKIP、`env_test` 纯函数 PASS。
-- `docker-compose.e2e.yml` + `e2e.sh` + README 齐全。
-- **用户在 Linux 跑 `./e2e.sh`**：probe 输出 GreenMail 真实能力；四链路测试通过（IDLE/SSE 允许按降级方案）。这是真正的验收，发生在 Linux。
+- `docker-compose.e2e.yml` + `e2e.sh` + `e2e.ps1` + README 齐全。
+- ~~用户在 Linux 跑 `./e2e.sh`~~ → **已由 Windows 本机 GreenMail JAR 实跑替代（2026-07-15 完成）**：
+  probe 实测 GreenMail 默认仅 INBOX、SupportsIDLE=true；四链路 9/9 PASS（含 IDLE/SSE 实时推送，
+  未触发降级方案），全套 ~7s。Linux `./e2e.sh` 路径保留给未来 CI。
+
+## 执行结果记录（2026-07-15）
+
+- 全部 10 个任务完成，测试 9/9 PASS（本机 GreenMail standalone JAR + Java 21）。
+- E2E 暴露并修复的真实缺陷：`app.Shutdown()` 不释放 SQLite 连接（桌面形态句柄泄漏/测试临时目录无法清理）。
+- 踩坑记录：① gin `binding:"email"` 不接受 `@localhost`，测试邮箱域用 `e2e.local`；
+  ② 本机 8080 常被 IDE 占用，GreenMail API 端口经 `-Dgreenmail.api.port=18080` 定制；
+  ③ e2e.ps1 含中文注释必须存为 UTF-8 with BOM（Windows PowerShell 5.1 否则按 GBK 解析报错）。

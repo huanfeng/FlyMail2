@@ -1,4 +1,4 @@
-# FlyMail 后端 E2E（Windows 本机，GreenMail standalone JAR，无需 Docker）
+﻿# FlyMail 后端 E2E（Windows 本机，GreenMail standalone JAR，无需 Docker）
 # 用法:
 #   ./e2e.ps1                # 全量跑
 #   ./e2e.ps1 -Run TestProbe # 只跑匹配的测试

@@ -15,7 +15,7 @@
 
 ## ⚠️ 关键执行约束（务必先读）
 
-1. **本地（Windows）无法真正运行 E2E**：开发机是 Windows、无 Docker；GreenMail 在 Linux。因此 implementer 在 Windows 上对每个任务能做的验证是：`go build ./internal/e2e/`、`go vet`、纯函数单测、以及 `go test ./internal/e2e/`（`E2E_GREENMAIL` 未设 → 全部 `t.Skip`，验证 skip 逻辑与编译通过）。**真正的端到端运行验证由用户在 Linux 上执行**（见 Task 10）。
+1. **本地（Windows）执行方式 —— GreenMail standalone JAR（2026-07-15 更新，经用户确认）**：开发机无 Docker，但有 Java 21。GreenMail 官方 Docker 镜像本质就是 `greenmail-standalone` JAR，因此本地直接用 `java -jar` 起 GreenMail（`e2e.ps1` 编排：下载缓存 JAR → 起服务 → 健康检查 → `go test` → 停服务），**E2E 可在 Windows 本地全量运行验证**。原「仅 Linux 可跑」约束作废；`docker-compose.e2e.yml` + `e2e.sh` 保留，供未来 Linux/CI 使用。JAR 缓存于 `.dev/greenmail/`（gitignore 内）。
 2. **不臆测、先核对**：所有请求/响应 DTO 字段名、默认管理员凭证、SSE 事件格式，**必须读对应 handler/service 源码确认后再写**，不得照搬本计划的字段名假设（本计划标注了「核对来源」，但以源码为准）。这是 Mailpit 教训的延续。
 3. **不并行**：E2E 测试顺序运行（GreenMail 有状态 + zap 全局单例），测试内不加 `t.Parallel()`；`e2e.sh` 用 `go test -p 1`。
 

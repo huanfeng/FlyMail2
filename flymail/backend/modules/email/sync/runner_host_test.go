@@ -48,6 +48,8 @@ func (h *fakeHost) SelectInbox(_ uint, _ Session) (bool, error) {
 
 func (h *fakeHost) PollInterval() time.Duration { return h.pollInterval }
 
+func (h *fakeHost) IDLEAllowed(uint) bool { return true }
+
 func (h *fakeHost) fullSync() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

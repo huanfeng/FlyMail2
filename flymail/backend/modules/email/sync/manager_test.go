@@ -202,12 +202,12 @@ func waitWorkerCount(t *testing.T, m *Manager, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if m.workerCount() == want {
+		if m.runnerCount() == want {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("workerCount = %d, want %d", m.workerCount(), want)
+	t.Fatalf("workerCount = %d, want %d", m.runnerCount(), want)
 }
 
 // TestManagerPollAllSyncsAndPublishes 验证 pollAll 增量同步并发布 new_mail 事件。
@@ -251,7 +251,7 @@ func TestManagerPollAllSyncsAndPublishes(t *testing.T) {
 	pub := &fakePublisher{}
 	m := NewManager(lister, fsvc, msvc, pub)
 
-	m.pollAll(1, sess)
+	_ = m.FullSync(1, sess, nil)
 
 	// DB 新增 5 行：CountByFolder == 15（预置时无邮件，实际 0+5=5）。
 	// 注意：预置 TotalCount=10 只是 folder 表字段，message 表此前为空。
@@ -318,7 +318,7 @@ func TestManagerPollAllNoNewMail(t *testing.T) {
 	pub := &fakePublisher{}
 	m := NewManager(lister, fsvc, msvc, pub)
 
-	m.pollAll(1, sess)
+	_ = m.FullSync(1, sess, nil)
 
 	if pub.count() != 0 {
 		t.Errorf("publisher count = %d, want 0", pub.count())

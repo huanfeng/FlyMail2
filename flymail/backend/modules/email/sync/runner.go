@@ -20,6 +20,8 @@ type runnerHost interface {
 	SelectInbox(accountID uint, sess Session) (ok bool, err error)
 	// PollInterval 返回当前轮询间隔。
 	PollInterval() time.Duration
+	// IDLEAllowed 报告该账户是否获得常驻 IDLE 名额（超额账户降为轮询模式）。
+	IDLEAllowed(accountID uint) bool
 }
 
 const (
@@ -28,6 +30,8 @@ const (
 	// 连接失败后的后台重连退避区间（前台任务不受此约束，见 exec）。
 	dialBackoffBase = 1 * time.Second
 	dialBackoffMax  = 60 * time.Second
+	// syncSlotRetry 抢不到全局同步名额时的短重试延迟。
+	syncSlotRetry = 5 * time.Second
 )
 
 // errBreakerOpen 表示账户熔断打开、后台任务此刻被拒（前台任务不会收到此错误）。
@@ -187,8 +191,8 @@ func (r *runner) loop() {
 		}
 		stopTimer(idleTimer)
 
-		// 有连接且可 IDLE 且当前空闲：进入 IDLE（选中收件箱→StartIDLE→装刷新计时）。
-		if hasHost && sess != nil && idleHandle == nil && sess.CanIDLE() {
+		// 有连接且可 IDLE、有 IDLE 名额且当前空闲：进入 IDLE（选中收件箱→StartIDLE→装刷新计时）。
+		if hasHost && sess != nil && idleHandle == nil && sess.CanIDLE() && r.host.IDLEAllowed(r.accountID) {
 			if ok, _ := r.host.SelectInbox(r.accountID, sess); ok {
 				if h, err := sess.StartIDLE(); err == nil {
 					idleHandle = h
@@ -249,8 +253,7 @@ func (r *runner) loop() {
 				_ = sess.Close()
 				sess = nil
 			}
-			r.doPoll(&sess)
-			pollTimer.Reset(r.host.PollInterval())
+			pollTimer.Reset(r.doPoll(&sess))
 		case <-refreshC:
 			// 29min 刷新：结束 IDLE，下一轮循环重新进入 IDLE。
 			_ = stopIdle("refresh")
@@ -269,30 +272,38 @@ func (r *runner) loop() {
 	}
 }
 
-// doPoll 执行一轮全量同步（host 模式）：熔断/退避门控 → 懒建连 → FullSync（文件夹边界让位前台）。
-func (r *runner) doPoll(sess *Session) {
+// doPoll 执行一轮全量同步（host 模式），返回下次轮询前应等待的时长：
+// 熔断/退避门控 → 懒建连 → FullSync（文件夹边界让位前台）。抢不到全局同步名额则短延迟重试。
+func (r *runner) doPoll(sess *Session) time.Duration {
+	interval := r.host.PollInterval()
 	if !r.breaker.AllowBackground() {
-		return
+		return interval
 	}
 	if *sess == nil {
 		if !r.nextDialAt.IsZero() && r.now().Before(r.nextDialAt) {
-			return
+			return interval
 		}
 		s, err := r.dialConn()
 		if err != nil {
 			r.onDialFailure()
-			return
+			return interval
 		}
 		r.onDialSuccess()
 		*sess = s
 	}
-	if err := r.host.FullSync(r.accountID, *sess, func() { r.drainForeground(sess) }); err != nil {
+	err := r.host.FullSync(r.accountID, *sess, func() { r.drainForeground(sess) })
+	if err != nil {
+		if errors.Is(err, errSyncSlotBusy) {
+			// 没抢到全局同步名额：连接保留，稍后重试（不算失败）。
+			return syncSlotRetry
+		}
 		_ = (*sess).Close()
 		*sess = nil
 		r.onDialFailure()
-		return
+		return interval
 	}
 	r.breaker.RecordSuccess()
+	return interval
 }
 
 // drainForeground 非阻塞排干当前就绪的前台任务（全量同步在文件夹边界调用，实现协作让位）。

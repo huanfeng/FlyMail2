@@ -64,6 +64,10 @@ func New(cfg *config.Config) (*App, error) {
 	if err := database.Migrate(db); err != nil {
 		return nil, err
 	}
+	// 回写队列表随 sync 包迁移（database 包不反向依赖 sync，避免测试期 import cycle）。
+	if err := syncmod.MigrateWriteback(db); err != nil {
+		return nil, err
+	}
 	authSvc := auth.NewService(auth.NewRepository(db), auth.Options{
 		JWTSecret:      cfg.Auth.JWTSecret,
 		AccessTTLMin:   cfg.Auth.AccessTokenTTL,

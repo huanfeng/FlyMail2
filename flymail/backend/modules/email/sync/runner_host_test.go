@@ -50,6 +50,8 @@ func (h *fakeHost) PollInterval() time.Duration { return h.pollInterval }
 
 func (h *fakeHost) IDLEAllowed(uint) bool { return true }
 
+func (h *fakeHost) DrainWriteback(uint, Session) {}
+
 func (h *fakeHost) fullSync() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

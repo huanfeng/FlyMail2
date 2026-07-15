@@ -55,6 +55,7 @@ type Manager struct {
 	syncActive int // 当前正在执行全量同步的 runner 数
 
 	status *statusStore // 与 Service 共享；FullSync 借此上报进度（可能为 nil）
+	wb     *wbStore     // 持久化回写队列（EnableWriteback 装配，可能为 nil）
 }
 
 // setStatusStore 由 Service.SetManager 调用，共享同步进度存储。
@@ -175,6 +176,7 @@ func (m *Manager) reconcile() {
 			r := m.newAccountRunner(id)
 			r.start(m.rootCtx)
 			m.runners[id] = r
+			m.recoverWriteback(id, r) // 启动恢复该账户遗留的待回写
 			logger.Info("sync-manager: runner 启动", zap.Uint("account_id", id))
 		}
 	}

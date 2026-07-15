@@ -22,6 +22,8 @@ type runnerHost interface {
 	PollInterval() time.Duration
 	// IDLEAllowed 报告该账户是否获得常驻 IDLE 名额（超额账户降为轮询模式）。
 	IDLEAllowed(accountID uint) bool
+	// DrainWriteback 在连接就绪时捎带清理该账户到期的回写操作（不受同步名额限制）。
+	DrainWriteback(accountID uint, sess Session)
 }
 
 const (
@@ -291,6 +293,8 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		r.onDialSuccess()
 		*sess = s
 	}
+	// 回写不受全局同步名额限制，连接就绪即捎带清理到期项。
+	r.host.DrainWriteback(r.accountID, *sess)
 	err := r.host.FullSync(r.accountID, *sess, func() { r.drainForeground(sess) })
 	if err != nil {
 		if errors.Is(err, errSyncSlotBusy) {

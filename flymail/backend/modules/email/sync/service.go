@@ -114,8 +114,10 @@ type orchestrator interface {
 	TriggerSync(ctx context.Context, accountID uint) error
 	// ForegroundOp 前台任务（详情/附件），阻塞等结果。
 	ForegroundOp(ctx context.Context, accountID uint, run func(Session) error) error
-	// BackgroundOp 后台任务（回写），非阻塞投递。
+	// BackgroundOp 后台任务，非阻塞投递。
 	BackgroundOp(accountID uint, run func(Session) error) bool
+	// EnqueueWriteback 持久化一条回写并投递执行任务到账户 runner。
+	EnqueueWriteback(op *WritebackOp)
 }
 
 // Service 编排单账户的首次同步（文件夹 → 收件箱消息），并通过内存 map 对外暴露进度。
@@ -132,8 +134,6 @@ type Service struct {
 	status  *statusStore
 	mu      gosync.Mutex
 	running map[uint]bool
-
-	wbCh chan wbOp
 }
 
 // SetManager 注入 runner 编排器（Manager），并让二者共享同一份同步状态存储
@@ -156,9 +156,7 @@ func NewService(accounts AccountConfigProvider, folders *folder.Service, message
 		syncDepthFn: func() int { return 0 },
 		status:      newStatusStore(),
 		running:     map[uint]bool{},
-		wbCh:        make(chan wbOp, 256),
 	}
-	go s.writebackLoop()
 	return s
 }
 

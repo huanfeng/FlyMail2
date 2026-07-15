@@ -77,6 +77,13 @@ func (s *wbStore) Enqueue(op *WritebackOp) error {
 	return s.db.Create(op).Error
 }
 
+// GetByID 按主键取一条；不存在返回 gorm.ErrRecordNotFound。
+func (s *wbStore) GetByID(id uint) (WritebackOp, error) {
+	var op WritebackOp
+	err := s.db.First(&op, id).Error
+	return op, err
+}
+
 // Delete 删除一条（成功或放弃）。
 func (s *wbStore) Delete(id uint) error {
 	return s.db.Delete(&WritebackOp{}, id).Error

@@ -169,7 +169,35 @@ func (s *Service) SetSyncDepthProvider(fn func() int) {
 	}
 }
 
+// foregroundOpTimeout 是前台按需操作（详情/附件）的等待上限；超时返回错误（任务仍会执行完）。
+const foregroundOpTimeout = 20 * time.Second
+
 func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(cfg) }
+
+// runForeground 在账户 runner 上前台执行一个 IMAP 操作（复用其连接，带超时）；
+// 无 Manager 时退回旧的即建即用直连（供单测）。
+func (s *Service) runForeground(accountID uint, run func(Session) error) error {
+	if s.orch == nil {
+		return s.withDialedSession(accountID, run)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), foregroundOpTimeout)
+	defer cancel()
+	return s.orch.ForegroundOp(ctx, accountID, run)
+}
+
+// withDialedSession 为某账户即建一条连接执行 run，结束关闭（orch 为 nil 的回退路径）。
+func (s *Service) withDialedSession(accountID uint, run func(Session) error) error {
+	cfg, err := s.accounts.IMAPConfig(accountID)
+	if err != nil {
+		return err
+	}
+	sess, err := s.dial(cfg)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	return run(sess)
+}
 
 // SetDial 覆盖拨号函数（测试注入用）。
 func (s *Service) SetDial(d func(types.IMAPConfig) (Session, error)) { s.dial = d }
@@ -323,20 +351,19 @@ func (s *Service) AttachmentContent(messageID uint, idx int) (*AttachmentResult,
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := s.accounts.IMAPConfig(m.AccountID)
-	if err != nil {
-		return nil, err
+	var raw []byte
+	fetch := func(sess Session) error {
+		if _, err := sess.SelectFolder(f.Path); err != nil {
+			return err
+		}
+		b, err := sess.FetchRawMessage(imapv2.UID(m.UID))
+		if err != nil {
+			return err
+		}
+		raw = b
+		return nil
 	}
-	sess, err := s.dial(cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer sess.Close()
-	if _, err := sess.SelectFolder(f.Path); err != nil {
-		return nil, err
-	}
-	raw, err := sess.FetchRawMessage(imapv2.UID(m.UID))
-	if err != nil {
+	if err := s.runForeground(m.AccountID, fetch); err != nil {
 		return nil, err
 	}
 	atts, err := coreparser.ExtractAttachments(bytes.NewReader(raw))
@@ -386,29 +413,26 @@ func (s *Service) MessageDetail(messageID uint) (*message.MessageDetail, error) 
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := s.accounts.IMAPConfig(m.AccountID)
-		if err != nil {
-			return nil, err
-		}
-		sess, err := s.dial(cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer sess.Close()
-		if _, err := sess.SelectFolder(f.Path); err != nil {
-			return nil, err
-		}
-		emails, err := sess.FetchByUIDs(
-			[]imapv2.UID{imapv2.UID(m.UID)},
-			coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
-		)
-		if err != nil {
-			return nil, err
-		}
-		if len(emails) > 0 {
-			if err := s.messages.StoreParsedBody(messageID, emails[0]); err != nil {
-				return nil, err
+		fetch := func(sess Session) error {
+			if _, err := sess.SelectFolder(f.Path); err != nil {
+				return err
 			}
+			emails, err := sess.FetchByUIDs(
+				[]imapv2.UID{imapv2.UID(m.UID)},
+				coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
+			)
+			if err != nil {
+				return err
+			}
+			if len(emails) > 0 {
+				if err := s.messages.StoreParsedBody(messageID, emails[0]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if err := s.runForeground(m.AccountID, fetch); err != nil {
+			return nil, err
 		}
 	}
 	return s.messages.Detail(messageID)

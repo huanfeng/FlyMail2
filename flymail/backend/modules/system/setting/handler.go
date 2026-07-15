@@ -22,6 +22,12 @@ func (h *handler) getAll(c *gin.Context) {
 	if _, ok := m[KeySyncDepth]; !ok {
 		m[KeySyncDepth] = DefaultSyncDepth
 	}
+	if _, ok := m[KeySyncMaxConcurrent]; !ok {
+		m[KeySyncMaxConcurrent] = DefaultSyncMaxConcurrent
+	}
+	if _, ok := m[KeySyncMaxIdleConns]; !ok {
+		m[KeySyncMaxIdleConns] = DefaultSyncMaxIdleConns
+	}
 	c.JSON(http.StatusOK, gin.H{"settings": m})
 }
 
@@ -39,6 +45,22 @@ func (h *handler) setAll(c *gin.Context) {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 100 || n > 5000 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_depth 必须是 100..5000 的整数"})
+			return
+		}
+	}
+	// 校验 sync_max_concurrent
+	if v, ok := body.Settings[KeySyncMaxConcurrent]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_max_concurrent 必须是 1..64 的整数"})
+			return
+		}
+	}
+	// 校验 sync_max_idle_conns
+	if v, ok := body.Settings[KeySyncMaxIdleConns]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_max_idle_conns 必须是 0..1000 的整数"})
 			return
 		}
 	}

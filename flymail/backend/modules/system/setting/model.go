@@ -18,4 +18,12 @@ const (
 
 	// KeySyncPollInterval 后台轮询间隔（秒）。
 	KeySyncPollInterval = "sync_poll_interval"
+
+	// KeySyncMaxConcurrent 全局同时执行全量同步的账户数上限。
+	KeySyncMaxConcurrent     = "sync_max_concurrent"
+	DefaultSyncMaxConcurrent = "8"
+
+	// KeySyncMaxIdleConns 常驻 IDLE 连接数上限（超额账户降为轮询模式）。
+	KeySyncMaxIdleConns     = "sync_max_idle_conns"
+	DefaultSyncMaxIdleConns = "100"
 )

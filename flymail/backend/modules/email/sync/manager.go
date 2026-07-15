@@ -479,3 +479,37 @@ func (m *Manager) WorkerAccountIDs() []uint {
 func (m *Manager) CurrentPollSeconds() int {
 	return int(m.pollInterval() / time.Second)
 }
+
+// RunnerStat 是单账户 runner 的运行时快照（监控用）。
+type RunnerStat struct {
+	AccountID       uint `json:"account_id"`
+	BreakerOpen     bool `json:"breaker_open"`
+	BreakerFailures int  `json:"breaker_failures"`
+	QueueDepth      int  `json:"queue_depth"` // 后台任务队列深度
+}
+
+// RunnerStats 返回各账户 runner 的熔断状态与队列深度。
+func (m *Manager) RunnerStats() []RunnerStat {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]RunnerStat, 0, len(m.runners))
+	for id, r := range m.runners {
+		st, depth := r.stats()
+		out = append(out, RunnerStat{
+			AccountID:       id,
+			BreakerOpen:     st.Open,
+			BreakerFailures: st.Failures,
+			QueueDepth:      depth,
+		})
+	}
+	return out
+}
+
+// PendingWritebackCount 返回待回写总数（监控用）。
+func (m *Manager) PendingWritebackCount() int64 {
+	if m.wb == nil {
+		return 0
+	}
+	n, _ := m.wb.CountPending()
+	return n
+}

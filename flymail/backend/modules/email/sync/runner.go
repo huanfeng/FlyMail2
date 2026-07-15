@@ -425,6 +425,11 @@ func (r *runner) onDialSuccess() {
 	r.nextDialAt = time.Time{}
 }
 
+// stats 返回熔断快照与后台队列深度（监控用；len(chan) 跨 goroutine 读取安全）。
+func (r *runner) stats() (BreakerState, int) {
+	return r.breaker.State(), len(r.bg)
+}
+
 // reply 把结果非阻塞回传（reply 有缓冲，无接收方时安全丢弃）。
 func reply(t task, err error) {
 	if t.reply != nil {

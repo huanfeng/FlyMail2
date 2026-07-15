@@ -64,6 +64,10 @@ func New(cfg *config.Config) (*App, error) {
 	if err := database.Migrate(db); err != nil {
 		return nil, err
 	}
+	// 回写队列表随 sync 包迁移（database 包不反向依赖 sync，避免测试期 import cycle）。
+	if err := syncmod.MigrateWriteback(db); err != nil {
+		return nil, err
+	}
 	authSvc := auth.NewService(auth.NewRepository(db), auth.Options{
 		JWTSecret:      cfg.Auth.JWTSecret,
 		AccessTTLMin:   cfg.Auth.AccessTokenTTL,
@@ -93,6 +97,11 @@ func New(cfg *config.Config) (*App, error) {
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
 	manager.SetEmitter(emit)
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
+	manager.SetMaxConcurrentProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxConcurrent, 8) })
+	manager.SetMaxIdleProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxIdleConns, 100) })
+	// 手动触发/详情/附件/回写经 Manager 投递到账户 runner，并与 Manager 共享同步进度存储。
+	manager.EnableWriteback(db)
+	syncSvc.SetManager(manager)
 
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())

@@ -3,11 +3,12 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	gosync "sync"
 	"time"
 
-	coreimap "flymail-core/imap"
 	"flymail-core/logger"
 	"flymail-core/types"
 	"go.uber.org/zap"
@@ -21,10 +22,17 @@ const (
 	minPollInterval     = 30 * time.Second
 	idleRefreshInterval = 29 * time.Minute
 	reconcileInterval   = 30 * time.Second
-	maxReconnectBackoff = 60 * time.Second
+
+	defaultMaxConcurrent = 8   // 同时执行全量同步的 runner 数上限（sync_max_concurrent）
+	defaultMaxIdleConns  = 100 // 常驻 IDLE 连接数上限（sync_max_idle_conns）
 )
 
-// Manager 后台调度：每启用账户一个 worker（单连接串行驱动），IDLE 优先 + 轮询兜底。
+// errSyncSlotBusy 表示全局同步名额已满，本轮全量同步让路，稍后重试（非连接故障）。
+var errSyncSlotBusy = errors.New("global sync slot busy")
+
+// Manager 是同步调度器：为每个启用账户维护一个 AccountRunner（单连接持有者），
+// 并提供全局资源闸门（同步并发信号量 + 常驻 IDLE 名额 + 轮询错峰）。
+// Manager 自身实现 runnerHost，把 runner 的同步动作路由到 folders/messages 服务。
 type Manager struct {
 	accounts AccountLister
 	folders  *folder.Service
@@ -35,21 +43,36 @@ type Manager struct {
 	pollInterval func() time.Duration
 	emit         EmitFunc
 
-	mu      gosync.Mutex
-	workers map[uint]context.CancelFunc
-	wg      gosync.WaitGroup
-	rootCtx context.Context
+	maxConcurrent func() int
+	maxIdle       func() int
+
+	mu          gosync.Mutex
+	runners     map[uint]*runner
+	idleAllowed map[uint]bool // 获得常驻 IDLE 名额的账户集合（reconcile 时按 id 排序重算）
+	rootCtx     context.Context
+
+	syncMu     gosync.Mutex
+	syncActive int // 当前正在执行全量同步的 runner 数
+
+	status *statusStore // 与 Service 共享；FullSync 借此上报进度（可能为 nil）
+	wb     *wbStore     // 持久化回写队列（EnableWriteback 装配，可能为 nil）
 }
+
+// setStatusStore 由 Service.SetManager 调用，共享同步进度存储。
+func (m *Manager) setStatusStore(s *statusStore) { m.status = s }
 
 func NewManager(accounts AccountLister, folders *folder.Service, messages *message.Service, pub Publisher) *Manager {
 	return &Manager{
-		accounts:     accounts,
-		folders:      folders,
-		messages:     messages,
-		pub:          pub,
-		dial:         defaultDial,
-		pollInterval: func() time.Duration { return defaultPollInterval },
-		workers:      map[uint]context.CancelFunc{},
+		accounts:      accounts,
+		folders:       folders,
+		messages:      messages,
+		pub:           pub,
+		dial:          defaultDial,
+		pollInterval:  func() time.Duration { return defaultPollInterval },
+		maxConcurrent: func() int { return defaultMaxConcurrent },
+		maxIdle:       func() int { return defaultMaxIdleConns },
+		runners:       map[uint]*runner{},
+		idleAllowed:   map[uint]bool{},
 	}
 }
 
@@ -73,6 +96,32 @@ func (m *Manager) SetPollIntervalProvider(fn func() int) {
 	}
 }
 
+// SetMaxConcurrentProvider 注入全局同步并发上限（<1 取默认）。
+func (m *Manager) SetMaxConcurrentProvider(fn func() int) {
+	if fn == nil {
+		return
+	}
+	m.maxConcurrent = func() int {
+		if n := fn(); n >= 1 {
+			return n
+		}
+		return defaultMaxConcurrent
+	}
+}
+
+// SetMaxIdleProvider 注入常驻 IDLE 名额上限（<0 取默认）。
+func (m *Manager) SetMaxIdleProvider(fn func() int) {
+	if fn == nil {
+		return
+	}
+	m.maxIdle = func() int {
+		if n := fn(); n >= 0 {
+			return n
+		}
+		return defaultMaxIdleConns
+	}
+}
+
 // Start 启动调度：立即调和一次，并起 reconcile 循环。
 func (m *Manager) Start(ctx context.Context) {
 	m.rootCtx = ctx
@@ -80,15 +129,18 @@ func (m *Manager) Start(ctx context.Context) {
 	go m.reconcileLoop(ctx)
 }
 
-// Stop 取消所有 worker 并等待退出。
+// Stop 取消所有 runner 并等待退出。
 func (m *Manager) Stop() {
 	m.mu.Lock()
-	for id, cancel := range m.workers {
-		cancel()
-		delete(m.workers, id)
+	runners := make([]*runner, 0, len(m.runners))
+	for id, r := range m.runners {
+		runners = append(runners, r)
+		delete(m.runners, id)
 	}
 	m.mu.Unlock()
-	m.wg.Wait()
+	for _, r := range runners {
+		r.stop()
+	}
 }
 
 func (m *Manager) reconcileLoop(ctx context.Context) {
@@ -104,6 +156,8 @@ func (m *Manager) reconcileLoop(ctx context.Context) {
 	}
 }
 
+// reconcile 对齐「启用账户集合 ↔ runner 集合」，并按 id 排序重算 IDLE 名额。
+// 停止 runner 会等待其 goroutine 退出，故必须在释放 m.mu 之后进行（runner 可能正回调 IDLEAllowed 持锁）。
 func (m *Manager) reconcile() {
 	ids, err := m.accounts.ListEnabledIDs()
 	if err != nil {
@@ -113,189 +167,164 @@ func (m *Manager) reconcile() {
 	for _, id := range ids {
 		want[id] = true
 	}
+
+	var toStop []*runner
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.recomputeIdleQuotaLocked(ids)
 	for id := range want {
-		if _, ok := m.workers[id]; !ok {
-			wctx, cancel := context.WithCancel(m.rootCtx)
-			m.workers[id] = cancel
-			m.wg.Add(1)
-			go m.worker(wctx, id)
+		if _, ok := m.runners[id]; !ok {
+			r := m.newAccountRunner(id)
+			r.start(m.rootCtx)
+			m.runners[id] = r
+			m.recoverWriteback(id, r) // 启动恢复该账户遗留的待回写
+			logger.Info("sync-manager: runner 启动", zap.Uint("account_id", id))
 		}
 	}
-	for id, cancel := range m.workers {
+	for id, r := range m.runners {
 		if !want[id] {
-			cancel()
-			delete(m.workers, id)
+			toStop = append(toStop, r)
+			delete(m.runners, id)
+			logger.Info("sync-manager: runner 停止", zap.Uint("account_id", id))
 		}
+	}
+	m.mu.Unlock()
+
+	for _, r := range toStop {
+		r.stop()
 	}
 }
 
-func (m *Manager) worker(ctx context.Context, accountID uint) {
-	defer m.wg.Done()
-	logger.Info("sync-manager: worker 启动", zap.Uint("account_id", accountID))
-	defer logger.Info("sync-manager: worker 退出", zap.Uint("account_id", accountID))
-	backoff := time.Second
+// newAccountRunner 构建一个绑定该账户配置的 runner，host 指向 Manager。
+func (m *Manager) newAccountRunner(accountID uint) *runner {
+	r := newRunner(accountID, func() (types.IMAPConfig, error) {
+		return m.accounts.IMAPConfig(accountID)
+	}, m.dial)
+	r.host = m
+	return r
+}
+
+// ensureRunner 返回账户 runner，不存在则即时创建并启动（Trigger/详情/附件/回写按需拉起）。
+func (m *Manager) ensureRunner(accountID uint) *runner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runners[accountID]; ok {
+		return r
+	}
+	r := m.newAccountRunner(accountID)
+	ctx := m.rootCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.start(ctx)
+	m.runners[accountID] = r
+	return r
+}
+
+// ── orchestrator 实现（供 Service 投递任务）─────────────────────────────────────
+
+// TriggerSync 前台优先执行一次全量同步，阻塞至完成或 ctx 取消。
+func (m *Manager) TriggerSync(ctx context.Context, accountID uint) error {
+	r := m.ensureRunner(accountID)
+	return r.submitForeground(ctx, func(sess Session) error {
+		return m.triggeredFullSync(ctx, accountID, sess)
+	})
+}
+
+// ForegroundOp 投递前台任务并等待结果（详情/附件）。
+func (m *Manager) ForegroundOp(ctx context.Context, accountID uint, run func(Session) error) error {
+	r := m.ensureRunner(accountID)
+	return r.submitForeground(ctx, run)
+}
+
+// BackgroundOp 非阻塞投递后台任务（回写）。
+func (m *Manager) BackgroundOp(accountID uint, run func(Session) error) bool {
+	r := m.ensureRunner(accountID)
+	return r.submitBackground(run)
+}
+
+// triggeredFullSync 是手动触发的全量同步：抢不到全局名额则置 queued 并短延迟重试。
+func (m *Manager) triggeredFullSync(ctx context.Context, accountID uint, sess Session) error {
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-		err := m.runSession(ctx, accountID)
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			logger.Warn("sync-manager: 会话结束，准备重连",
-				zap.Uint("account_id", accountID), zap.Duration("backoff", backoff), zap.Error(err))
+		err := m.FullSync(accountID, sess, nil)
+		if errors.Is(err, errSyncSlotBusy) {
+			m.statusPhase(accountID, PhaseQueued)
 			select {
 			case <-ctx.Done():
-				return
-			case <-time.After(backoff):
-			}
-			backoff *= 2
-			if backoff > maxReconnectBackoff {
-				backoff = maxReconnectBackoff
+				return ctx.Err()
+			case <-time.After(syncSlotRetry):
 			}
 			continue
 		}
-		backoff = time.Second
+		return err
 	}
 }
 
-// runSession 建立一条连接并驱动「轮询 ↔ IDLE」循环，直到出错或 ctx 取消。
-func (m *Manager) runSession(ctx context.Context, accountID uint) error {
-	cfg, err := m.accounts.IMAPConfig(accountID)
-	if err != nil {
-		return err
-	}
-	sess, err := m.dial(cfg)
-	if err != nil {
-		return err
-	}
-	defer sess.Close()
-
-	logger.Info("sync-manager: 已连接",
-		zap.Uint("account_id", accountID), zap.Bool("idle", sess.CanIDLE()))
-
-	// 初始全文件夹增量同步。
-	if err := m.pollAll(accountID, sess); err != nil {
-		return err
-	}
-
-	// 非 IDLE 服务商（如网易 163）：不持有空闲连接——这类服务器会在数分钟空闲后
-	// 静默断开连接，导致后续 FETCH 卡死或失败而无法察觉。改为「轮询一轮 → 等待间隔 →
-	// 关闭返回」，由 worker 重新建连进行下一轮，每轮都是新鲜连接，最稳健。
-	if !sess.CanIDLE() {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(m.pollInterval()):
-			return nil
-		}
-	}
-
-	// 以下为 IDLE 路径：持有连接，IDLE（仅 INBOX）↔ 轮询（所有文件夹）循环。
-	idleCh := make(chan struct{}, 1)
-	sess.SetIDLEHandler(func(coreimap.IDLEEvent) {
-		select {
-		case idleCh <- struct{}{}:
-		default:
-		}
-	})
-
-	pollTicker := time.NewTicker(m.pollInterval())
-	defer pollTicker.Stop()
-
-	// idleRefresh timer 在循环外创建一次、每次进入 IDLE 时 Reset，
-	// 避免在长生命周期 for 循环内反复 NewTimer/defer 累积（资源泄漏）。
-	refreshTimer := time.NewTimer(idleRefreshInterval)
-	defer refreshTimer.Stop()
-	stopTimer(refreshTimer) // 起始停掉，仅在成功进入 IDLE 后 Reset
-
-	for {
-		var handle *coreimap.IdleHandle
-		var idleDone <-chan error
-		var idleRefresh <-chan time.Time
-		if sess.CanIDLE() {
-			if inbox, _ := m.folders.FindInbox(accountID); inbox != nil {
-				if _, err := sess.SelectFolder(inbox.Path); err == nil {
-					if h, err := sess.StartIDLE(); err == nil {
-						handle = h
-						idleDone = h.Done()
-						refreshTimer.Reset(idleRefreshInterval)
-						idleRefresh = refreshTimer.C
-					}
-				}
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			if handle != nil {
-				_ = handle.Stop("shutdown")
-			}
-			return nil
-		case <-idleCh:
-			stopTimer(refreshTimer)
-			// Stop 失败说明 IDLE 未干净结束，连接状态不确定：返回触发重连，
-			// 不要在脏连接上继续 FETCH。
-			if handle != nil {
-				if err := handle.Stop("new-mail"); err != nil {
-					return fmt.Errorf("stop idle (new-mail): %w", err)
-				}
-			}
-			if err := m.pollInbox(accountID, sess); err != nil {
-				return err
-			}
-		case <-idleDone:
-			stopTimer(refreshTimer)
-			return fmt.Errorf("idle connection closed")
-		case <-idleRefresh:
-			if handle != nil {
-				_ = handle.Stop("refresh")
-			}
-			// timer 已触发并被 select 读空，下一轮进入 IDLE 时再 Reset。
-		case <-pollTicker.C:
-			stopTimer(refreshTimer)
-			if handle != nil {
-				if err := handle.Stop("poll"); err != nil {
-					return fmt.Errorf("stop idle (poll): %w", err)
-				}
-			}
-			// 轮询出错（多为连接被服务器断开）返回触发重连，否则会在死连接上空转。
-			if err := m.pollAll(accountID, sess); err != nil {
-				return err
-			}
-			// 重新读取设置中的轮询间隔，使其变更能及时生效。
-			pollTicker.Reset(m.pollInterval())
-		}
+// ── 状态上报辅助（status 为 nil 时静默）──────────────────────────────────────
+func (m *Manager) statusBegin(accountID uint, p Phase) {
+	if m.status != nil {
+		m.status.begin(accountID, p)
 	}
 }
 
-// stopTimer 停止 timer 并清空其 channel，便于后续安全 Reset。
-func stopTimer(t *time.Timer) {
-	if !t.Stop() {
-		select {
-		case <-t.C:
-		default:
-		}
+func (m *Manager) statusPhase(accountID uint, p Phase) {
+	if m.status != nil {
+		m.status.markPhase(accountID, p)
 	}
 }
 
-// pollAll 重列文件夹（发现新文件夹）后对所有可选文件夹做增量同步。
-// 返回遇到的第一个文件夹同步错误（多为连接断开）；会先尝试完所有文件夹，
-// 以保证 INBOX 等仍能在本轮被同步，再由调用方据错误决定是否重连。
-func (m *Manager) pollAll(accountID uint, sess Session) error {
+func (m *Manager) statusFail(accountID uint, err error) {
+	if m.status != nil {
+		m.status.fail(accountID, err.Error())
+	}
+}
+
+func (m *Manager) statusDone(accountID uint) {
+	if m.status == nil {
+		return
+	}
+	total, _ := m.messages.CountByAccount(accountID)
+	m.status.markDone(accountID, int(total))
+}
+
+// recomputeIdleQuotaLocked 取启用账户中 id 最小的前 maxIdle 个授予常驻 IDLE 名额。调用方须持 m.mu。
+func (m *Manager) recomputeIdleQuotaLocked(ids []uint) {
+	limit := m.maxIdle()
+	sorted := make([]uint, len(ids))
+	copy(sorted, ids)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	allowed := make(map[uint]bool, limit)
+	for i, id := range sorted {
+		if i >= limit {
+			break
+		}
+		allowed[id] = true
+	}
+	m.idleAllowed = allowed
+}
+
+// ── runnerHost 实现 ──────────────────────────────────────────────────────────
+
+// FullSync 执行一轮全文件夹增量同步（全局并发受信号量限制；文件夹边界让位前台任务）。
+func (m *Manager) FullSync(accountID uint, sess Session, yield func()) error {
+	if !m.acquireSyncSlot() {
+		return errSyncSlotBusy
+	}
+	defer m.releaseSyncSlot()
+
 	start := time.Now()
+	m.statusBegin(accountID, PhaseFolders)
 	if err := m.folders.SyncFolders(accountID, sess); err != nil {
 		logger.Error("sync-manager: 列文件夹失败",
 			zap.Uint("account_id", accountID), zap.Error(err))
+		m.statusFail(accountID, err)
 		return err
 	}
 	fs, err := m.folders.List(accountID)
 	if err != nil {
+		m.statusFail(accountID, err)
 		return err
 	}
+	m.statusPhase(accountID, PhaseMessages)
 	var firstErr error
 	attempted, failed := 0, 0
 	for i := range fs {
@@ -310,16 +339,66 @@ func (m *Manager) pollAll(accountID uint, sess Session) error {
 				firstErr = err
 			}
 		}
+		if yield != nil {
+			yield() // 文件夹边界让位前台任务（详情/附件/手动触发）
+		}
 	}
 	_ = m.accounts.TouchLastSync(accountID, time.Now())
-	// 仅当所有尝试的文件夹都失败时判定为连接故障，返回错误触发重连；
-	// 个别文件夹失败（良性，如某特殊文件夹不可 SELECT）不强制重连。
+	// 仅当所有尝试的文件夹都失败时判定为连接故障，返回错误触发重连。
 	if attempted > 0 && failed == attempted {
+		m.statusFail(accountID, firstErr)
 		return firstErr
 	}
+	m.statusDone(accountID)
 	logger.Info("sync-manager: 一轮同步完成",
 		zap.Uint("account_id", accountID), zap.Duration("duration", time.Since(start)))
 	return nil
+}
+
+// InboxSync 只增量同步收件箱（IDLE 唤醒用）。
+func (m *Manager) InboxSync(accountID uint, sess Session) error {
+	return m.pollInbox(accountID, sess)
+}
+
+// SelectInbox 为进入 IDLE 选中收件箱；无收件箱返回 ok=false。
+func (m *Manager) SelectInbox(accountID uint, sess Session) (bool, error) {
+	inbox, err := m.folders.FindInbox(accountID)
+	if err != nil || inbox == nil {
+		return false, err
+	}
+	if _, err := sess.SelectFolder(inbox.Path); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// PollInterval 返回当前轮询间隔。
+func (m *Manager) PollInterval() time.Duration { return m.pollInterval() }
+
+// IDLEAllowed 报告账户是否持有常驻 IDLE 名额。
+func (m *Manager) IDLEAllowed(accountID uint) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.idleAllowed[accountID]
+}
+
+// acquireSyncSlot 尝试占用一个全局同步名额，占满返回 false（非阻塞）。
+func (m *Manager) acquireSyncSlot() bool {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+	if m.syncActive >= m.maxConcurrent() {
+		return false
+	}
+	m.syncActive++
+	return true
+}
+
+func (m *Manager) releaseSyncSlot() {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+	if m.syncActive > 0 {
+		m.syncActive--
+	}
 }
 
 // pollInbox 只增量同步收件箱（IDLE 唤醒用）。
@@ -368,19 +447,29 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 	return nil
 }
 
-// workerCount 返回当前运行的 worker 数（测试与诊断用）。
-func (m *Manager) workerCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.workers)
+// stopTimer 停止 timer 并清空其 channel，便于后续安全 Reset。
+func stopTimer(t *time.Timer) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
 }
 
-// WorkerAccountIDs 返回当前有后台同步 worker 的账户 id（监控用）。
+// runnerCount 返回当前 runner 数（测试与诊断用）。
+func (m *Manager) runnerCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.runners)
+}
+
+// WorkerAccountIDs 返回当前有 runner 的账户 id（监控用）。
 func (m *Manager) WorkerAccountIDs() []uint {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ids := make([]uint, 0, len(m.workers))
-	for id := range m.workers {
+	ids := make([]uint, 0, len(m.runners))
+	for id := range m.runners {
 		ids = append(ids, id)
 	}
 	return ids
@@ -389,4 +478,38 @@ func (m *Manager) WorkerAccountIDs() []uint {
 // CurrentPollSeconds 返回当前轮询间隔（秒，监控用）。
 func (m *Manager) CurrentPollSeconds() int {
 	return int(m.pollInterval() / time.Second)
+}
+
+// RunnerStat 是单账户 runner 的运行时快照（监控用）。
+type RunnerStat struct {
+	AccountID       uint `json:"account_id"`
+	BreakerOpen     bool `json:"breaker_open"`
+	BreakerFailures int  `json:"breaker_failures"`
+	QueueDepth      int  `json:"queue_depth"` // 后台任务队列深度
+}
+
+// RunnerStats 返回各账户 runner 的熔断状态与队列深度。
+func (m *Manager) RunnerStats() []RunnerStat {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]RunnerStat, 0, len(m.runners))
+	for id, r := range m.runners {
+		st, depth := r.stats()
+		out = append(out, RunnerStat{
+			AccountID:       id,
+			BreakerOpen:     st.Open,
+			BreakerFailures: st.Failures,
+			QueueDepth:      depth,
+		})
+	}
+	return out
+}
+
+// PendingWritebackCount 返回待回写总数（监控用）。
+func (m *Manager) PendingWritebackCount() int64 {
+	if m.wb == nil {
+		return 0
+	}
+	n, _ := m.wb.CountPending()
+	return n
 }

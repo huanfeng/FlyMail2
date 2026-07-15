@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	gosync "sync"
@@ -82,6 +83,7 @@ type AccountLister interface {
 type Phase string
 
 const (
+	PhaseQueued   Phase = "queued" // 排队等待全局同步名额（前端未识别按进行中展示）
 	PhaseFolders  Phase = "folders"
 	PhaseMessages Phase = "messages"
 	PhaseDone     Phase = "done"
@@ -105,6 +107,19 @@ var ErrSyncRunning = errors.New("sync already running for this account")
 // ErrAccountDisabled 表示账户已停用，拒绝同步。
 var ErrAccountDisabled = errors.New("account is disabled")
 
+// orchestrator 是 Service 投递任务到账户 runner 的门面（*Manager 实现）。
+// 为 nil 时 Service 退化为旧的每操作直连路径（供不接 Manager 的单测使用）。
+type orchestrator interface {
+	// TriggerSync 前台优先执行一次全量同步（含 queued 重试与状态上报），阻塞至完成或 ctx 取消。
+	TriggerSync(ctx context.Context, accountID uint) error
+	// ForegroundOp 前台任务（详情/附件），阻塞等结果。
+	ForegroundOp(ctx context.Context, accountID uint, run func(Session) error) error
+	// BackgroundOp 后台任务，非阻塞投递。
+	BackgroundOp(accountID uint, run func(Session) error) bool
+	// EnqueueWriteback 持久化一条回写并投递执行任务到账户 runner。
+	EnqueueWriteback(op *WritebackOp)
+}
+
 // Service 编排单账户的首次同步（文件夹 → 收件箱消息），并通过内存 map 对外暴露进度。
 type Service struct {
 	accounts AccountConfigProvider
@@ -114,12 +129,18 @@ type Service struct {
 	dial        func(types.IMAPConfig) (Session, error)
 	syncDepthFn func() int
 	emit        EmitFunc
+	orch        orchestrator
 
-	mu       gosync.Mutex
-	statuses map[uint]*Status
-	running  map[uint]bool
+	status  *statusStore
+	mu      gosync.Mutex
+	running map[uint]bool
+}
 
-	wbCh chan wbOp
+// SetManager 注入 runner 编排器（Manager），并让二者共享同一份同步状态存储
+// （后台同步与手动触发的进度写入同一处，唯一写入方均为账户 runner）。
+func (s *Service) SetManager(m *Manager) {
+	s.orch = m
+	m.setStatusStore(s.status)
 }
 
 // SetEmitter 注入通知回调（同步失败等事件）。
@@ -133,11 +154,9 @@ func NewService(accounts AccountConfigProvider, folders *folder.Service, message
 		messages:    messages,
 		dial:        defaultDial,
 		syncDepthFn: func() int { return 0 },
-		statuses:    map[uint]*Status{},
+		status:      newStatusStore(),
 		running:     map[uint]bool{},
-		wbCh:        make(chan wbOp, 256),
 	}
-	go s.writebackLoop()
 	return s
 }
 
@@ -148,7 +167,35 @@ func (s *Service) SetSyncDepthProvider(fn func() int) {
 	}
 }
 
+// foregroundOpTimeout 是前台按需操作（详情/附件）的等待上限；超时返回错误（任务仍会执行完）。
+const foregroundOpTimeout = 20 * time.Second
+
 func defaultDial(cfg types.IMAPConfig) (Session, error) { return coreimap.Dial(cfg) }
+
+// runForeground 在账户 runner 上前台执行一个 IMAP 操作（复用其连接，带超时）；
+// 无 Manager 时退回旧的即建即用直连（供单测）。
+func (s *Service) runForeground(accountID uint, run func(Session) error) error {
+	if s.orch == nil {
+		return s.withDialedSession(accountID, run)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), foregroundOpTimeout)
+	defer cancel()
+	return s.orch.ForegroundOp(ctx, accountID, run)
+}
+
+// withDialedSession 为某账户即建一条连接执行 run，结束关闭（orch 为 nil 的回退路径）。
+func (s *Service) withDialedSession(accountID uint, run func(Session) error) error {
+	cfg, err := s.accounts.IMAPConfig(accountID)
+	if err != nil {
+		return err
+	}
+	sess, err := s.dial(cfg)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	return run(sess)
+}
 
 // SetDial 覆盖拨号函数（测试注入用）。
 func (s *Service) SetDial(d func(types.IMAPConfig) (Session, error)) { s.dial = d }
@@ -169,37 +216,42 @@ func (s *Service) Trigger(accountID uint) error {
 		return ErrSyncRunning
 	}
 	s.running[accountID] = true
-	now := time.Now()
-	s.statuses[accountID] = &Status{
-		AccountID: accountID,
-		Phase:     PhaseFolders,
-		StartedAt: now,
-		UpdatedAt: now,
-	}
 	s.mu.Unlock()
 
-	go s.run(accountID)
+	// 初始置 queued：等待 runner 拾取/全局同步名额；runner 执行后转 folders→messages→done。
+	s.status.begin(accountID, PhaseQueued)
+	go s.runTrigger(accountID)
 	return nil
+}
+
+// runTrigger 执行一次手动触发的同步：有 Manager 则投递前台全量同步任务到账户 runner，
+// 否则退回旧的直连路径（单测无 Manager 时）。
+func (s *Service) runTrigger(accountID uint) {
+	defer func() {
+		s.mu.Lock()
+		s.running[accountID] = false
+		s.mu.Unlock()
+	}()
+
+	if s.orch == nil {
+		s.run(accountID)
+		return
+	}
+	// runner 内部会写状态（folders/messages/done/queued）；此处仅在失败时补通知。
+	if err := s.orch.TriggerSync(context.Background(), accountID); err != nil && !errors.Is(err, context.Canceled) {
+		if s.emit != nil {
+			s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
+		}
+	}
 }
 
 // StatusOf 返回指定账户的同步状态快照。
 func (s *Service) StatusOf(accountID uint) (Status, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	st, ok := s.statuses[accountID]
-	if !ok {
-		return Status{}, false
-	}
-	return *st, true
+	return s.status.get(accountID)
 }
 
 func (s *Service) setStatus(accountID uint, fn func(*Status)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if st := s.statuses[accountID]; st != nil {
-		fn(st)
-		st.UpdatedAt = time.Now()
-	}
+	s.status.update(accountID, fn)
 }
 
 func (s *Service) run(accountID uint) {
@@ -297,20 +349,19 @@ func (s *Service) AttachmentContent(messageID uint, idx int) (*AttachmentResult,
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := s.accounts.IMAPConfig(m.AccountID)
-	if err != nil {
-		return nil, err
+	var raw []byte
+	fetch := func(sess Session) error {
+		if _, err := sess.SelectFolder(f.Path); err != nil {
+			return err
+		}
+		b, err := sess.FetchRawMessage(imapv2.UID(m.UID))
+		if err != nil {
+			return err
+		}
+		raw = b
+		return nil
 	}
-	sess, err := s.dial(cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer sess.Close()
-	if _, err := sess.SelectFolder(f.Path); err != nil {
-		return nil, err
-	}
-	raw, err := sess.FetchRawMessage(imapv2.UID(m.UID))
-	if err != nil {
+	if err := s.runForeground(m.AccountID, fetch); err != nil {
 		return nil, err
 	}
 	atts, err := coreparser.ExtractAttachments(bytes.NewReader(raw))
@@ -360,29 +411,26 @@ func (s *Service) MessageDetail(messageID uint) (*message.MessageDetail, error) 
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := s.accounts.IMAPConfig(m.AccountID)
-		if err != nil {
-			return nil, err
-		}
-		sess, err := s.dial(cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer sess.Close()
-		if _, err := sess.SelectFolder(f.Path); err != nil {
-			return nil, err
-		}
-		emails, err := sess.FetchByUIDs(
-			[]imapv2.UID{imapv2.UID(m.UID)},
-			coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
-		)
-		if err != nil {
-			return nil, err
-		}
-		if len(emails) > 0 {
-			if err := s.messages.StoreParsedBody(messageID, emails[0]); err != nil {
-				return nil, err
+		fetch := func(sess Session) error {
+			if _, err := sess.SelectFolder(f.Path); err != nil {
+				return err
 			}
+			emails, err := sess.FetchByUIDs(
+				[]imapv2.UID{imapv2.UID(m.UID)},
+				coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
+			)
+			if err != nil {
+				return err
+			}
+			if len(emails) > 0 {
+				if err := s.messages.StoreParsedBody(messageID, emails[0]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if err := s.runForeground(m.AccountID, fetch); err != nil {
+			return nil, err
 		}
 	}
 	return s.messages.Detail(messageID)

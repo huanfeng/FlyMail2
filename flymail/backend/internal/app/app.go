@@ -23,6 +23,8 @@ import (
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/setting"
+
+	"gorm.io/gorm"
 )
 
 // appVersion 监控/关于展示用的版本号（后续可由构建注入）。
@@ -35,6 +37,7 @@ type App struct {
 	manager  *syncmod.Manager
 	cancel   context.CancelFunc
 	logClose func() error
+	db       *gorm.DB
 }
 
 // New 构建 App：初始化日志、开库、迁移、装配 handler。
@@ -115,7 +118,7 @@ func New(cfg *config.Config) (*App, error) {
 			return err
 		},
 	})
-	return &App{cfg: cfg, srv: &http.Server{Handler: handler}, manager: manager, logClose: logClose}, nil
+	return &App{cfg: cfg, srv: &http.Server{Handler: handler}, manager: manager, logClose: logClose, db: db}, nil
 }
 
 // Handler 返回装配好的 HTTP 处理器（gin 引擎）。
@@ -159,6 +162,12 @@ func (a *App) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := a.srv.Shutdown(ctx)
+	// 释放 SQLite 连接：否则文件句柄保持到进程退出（桌面形态/测试临时目录清理都需要）。
+	if a.db != nil {
+		if sqlDB, dbErr := a.db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	}
 	if a.logClose != nil {
 		_ = a.logClose() // 关闭日志文件句柄
 	}

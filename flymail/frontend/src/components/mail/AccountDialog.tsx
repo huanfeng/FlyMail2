@@ -282,13 +282,13 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
       <Dialog.Portal>
         {/* 遮罩 */}
         <Dialog.Overlay
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-[70]"
           style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}
         />
 
         {/* 对话框内容 */}
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto rounded-xl shadow-xl flex flex-col gap-0 outline-none"
+          className="fixed left-1/2 top-1/2 z-[80] -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto rounded-xl shadow-xl flex flex-col gap-0 outline-none"
           style={{ background: 'var(--surface)', color: 'var(--ink)' }}
           aria-describedby={undefined}
         >

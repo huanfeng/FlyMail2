@@ -195,7 +195,11 @@
       "lastSync": "最后同步",
       "worker": "后台运行中",
       "noWorker": "无后台任务",
+      "pendingWriteback": "待回写",
+      "queueDepth": "队列深度",
+      "breakerOpen": "熔断",
       "phase": {
+        "queued": "排队中",
         "none": "空闲",
         "folders": "同步文件夹中",
         "messages": "同步邮件中",

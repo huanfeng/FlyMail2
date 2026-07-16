@@ -51,6 +51,7 @@ export function MonitoringSection() {
           <StatCard label={t('settings.monitoring.messages')} value={ov?.messages ?? '—'} />
           <StatCard label={t('settings.monitoring.unread')} value={ov?.unread ?? '—'} />
           <StatCard label={t('settings.monitoring.workers')} value={ov?.active_workers ?? '—'} />
+          <StatCard label={t('settings.monitoring.pendingWriteback')} value={ov?.pending_writeback ?? '—'} />
           <StatCard label={t('settings.monitoring.pollInterval')} value={ov ? `${ov.poll_interval_sec}s` : '—'} />
           <StatCard label={t('settings.monitoring.uptime')} value={ov ? fmtUptime(ov.uptime_sec, isZh) : '—'} />
           <StatCard label={t('settings.monitoring.dbSize')} value={ov ? fmtBytes(ov.db_size_bytes) : '—'} />
@@ -89,6 +90,7 @@ export function MonitoringSection() {
                   {t('settings.account.messages')}: {a.message_count} · {t('settings.account.folders')}: {a.folder_count}
                   {' · '}
                   {t('settings.monitoring.lastSync')}: {a.last_sync_at ? new Date(a.last_sync_at).toLocaleString() : t('settings.account.never')}
+                  {a.queue_depth > 0 && ` · ${t('settings.monitoring.queueDepth')}: ${a.queue_depth}`}
                 </div>
                 {a.sync_error && (
                   <div style={{ fontSize: 11.5, color: 'var(--destructive)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -100,6 +102,14 @@ export function MonitoringSection() {
                 <span className="chip" style={{ fontSize: 11, padding: '1px 8px' }}>
                   {a.has_worker ? t('settings.monitoring.worker') : t('settings.monitoring.noWorker')}
                 </span>
+                {a.breaker_open && (
+                  <span
+                    className="chip"
+                    style={{ fontSize: 11, padding: '1px 8px', color: 'var(--destructive)', borderColor: 'var(--destructive)' }}
+                  >
+                    {t('settings.monitoring.breakerOpen')}
+                  </span>
+                )}
                 <span style={{ fontSize: 11, color: a.sync_phase === 'error' ? 'var(--destructive)' : 'var(--ink-3)' }}>
                   {t(`settings.monitoring.phase.${a.sync_phase}`)}
                 </span>

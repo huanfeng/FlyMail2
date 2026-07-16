@@ -195,7 +195,11 @@
       "lastSync": "Last sync",
       "worker": "Running",
       "noWorker": "Idle",
+      "pendingWriteback": "Pending writeback",
+      "queueDepth": "Queue depth",
+      "breakerOpen": "Circuit open",
       "phase": {
+        "queued": "Queued",
         "none": "Idle",
         "folders": "Syncing folders",
         "messages": "Syncing messages",

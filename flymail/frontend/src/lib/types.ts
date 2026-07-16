@@ -95,6 +95,7 @@ export interface MonitoringOverview {
   uptime_sec: number
   version: string
   db_size_bytes: number
+  pending_writeback: number
 }
 
 /** 单账户健康 */
@@ -110,6 +111,8 @@ export interface AccountHealth {
   has_worker: boolean
   sync_phase: string
   sync_error?: string
+  breaker_open: boolean
+  queue_depth: number
 }
 
 /** 外发投递日志 */

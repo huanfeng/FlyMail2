@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -10,6 +11,37 @@ import (
 
 	"flymail-core/types"
 )
+
+// tlsPlainAuth 是 net/smtp PlainAuth 的变体：当我们已自行建立隐式 TLS（SSL/465）后，
+// net/smtp.Client 内部的 tls 标志仍为 false，标准 PlainAuth 会误判"连接未加密"而拒发凭证。
+// 本变体在连接确实已加密（由调用方保证）时跳过该检查，仅保留主机名核对。
+type tlsPlainAuth struct {
+	identity, username, password, host string
+}
+
+func (a *tlsPlainAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	if server.Name != a.host {
+		return "", nil, errors.New("wrong host name")
+	}
+	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
+	return "PLAIN", resp, nil
+}
+
+func (a *tlsPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		return nil, errors.New("unexpected server challenge")
+	}
+	return nil, nil
+}
+
+// authFor 依据连接是否已加密选择认证方式：已加密（SSL 隐式 TLS 或 STARTTLS 升级）用
+// tlsPlainAuth 跳过 net/smtp 的 TLS 自检；未加密仍用标准 PlainAuth（其对非 localhost 会拒绝，保安全）。
+func (c *Client) authFor(secured bool) smtp.Auth {
+	if secured {
+		return &tlsPlainAuth{"", c.config.Username, c.config.Password, c.config.Host}
+	}
+	return smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
+}
 
 // Client wraps SMTP operations with support for SSL/STARTTLS and proxy.
 type Client struct {
@@ -23,14 +55,13 @@ func NewClient(cfg types.SMTPConfig) *Client {
 
 // SendEmail sends an email through the configured SMTP server.
 func (c *Client) SendEmail(from string, to, cc, bcc []string, subject, body, contentType string) error {
-	conn, err := c.connect()
+	conn, secured, err := c.connect()
 	if err != nil {
 		return err
 	}
 	defer conn.Quit()
 
-	auth := smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
-	if err := conn.Auth(auth); err != nil {
+	if err := conn.Auth(c.authFor(secured)); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 
@@ -69,14 +100,13 @@ func (c *Client) SendEmail(from string, to, cc, bcc []string, subject, body, con
 // SendRaw sends a pre-built RFC 5322 message. The caller builds `raw` (headers + body);
 // recipients includes To/Cc/Bcc (Bcc must NOT appear in raw headers).
 func (c *Client) SendRaw(from string, recipients []string, raw []byte) error {
-	conn, err := c.connect()
+	conn, secured, err := c.connect()
 	if err != nil {
 		return err
 	}
 	defer conn.Quit()
 
-	auth := smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
-	if err := conn.Auth(auth); err != nil {
+	if err := conn.Auth(c.authFor(secured)); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 	if err := conn.Mail(from); err != nil {
@@ -99,21 +129,22 @@ func (c *Client) SendRaw(from string, recipients []string, raw []byte) error {
 
 // TestConnection verifies the SMTP connection and authentication.
 func (c *Client) TestConnection() error {
-	conn, err := c.connect()
+	conn, secured, err := c.connect()
 	if err != nil {
 		return err
 	}
 	defer conn.Quit()
 
-	auth := smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
-	if err := conn.Auth(auth); err != nil {
+	if err := conn.Auth(c.authFor(secured)); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 	return nil
 }
 
 // connect establishes an SMTP connection respecting SecurityMode and proxy settings.
-func (c *Client) connect() (*smtp.Client, error) {
+// The returned bool reports whether the transport is encrypted (implicit TLS or STARTTLS-upgraded),
+// which callers pass to authFor so PLAIN auth can proceed on manually-wrapped TLS connections.
+func (c *Client) connect() (*smtp.Client, bool, error) {
 	addr := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
 	tlsConfig := &tls.Config{ServerName: c.config.Host}
 
@@ -121,48 +152,55 @@ func (c *Client) connect() (*smtp.Client, error) {
 	case types.SecuritySSL:
 		rawConn, err := c.dial("tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect failed: %w", err)
+			return nil, false, fmt.Errorf("connect failed: %w", err)
 		}
 		tlsConn := tls.Client(rawConn, tlsConfig)
 		if err := tlsConn.Handshake(); err != nil {
 			rawConn.Close()
-			return nil, fmt.Errorf("TLS handshake failed: %w", err)
+			return nil, false, fmt.Errorf("TLS handshake failed: %w", err)
 		}
-		return smtp.NewClient(tlsConn, c.config.Host)
+		client, err := smtp.NewClient(tlsConn, c.config.Host)
+		if err != nil {
+			return nil, false, err
+		}
+		return client, true, nil
 
 	case types.SecurityStartTLS:
 		rawConn, err := c.dial("tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect failed: %w", err)
+			return nil, false, fmt.Errorf("connect failed: %w", err)
 		}
 		client, err := smtp.NewClient(rawConn, c.config.Host)
 		if err != nil {
 			rawConn.Close()
-			return nil, err
+			return nil, false, err
 		}
 		if err := client.StartTLS(tlsConfig); err != nil {
 			client.Quit()
-			return nil, fmt.Errorf("STARTTLS failed: %w", err)
+			return nil, false, fmt.Errorf("STARTTLS failed: %w", err)
 		}
-		return client, nil
+		return client, true, nil
 
 	default: // SecurityNone — try opportunistic STARTTLS
 		rawConn, err := c.dial("tcp", addr)
 		if err != nil {
-			return nil, fmt.Errorf("connect failed: %w", err)
+			return nil, false, fmt.Errorf("connect failed: %w", err)
 		}
 		client, err := smtp.NewClient(rawConn, c.config.Host)
 		if err != nil {
 			rawConn.Close()
-			return nil, err
+			return nil, false, err
 		}
+		secured := false
 		if ok, _ := client.Extension("STARTTLS"); ok {
 			if err := client.StartTLS(tlsConfig); err != nil {
 				// Log but don't fail — server advertised STARTTLS but it didn't work
 				_ = err
+			} else {
+				secured = true
 			}
 		}
-		return client, nil
+		return client, secured, nil
 	}
 }
 

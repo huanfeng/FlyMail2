@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	gosync "sync"
 	"testing"
@@ -39,6 +40,52 @@ func (l *fakeLister) TouchLastSync(uint, time.Time) error { return nil }
 type nopPublisher struct{}
 
 func (nopPublisher) Publish([]byte) {}
+
+// TestTriggerViaManagerDialFailureSetsError 经 Manager 触发时若建连失败，状态兜底置 error（非停在 queued）。
+func TestTriggerViaManagerDialFailureSetsError(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := database.Migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	fsvc := folder.NewService(folder.NewRepository(db))
+	msvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
+	failDial := func(types.IMAPConfig) (syncmod.Session, error) { return nil, errDialTest }
+
+	svc := syncmod.NewService(&fakeAccounts{enabled: true}, fsvc, msvc)
+	svc.SetDial(failDial)
+	mgr := syncmod.NewManager(&fakeLister{ids: []uint{1}}, fsvc, msvc, nopPublisher{})
+	mgr.SetDial(failDial)
+	mgr.SetPollIntervalProvider(func() int { return 3600 })
+	svc.SetManager(mgr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Stop()
+
+	if err := svc.Trigger(1); err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, ok := svc.StatusOf(1); ok && st.Phase == syncmod.PhaseError {
+			return // 达到期望
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	st, _ := svc.StatusOf(1)
+	t.Fatalf("建连失败后状态应为 error，实际 %+v", st)
+}
+
+var errDialTest = errors.New("dial failed")
 
 // TestWritebackPersistsAndExecutes 回写持久队列：SetRead 落库 writeback_ops，runner 执行后回写 IMAP 并删行。
 func TestWritebackPersistsAndExecutes(t *testing.T) {

@@ -237,8 +237,11 @@ func (s *Service) runTrigger(accountID uint) {
 		s.run(accountID)
 		return
 	}
-	// runner 内部会写状态（folders/messages/done/queued）；此处仅在失败时补通知。
+	// runner 内部会写状态（folders/messages/done/queued）。若在进入 FullSync 前就失败
+	// （如建连失败，错误在 runner 侧返回而 FullSync 未执行），此处兜底把状态置 error 并通知，
+	// 避免状态停在 queued。
 	if err := s.orch.TriggerSync(context.Background(), accountID); err != nil && !errors.Is(err, context.Canceled) {
+		s.status.fail(accountID, err.Error())
 		if s.emit != nil {
 			s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
 		}

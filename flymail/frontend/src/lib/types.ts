@@ -113,6 +113,39 @@ export interface AccountHealth {
   sync_error?: string
   breaker_open: boolean
   queue_depth: number
+  mode: string // 当前 runner 模式：idle/polling/disconnected/...
+}
+
+/** 一条运行时诊断事件 */
+export interface DiagEvent {
+  at: string
+  type: string
+  detail?: string
+}
+
+/** 单账户 runner 运行时诊断 */
+export interface RunnerDiag {
+  account_id: number
+  mode: string
+  mode_since: string
+  mode_seconds: number
+  idle_capable: boolean
+  idle_allowed: boolean
+  idle_active: boolean
+  connected: boolean
+  breaker_open: boolean
+  breaker_failures: number
+  queue_depth: number
+  last_sync_at?: string
+  last_error?: string
+  last_error_at?: string
+  events: DiagEvent[]
+}
+
+/** 诊断接口响应：running=false 表示账户停用或 runner 未拉起 */
+export interface DiagnosticsResponse {
+  running: boolean
+  diagnostics?: RunnerDiag
 }
 
 /** 外发投递日志 */

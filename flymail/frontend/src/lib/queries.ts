@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -367,6 +367,21 @@ export function useMonitoringAccounts(enabled: boolean) {
     queryFn: async (): Promise<AccountHealth[]> => {
       const { data } = await api.get<{ accounts: AccountHealth[] }>('/monitoring/accounts')
       return data.accounts ?? []
+    },
+  })
+}
+
+/** 单账户运行时诊断（仅在账户行展开时轮询，2s 一次）。 */
+export function useMonitoringDiagnostics(accountId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['monitoring-diagnostics', accountId],
+    enabled: enabled && accountId != null,
+    refetchInterval: enabled ? 2000 : false,
+    queryFn: async (): Promise<DiagnosticsResponse> => {
+      const { data } = await api.get<DiagnosticsResponse>(
+        `/monitoring/accounts/${accountId}/diagnostics`,
+      )
+      return data
     },
   })
 }

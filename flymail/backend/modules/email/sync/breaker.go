@@ -29,6 +29,7 @@ type breaker struct {
 	failures  int
 	openUntil time.Time
 	now       func() time.Time // 可注入时钟，测试用
+	onChange  func(open bool)  // 打开/关闭翻转回调（诊断事件用，可为 nil）
 }
 
 func newBreaker() *breaker { return &breaker{now: time.Now} }
@@ -36,18 +37,29 @@ func newBreaker() *breaker { return &breaker{now: time.Now} }
 // RecordSuccess 记一次成功：清零失败计数并关闭熔断。
 func (b *breaker) RecordSuccess() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	wasOpen := b.openLocked()
 	b.failures = 0
 	b.openUntil = time.Time{}
+	cb := b.onChange
+	b.mu.Unlock()
+	if wasOpen && cb != nil {
+		cb(false)
+	}
 }
 
 // RecordFailure 记一次失败：累计达阈值则打开熔断（或在半开后再次失败时重新打开）。
 func (b *breaker) RecordFailure() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	wasOpen := b.openLocked()
 	b.failures++
 	if b.failures >= breakerThreshold {
 		b.openUntil = b.now().Add(breakerCooldown)
+	}
+	nowOpen := b.openLocked()
+	cb := b.onChange
+	b.mu.Unlock()
+	if !wasOpen && nowOpen && cb != nil {
+		cb(true)
 	}
 }
 

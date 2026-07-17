@@ -57,6 +57,7 @@ type runner struct {
 	cfg       func() (types.IMAPConfig, error)
 	dial      func(types.IMAPConfig) (Session, error)
 	breaker   *breaker
+	diag      *runnerDiag
 	host      runnerHost // nil = 纯任务模式（无轮询/IDLE）
 
 	fg     chan task     // 前台队列（交互：详情/附件/手动触发，优先）
@@ -78,17 +79,27 @@ type runner struct {
 
 // newRunner 构建 runner（尚未启动，调用 start）。
 func newRunner(accountID uint, cfg func() (types.IMAPConfig, error), dial func(types.IMAPConfig) (Session, error)) *runner {
-	return &runner{
+	r := &runner{
 		accountID: accountID,
 		cfg:       cfg,
 		dial:      dial,
 		breaker:   newBreaker(),
+		diag:      newRunnerDiag(time.Now),
 		fg:        make(chan task),
 		bg:        make(chan task, 64),
 		idleCh:    make(chan struct{}, 1),
 		idleClose: idleCloseInterval,
 		now:       time.Now,
 	}
+	// 熔断翻转记入诊断事件。
+	r.breaker.onChange = func(open bool) {
+		if open {
+			r.diag.event("breaker_open", "连续失败达阈值，后台暂停 10min")
+		} else {
+			r.diag.event("breaker_reset", "恢复")
+		}
+	}
+	return r
 }
 
 // start 在 parent ctx 下启动 runner goroutine。
@@ -183,6 +194,8 @@ func (r *runner) loop() {
 		}
 		err := idleHandle.Stop(reason)
 		idleHandle = nil
+		r.diag.setIdleActive(false)
+		r.diag.event("idle_exit", reason)
 		return err == nil
 	}
 
@@ -199,6 +212,9 @@ func (r *runner) loop() {
 				if h, err := sess.StartIDLE(); err == nil {
 					idleHandle = h
 					refreshTimer.Reset(idleRefreshInterval)
+					r.diag.setIdleActive(true)
+					r.diag.setMode(modeIdle)
+					r.diag.event("idle_enter", "")
 				}
 			}
 		}
@@ -240,13 +256,20 @@ func (r *runner) loop() {
 			if !stopIdle("new-mail") && sess != nil {
 				_ = sess.Close()
 				sess = nil
+				r.diag.setConnected(false, false)
 			}
 			if sess != nil {
+				r.diag.setMode(modeInboxSync)
 				if err := r.host.InboxSync(r.accountID, sess); err != nil {
 					_ = sess.Close()
 					sess = nil
+					r.diag.setConnected(false, false)
+					r.diag.markErr(err.Error())
+					r.diag.event("inbox_sync_error", err.Error())
 					r.breaker.RecordFailure()
 				} else {
+					r.diag.markSync()
+					r.diag.event("inbox_synced", "")
 					r.breaker.RecordSuccess()
 				}
 			}
@@ -266,10 +289,16 @@ func (r *runner) loop() {
 				_ = sess.Close()
 				sess = nil
 			}
+			r.diag.setConnected(false, false)
+			r.diag.setMode(modeDisconnected)
+			r.diag.event("idle_dropped", "服务器关闭 IDLE 连接")
 			r.breaker.RecordFailure()
 		case <-idleCloseC:
 			_ = sess.Close()
 			sess = nil
+			r.diag.setConnected(false, false)
+			r.diag.setMode(modeDisconnected)
+			r.diag.event("idle_close", "空闲超时关闭连接")
 		}
 	}
 }
@@ -279,14 +308,18 @@ func (r *runner) loop() {
 func (r *runner) doPoll(sess *Session) time.Duration {
 	interval := r.host.PollInterval()
 	if !r.breaker.AllowBackground() {
+		r.diag.setMode(modeBreakerOpen)
 		return interval
 	}
 	if *sess == nil {
 		if !r.nextDialAt.IsZero() && r.now().Before(r.nextDialAt) {
+			r.diag.setMode(modeBackoff)
 			return interval
 		}
 		s, err := r.dialConn()
 		if err != nil {
+			r.diag.markErr(err.Error())
+			r.diag.event("dial_fail", err.Error())
 			r.onDialFailure()
 			return interval
 		}
@@ -295,18 +328,26 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 	}
 	// 回写不受全局同步名额限制，连接就绪即捎带清理到期项。
 	r.host.DrainWriteback(r.accountID, *sess)
+	r.diag.setMode(modePolling)
+	start := r.now()
 	err := r.host.FullSync(r.accountID, *sess, func() { r.drainForeground(sess) })
 	if err != nil {
 		if errors.Is(err, errSyncSlotBusy) {
 			// 没抢到全局同步名额：连接保留，稍后重试（不算失败）。
+			r.diag.event("poll_deferred", "全局同步名额繁忙")
 			return syncSlotRetry
 		}
 		_ = (*sess).Close()
 		*sess = nil
+		r.diag.setConnected(false, false)
+		r.diag.markErr(err.Error())
+		r.diag.event("poll_error", err.Error())
 		r.onDialFailure()
 		return interval
 	}
 	r.breaker.RecordSuccess()
+	r.diag.markSync()
+	r.diag.event("poll_done", "耗时 "+r.now().Sub(start).Round(time.Millisecond).String())
 	return interval
 }
 
@@ -362,6 +403,8 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 	if *sess == nil {
 		s, err := r.dialConn()
 		if err != nil {
+			r.diag.markErr(err.Error())
+			r.diag.event("dial_fail", err.Error())
 			r.onDialFailure()
 			reply(t, err)
 			return
@@ -370,10 +413,14 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 		*sess = s
 	}
 
+	r.diag.setMode(modeTask)
 	if err := t.run(*sess); err != nil {
 		// 任务失败：连接状态不确定，关闭以便下轮重建（延续旧代码「出错即重连」语义）。
 		_ = (*sess).Close()
 		*sess = nil
+		r.diag.setConnected(false, false)
+		r.diag.markErr(err.Error())
+		r.diag.event("task_error", err.Error())
 		if !foreground {
 			r.breaker.RecordFailure()
 		}
@@ -386,6 +433,7 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 
 // dialConn 取配置并建连；host 模式下顺带装 IDLE 新邮件回调（唤醒主循环去同步收件箱）。
 func (r *runner) dialConn() (Session, error) {
+	r.diag.setMode(modeConnecting)
 	cfg, err := r.cfg()
 	if err != nil {
 		return nil, err
@@ -402,6 +450,8 @@ func (r *runner) dialConn() (Session, error) {
 			}
 		})
 	}
+	r.diag.setConnected(true, s.CanIDLE())
+	r.diag.event("dial_ok", "")
 	return s, nil
 }
 

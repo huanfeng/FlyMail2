@@ -39,6 +39,7 @@ type AccountHealth struct {
 	SyncError    string     `json:"sync_error,omitempty"`
 	BreakerOpen  bool       `json:"breaker_open"` // 账户熔断是否打开
 	QueueDepth   int        `json:"queue_depth"`  // 后台任务队列深度
+	Mode         string     `json:"mode"`         // 当前 runner 模式：idle/polling/disconnected/...
 }
 
 // Service 聚合各子系统的只读状态。
@@ -126,6 +127,7 @@ func (s *Service) Accounts() ([]AccountHealth, error) {
 		if rs, ok := rstats[a.ID]; ok {
 			h.BreakerOpen = rs.BreakerOpen
 			h.QueueDepth = rs.QueueDepth
+			h.Mode = rs.Mode
 		}
 		if st, err := s.sync.AccountStats(a.ID); err == nil {
 			h.MessageCount = st.MessageCount
@@ -138,4 +140,10 @@ func (s *Service) Accounts() ([]AccountHealth, error) {
 		out = append(out, h)
 	}
 	return out, nil
+}
+
+// Diagnostics 返回某账户 runner 的运行时诊断（模式/IDLE 三态/熔断/队列/事件时间线）。
+// 无 runner（账户停用或尚未拉起）返回 ok=false。
+func (s *Service) Diagnostics(accountID uint) (syncmod.RunnerDiag, bool) {
+	return s.manager.AccountDiagnostics(accountID)
 }

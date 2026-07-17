@@ -480,15 +480,16 @@ func (m *Manager) CurrentPollSeconds() int {
 	return int(m.pollInterval() / time.Second)
 }
 
-// RunnerStat 是单账户 runner 的运行时快照（监控用）。
+// RunnerStat 是单账户 runner 的运行时快照（监控列表用）。
 type RunnerStat struct {
-	AccountID       uint `json:"account_id"`
-	BreakerOpen     bool `json:"breaker_open"`
-	BreakerFailures int  `json:"breaker_failures"`
-	QueueDepth      int  `json:"queue_depth"` // 后台任务队列深度
+	AccountID       uint   `json:"account_id"`
+	Mode            string `json:"mode"` // 当前模式：idle/polling/disconnected/...
+	BreakerOpen     bool   `json:"breaker_open"`
+	BreakerFailures int    `json:"breaker_failures"`
+	QueueDepth      int    `json:"queue_depth"` // 后台任务队列深度
 }
 
-// RunnerStats 返回各账户 runner 的熔断状态与队列深度。
+// RunnerStats 返回各账户 runner 的模式、熔断状态与队列深度。
 func (m *Manager) RunnerStats() []RunnerStat {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -497,12 +498,50 @@ func (m *Manager) RunnerStats() []RunnerStat {
 		st, depth := r.stats()
 		out = append(out, RunnerStat{
 			AccountID:       id,
+			Mode:            r.diag.modeOnly(),
 			BreakerOpen:     st.Open,
 			BreakerFailures: st.Failures,
 			QueueDepth:      depth,
 		})
 	}
 	return out
+}
+
+// AccountDiagnostics 返回某账户 runner 的完整运行时诊断（含事件时间线）；无 runner 返回 false。
+func (m *Manager) AccountDiagnostics(accountID uint) (RunnerDiag, bool) {
+	m.mu.Lock()
+	r, ok := m.runners[accountID]
+	allowed := m.idleAllowed[accountID]
+	m.mu.Unlock()
+	if !ok {
+		return RunnerDiag{}, false
+	}
+	snap := r.diag.snapshot()
+	bs, depth := r.stats()
+	d := RunnerDiag{
+		AccountID:       accountID,
+		Mode:            snap.Mode,
+		ModeSince:       snap.ModeSince,
+		ModeSeconds:     int(time.Since(snap.ModeSince).Seconds()),
+		IdleCapable:     snap.IdleCapable,
+		IdleAllowed:     allowed,
+		IdleActive:      snap.IdleActive,
+		Connected:       snap.Connected,
+		BreakerOpen:     bs.Open,
+		BreakerFailures: bs.Failures,
+		QueueDepth:      depth,
+		LastError:       snap.LastErr,
+		Events:          snap.Events,
+	}
+	if !snap.LastSyncAt.IsZero() {
+		t := snap.LastSyncAt
+		d.LastSyncAt = &t
+	}
+	if !snap.LastErrAt.IsZero() {
+		t := snap.LastErrAt
+		d.LastErrorAt = &t
+	}
+	return d, true
 }
 
 // PendingWritebackCount 返回待回写总数（监控用）。

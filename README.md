@@ -7,13 +7,11 @@
 | [`flymail/`](flymail/) | 自部署邮件客户端（Go + React，支持 Wails 桌面端打包） | **活跃开发中（当前重点）** |
 | [`core/`](core/) | 共享 Go 库：imap / smtp / parser / logger / auth / crypto / provider 等 | 活跃（随 flymail 演进） |
 | [`mail2im/`](mail2im/) | 邮件转 IM 通知工具（Telegram / 企业微信 / 飞书 / 钉钉等） | 维护态（功能完成，暂停新功能） |
-| [`FlyMailLicenseServer/`](FlyMailLicenseServer/) | FlyMail 授权服务端（独立 go.mod，不在 go.work 内） | 独立项目 |
-| [`FlyMailLicenseWeb/`](FlyMailLicenseWeb/) | FlyMail 授权管理前端 | 独立项目 |
 
 ## 工作区
 
 `go.work` 纳入 `core`、`flymail/backend`、`mail2im/backend`、`mail2im/oauth-proxy`，
-workspace 内模块以本地源码互相解析依赖。License 两个项目刻意独立，不参与 workspace。
+workspace 内模块以本地源码互相解析依赖。
 
 ## 文档
 

@@ -1,0 +1,63 @@
+# FlyMail 部署编排
+#
+# 使用方式（在仓库根目录）：
+#   cp .env.example .env    # 首次：填好密钥与管理员密码
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# 数据全部落在 ./data（SQLite 单文件 + 附件 + 日志），备份即拷贝该目录。
+
+services:
+  flymail:
+    build:
+      # 上下文必须是仓库根：backend 的 go.mod 依赖 ../../core 的源码
+      context: .
+      dockerfile: flymail/Dockerfile
+    image: flymail:local
+    container_name: flymail
+    restart: unless-stopped
+
+    # 以宿主机用户身份运行，使 ./data 里的文件属主正常、可直接查看备份。
+    user: "${PUID:-1000}:${PGID:-1000}"
+
+    ports:
+      # 宿主端口:容器端口。容器内固定 8080，对外端口改 .env 里的 FLYMAIL_PORT。
+      - "${FLYMAIL_BIND:-0.0.0.0}:${FLYMAIL_PORT:-8086}:8080"
+
+    volumes:
+      - ./data:/data
+
+    environment:
+      # ── 运行时 ────────────────────────────────────────────────
+      FLYMAIL_DATA_DIR: /data
+      FLYMAIL_SERVER_HOST: 0.0.0.0
+      FLYMAIL_SERVER_PORT: 8080
+      TZ: ${TZ:-Asia/Shanghai}
+
+      # ── 密钥（必填，缺失则拒绝启动）─────────────────────────────
+      # JWT 签名密钥：变更会使所有已登录会话失效
+      FLYMAIL_AUTH_JWT_SECRET: ${FLYMAIL_AUTH_JWT_SECRET:?请在 .env 中设置 FLYMAIL_AUTH_JWT_SECRET}
+      # 邮箱账户凭证的 AES 加密密钥：变更后已保存的账户密码将无法解密
+      FLYMAIL_CRYPTO_ENCRYPTION_KEY: ${FLYMAIL_CRYPTO_ENCRYPTION_KEY:?请在 .env 中设置 FLYMAIL_CRYPTO_ENCRYPTION_KEY}
+
+      # ── 首次启动创建的管理员（数据库已存在时忽略）──────────────
+      FLYMAIL_ADMIN_USER: ${FLYMAIL_ADMIN_USER:-admin}
+      FLYMAIL_ADMIN_PASS: ${FLYMAIL_ADMIN_PASS:-}
+
+      # ── 会话有效期 ───────────────────────────────────────────
+      FLYMAIL_AUTH_ACCESS_TOKEN_TTL: ${FLYMAIL_AUTH_ACCESS_TOKEN_TTL:-15}    # 分钟
+      FLYMAIL_AUTH_REFRESH_TOKEN_TTL: ${FLYMAIL_AUTH_REFRESH_TOKEN_TTL:-168} # 小时
+
+      # ── 日志 ────────────────────────────────────────────────
+      FLYMAIL_LOG_LEVEL: ${FLYMAIL_LOG_LEVEL:-info}
+      FLYMAIL_LOG_FORMAT: ${FLYMAIL_LOG_FORMAT:-json}
+      FLYMAIL_LOG_CONSOLE: "true"
+      FLYMAIL_LOG_MAX_SIZE_MB: ${FLYMAIL_LOG_MAX_SIZE_MB:-10}
+      FLYMAIL_LOG_MAX_BACKUPS: ${FLYMAIL_LOG_MAX_BACKUPS:-5}
+      FLYMAIL_LOG_MAX_AGE_DAYS: ${FLYMAIL_LOG_MAX_AGE_DAYS:-30}
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

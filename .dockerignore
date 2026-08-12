@@ -1,0 +1,51 @@
+# Docker 构建上下文排除项。
+# 上下文是仓库根目录（backend 的 go.mod 依赖 ../../core），因此需要显式剔除
+# 与 flymail 镜像无关的大块内容，否则每次 build 都要上传几百 MB。
+
+# 版本控制与编辑器/工具产物
+.git
+.gitignore
+.github
+.idea
+.vscode
+.claude
+.cursor
+.omc
+**/.omc
+.remember
+**/.remember
+.dev
+
+# 参考仓库（体积大，构建不需要）
+ref/
+
+# 与本镜像无关的子项目和文档
+mail2im/
+docs/
+*.md
+!flymail/README.md
+
+# 依赖与构建产物（前端产物由构建阶段自己生成，不用本地的）
+**/node_modules
+**/dist
+flymail/bin/
+flymail/backend/desktop/build/
+flymail/backend/swagger/
+
+# 运行时数据与日志
+data/
+**/data/
+**/logs/
+**/*.db
+**/*.db-journal
+**/*.log
+
+# 本地环境与部署配置
+.env
+.env.local
+docker-compose*.yml
+
+# 测试与脚本
+e2e.ps1
+e2e.sh
+flymail/dev.ps1

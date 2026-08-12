@@ -1,0 +1,24 @@
+# 默认按平台自动处理换行
+* text=auto
+
+# 以下文件在容器/Linux 中执行，必须保持 LF。
+# 本仓库在 Windows 上开发（core.autocrlf=true），若被转成 CRLF，
+# 脚本会以 `bad interpreter: /bin/sh^M` 失败，且报错信息毫无提示性。
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+docker-entrypoint.sh text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# Windows 专用脚本保持 CRLF
+*.ps1           text eol=crlf
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+
+# 二进制文件不做任何转换
+*.png           binary
+*.jpg           binary
+*.ico           binary
+*.woff          binary
+*.woff2         binary

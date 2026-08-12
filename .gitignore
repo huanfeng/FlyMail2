@@ -50,3 +50,9 @@ bin/
 # Screenshots / temp images
 *.png
 *.jpg
+
+# Reference repo
+/ref
+
+# Docker 部署运行时数据（SQLite / 附件 / 日志）
+/data/

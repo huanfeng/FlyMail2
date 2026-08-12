@@ -15,11 +15,17 @@ workspace 内模块以本地源码互相解析依赖。
 
 ## 文档
 
-- 设计文档与实现计划：[`docs/superpowers/`](docs/superpowers/)（specs = 设计，plans = 任务分解）
+- FlyMail 文档：[`docs/flymail/`](docs/flymail/)
+  - [部署与测试环境](docs/flymail/deployment.md)（Docker 部署、日常测试流程、故障排查）
+  - [功能对比分析](docs/flymail/mailflow-gap-analysis.md)（对标开源 MailFlow 的现状快照）
+  - [路线图](docs/flymail/roadmap.md)（M9–M16，持续更新）
+- `docs/superpowers/`：早期设计文档与实现计划（M1–M8），已停止更新，仅作历史参考
 - 各子项目自带 `README.md` / `docs/`；历史 AI 分析笔记归档在各自 `docs/archive/`
 - FlyMail 开发环境（后台进程托管、日志、启停）：`flymail/dev.ps1`
 
 ## FlyMail 快速上手
+
+### 本地开发
 
 ```powershell
 cd flymail
@@ -29,3 +35,13 @@ cd flymail
 ```
 
 后端默认仅监听 127.0.0.1，数据与日志目录均已 gitignore。
+
+### Docker 部署
+
+```bash
+cp .env.example .env    # 填入密钥与管理员密码
+docker compose up -d --build
+```
+
+构建上下文必须是仓库根目录（backend 的 go.mod 依赖 `../../core`）。
+详见[部署文档](docs/flymail/deployment.md)。

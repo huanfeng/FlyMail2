@@ -70,6 +70,9 @@ func Load(opts LoadOptions) (*Config, error) {
 	// server.host=0.0.0.0（或环境变量 FLYMAIL_SERVER_HOST=0.0.0.0，如 Docker 部署）。
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 8080)
+	// jwt_secret 注册空串默认值：与 log.dir 同理，viper 的 AutomaticEnv 仅对「已知的 key」
+	// 在 Unmarshal 时生效，不注册则 FLYMAIL_AUTH_JWT_SECRET 不会被读取（Docker 部署必需）。
+	v.SetDefault("auth.jwt_secret", "")
 	v.SetDefault("auth.access_token_ttl", 15)
 	v.SetDefault("auth.refresh_token_ttl", 168)
 	v.SetDefault("crypto.encryption_key", "flymail-default-insecure-key-change-me")

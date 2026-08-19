@@ -122,3 +122,34 @@ func TestSetAdminPasswordAndAuthenticate(t *testing.T) {
 		t.Error("Authenticate 应对错误密码报错")
 	}
 }
+
+// TestEnsureAdmin 验证桌面形态首次运行的默认管理员创建：空库新建、已有用户不覆盖。
+func TestEnsureAdmin(t *testing.T) {
+	s := newTestService(t)
+
+	created, err := s.EnsureAdmin("admin", "admin")
+	if err != nil {
+		t.Fatalf("EnsureAdmin(空库): %v", err)
+	}
+	if !created {
+		t.Error("空库应创建默认管理员")
+	}
+	if _, err := s.Authenticate("admin", "admin"); err != nil {
+		t.Errorf("默认管理员应可登录: %v", err)
+	}
+
+	// 已有管理员（哪怕改过密码）→ 不覆盖
+	if err := s.ChangePassword("admin", "admin", "changed"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	created, err = s.EnsureAdmin("admin", "admin")
+	if err != nil {
+		t.Fatalf("EnsureAdmin(非空库): %v", err)
+	}
+	if created {
+		t.Error("已有管理员时不应重建")
+	}
+	if _, err := s.Authenticate("admin", "changed"); err != nil {
+		t.Errorf("修改后的密码不应被覆盖: %v", err)
+	}
+}

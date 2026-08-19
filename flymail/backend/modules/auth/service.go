@@ -44,6 +44,21 @@ func (s *Service) SetAdminPassword(username, password string) error {
 	return s.repo.Upsert(existing)
 }
 
+// EnsureAdmin 在不存在任何管理员时创建一个（桌面形态首次运行「开箱即用」）。返回是否新建。
+func (s *Service) EnsureAdmin(username, password string) (bool, error) {
+	n, err := s.repo.Count()
+	if err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return false, nil
+	}
+	if err := s.SetAdminPassword(username, password); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Authenticate 校验用户名密码。
 func (s *Service) Authenticate(username, password string) (*AdminUser, error) {
 	u, err := s.repo.GetByUsername(username)

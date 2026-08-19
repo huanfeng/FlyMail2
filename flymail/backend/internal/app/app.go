@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"flymail/internal/config"
@@ -38,6 +39,25 @@ type App struct {
 	cancel   context.CancelFunc
 	logClose func() error
 	db       *gorm.DB
+	authSvc  *auth.Service
+
+	// emitHook 是通知事件的额外观察者（桌面形态注入：新邮件弹系统 toast）。
+	// 与 notify 落库/外发解耦，为空时零开销。
+	emitHookMu sync.RWMutex
+	emitHook   func(eventType string, accountID uint, title, body string)
+}
+
+// SetEmitHook 注册通知事件观察者。桌面形态在 OnStartup 时注入，nil 表示移除。
+func (a *App) SetEmitHook(fn func(eventType string, accountID uint, title, body string)) {
+	a.emitHookMu.Lock()
+	a.emitHook = fn
+	a.emitHookMu.Unlock()
+}
+
+// EnsureDefaultAdmin 数据库中无任何管理员时创建默认账户（桌面形态首次运行「开箱即用」）。
+// 返回是否新建。
+func (a *App) EnsureDefaultAdmin(username, password string) (bool, error) {
+	return a.authSvc.EnsureAdmin(username, password)
 }
 
 // New 构建 App：初始化日志、开库、迁移、装配 handler。
@@ -86,9 +106,21 @@ func New(cfg *config.Config) (*App, error) {
 	sendSvc := send.NewService(accountSvc, folderSvc)
 	draftSvc := draft.NewService(draft.NewRepository(db))
 
+	a := &App{}
+
 	// 通知中心：站内记录 + 外发推送。emit 回调注入到各事件源（解耦）。
+	// 外层再包一层 emitHook 观察者：桌面形态借此弹系统原生通知。
 	notifySvc := notify.NewService(notify.NewRepository(db))
-	emit := notifySvc.EmitFunc()
+	baseEmit := notifySvc.EmitFunc()
+	emit := func(eventType string, accountID uint, title, body string) {
+		baseEmit(eventType, accountID, title, body)
+		a.emitHookMu.RLock()
+		hook := a.emitHook
+		a.emitHookMu.RUnlock()
+		if hook != nil {
+			hook(eventType, accountID, title, body)
+		}
+	}
 	syncSvc.SetEmitter(emit)
 	accountSvc.SetEmitter(emit)
 
@@ -127,7 +159,13 @@ func New(cfg *config.Config) (*App, error) {
 			return err
 		},
 	})
-	return &App{cfg: cfg, srv: &http.Server{Handler: handler}, manager: manager, logClose: logClose, db: db}, nil
+	a.cfg = cfg
+	a.srv = &http.Server{Handler: handler}
+	a.manager = manager
+	a.logClose = logClose
+	a.db = db
+	a.authSvc = authSvc
+	return a, nil
 }
 
 // Handler 返回装配好的 HTTP 处理器（gin 引擎）。

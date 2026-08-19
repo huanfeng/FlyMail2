@@ -35,12 +35,14 @@ var trayIconICO []byte
 
 // desktop 聚合桌面形态的窗口/托盘/通知状态。
 type desktop struct {
-	app      *app.App
-	dataDir  string
-	ctx      context.Context
-	state    *windowState
-	quitting atomic.Bool // 托盘「退出」置位：OnBeforeClose 放行真正关闭
-	hidden   atomic.Bool // 窗口当前是否隐藏在托盘（隐藏时不再读取窗口几何）
+	app       *app.App
+	dataDir   string
+	ctx       context.Context
+	state     *windowState
+	quitting  atomic.Bool // 托盘「退出」置位：OnBeforeClose 放行真正关闭
+	hidden    atomic.Bool // 窗口当前是否隐藏在托盘（隐藏时不再读取窗口几何）
+	trayStart func()      // systray 外部循环的启动/收尾（见 setupTray）
+	trayEnd   func()
 }
 
 func main() {
@@ -67,6 +69,8 @@ func main() {
 
 	d := &desktop{app: a, dataDir: dataDir, state: loadWindowState(dataDir)}
 	initToast() // Windows toast 需要注册表登记 AppID（best-effort）
+	// 托盘必须在主 goroutine（主 OS 线程）注册，事件由 Wails 消息泵分发（见 setupTray）。
+	d.trayStart, d.trayEnd = d.setupTray()
 
 	startState := options.Normal
 	if d.state.Maximised {
@@ -108,7 +112,9 @@ func (d *desktop) onStartup(ctx context.Context) {
 	d.app.StartBackground()
 	// 新邮件 → Windows 原生通知（与站内通知中心并行，不替代）。
 	d.app.SetEmitHook(d.onNotifyEvent)
-	go d.runTray()
+	if d.trayStart != nil {
+		d.trayStart()
+	}
 }
 
 // onBeforeClose 拦截窗口关闭：默认最小化到托盘继续后台收信；
@@ -124,7 +130,9 @@ func (d *desktop) onBeforeClose(ctx context.Context) bool {
 }
 
 func (d *desktop) onShutdown(context.Context) {
-	d.stopTray()
+	if d.trayEnd != nil {
+		d.trayEnd() // 移除托盘图标并结束 systray
+	}
 	_ = d.app.Shutdown()
 }
 

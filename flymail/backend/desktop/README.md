@@ -48,8 +48,11 @@ wails build -s
 
 ## 实现要点
 
-- 托盘用 `energye/systray`：自带消息循环、可在 goroutine 运行，不与 Wails
-  主线程冲突（`getlantern/systray` 在 Windows 上要求独占主线程，不可用）。
+- 托盘用 `energye/systray` 的 `RunWithExternalLoop`：托盘消息窗口必须创建在
+  主 OS 线程上（`main()` 内、`wails.Run` 之前注册），事件由 Wails 自己的消息泵
+  分发到 systray 的 wndProc。⚠ 不能在 goroutine 里调 `systray.Run`——窗口线程
+  与 GetMessage 泵线程分离会导致图标显示但事件全丢（踩过）。托盘回调里调
+  Wails runtime 前先 `go` 一跳脱离 wndProc 调用栈。
 - toast 用 `go-toast/v2`：`initToast` 在注册表登记 AppID/GUID（HKCU，无需管理员），
   失败仅降级为无原生通知。
 - 新邮件事件经 `app.SetEmitHook` 注入的观察者到达桌面层，与站内通知/外发渠道

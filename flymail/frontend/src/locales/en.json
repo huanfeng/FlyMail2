@@ -1,5 +1,15 @@
 {
   "app": { "name": "FlyMail" },
+  "login": {
+    "subtitle": "Sign in to continue",
+    "username": "Username",
+    "password": "Password",
+    "rememberPassword": "Remember password",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "errInvalid": "Invalid username or password",
+    "errGeneric": "Login failed, please try again later"
+  },
   "sidebar": {
     "compose": "Compose",
     "accounts": "Accounts",

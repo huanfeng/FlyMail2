@@ -1,5 +1,15 @@
 {
   "app": { "name": "FlyMail" },
+  "login": {
+    "subtitle": "登录以继续",
+    "username": "用户名",
+    "password": "密码",
+    "rememberPassword": "记住密码",
+    "submit": "登录",
+    "submitting": "登录中...",
+    "errInvalid": "用户名或密码错误",
+    "errGeneric": "登录失败，请稍后重试"
+  },
   "sidebar": {
     "compose": "写邮件",
     "accounts": "账户",

@@ -123,14 +123,29 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 	}, rebuilt, nil
 }
 
+// NewMail 描述一轮增量同步新增的邮件情况，供「新邮件」提醒判断使用。
+// Baseline（基线导入/UIDVALIDITY 重建）不应触发提醒——旧账户历史邮件不是新邮件。
+type NewMail struct {
+	Count    int  // 本轮入库的新增邮件数（含已读）
+	Baseline bool // 是否基线导入：本地原本为空，或 UIDVALIDITY 变化后重建
+	// AfterID 是本轮同步前该文件夹的最大主键：id > AfterID 的行就是这一轮新入库的。
+	// 正文预取的 new 模式据此圈定「仅新邮件」，不会误伤历史邮件。
+	AfterID     uint
+	Unseen      []Message // 新增中的未读邮件（升序，最多 newMailUnseenCap 封，供单封精准通知）
+	UnseenTotal int       // 新增未读总数
+}
+
+// newMailUnseenCap 限制 Unseen 明细条数（仅通知文案需要，不必全量拉取）。
+const newMailUnseenCap = 3
+
 // IncrementalSync 增量同步单文件夹：只抓取本地之后新增的邮件。
 // prev* 为本地已存的该文件夹状态（来自 folders 表）。
-// 返回：同步后状态、本次新增邮件数、错误。
+// 返回：同步后状态、新增邮件情况（NewMail）、错误。
 // UIDVALIDITY 变化时删除本地缓存并退化为完整重建。
-func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, prevUIDValidity, prevUIDNext uint32, prevTotal int, c IMAPFetcher) (*FolderState, int, error) {
+func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, prevUIDValidity, prevUIDNext uint32, prevTotal int, c IMAPFetcher) (*FolderState, *NewMail, error) {
 	sel, err := c.SelectFolder(folderPath)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 
 	uidValidity := sel.UIDValidity
@@ -140,19 +155,20 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		}
 	}
 
-	// UIDVALIDITY 变化：本地缓存失效，删除后完整重建。
+	// UIDVALIDITY 变化：本地缓存失效，删除后完整重建。重建属基线导入，不触发新邮件提醒。
 	if prevUIDValidity != 0 && uidValidity != 0 && uidValidity != prevUIDValidity {
 		if err := s.repo.DeleteByFolder(folderID); err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
 		state, _, err := s.SyncFolderMessages(accountID, folderID, folderPath, 0, c)
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
-		return state, state.Total, nil
+		return state, &NewMail{Count: state.Total, Baseline: true}, nil
 	}
 
 	beforeCount, _ := s.repo.CountByFolder(folderID)
+	beforeMaxID, _ := s.repo.MaxIDByFolder(folderID)
 
 	uidNext := sel.UIDNext
 	if uidNext == 0 {
@@ -173,7 +189,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		}
 		if uidNext > anchor {
 			if err := s.fetchRangeBatched(accountID, folderID, imapv2.UID(anchor), imapv2.UID(uidNext-1), c); err != nil {
-				return nil, 0, err
+				return nil, nil, err
 			}
 		}
 	} else {
@@ -184,11 +200,11 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		if maxUID > 0 {
 			emails, ferr := c.FetchByUIDRange(imapv2.UID(maxUID+1), 0, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
 			if ferr != nil {
-				return nil, 0, ferr
+				return nil, nil, ferr
 			}
 			for _, e := range emails {
 				if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
-					return nil, 0, err
+					return nil, nil, err
 				}
 			}
 		} else {
@@ -199,7 +215,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 					from = uint32(currentTotal - s.syncDepth + 1)
 				}
 				if err := s.fetchSeqRangeBatched(accountID, folderID, from, uint32(currentTotal), c); err != nil {
-					return nil, 0, err
+					return nil, nil, err
 				}
 			}
 		}
@@ -211,6 +227,16 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 	if newCount < 0 {
 		newCount = 0
 	}
+	// 基线判定：本地原本为空的首次导入不算「新邮件」（旧账户历史邮件不该提醒）。
+	nm := &NewMail{Count: newCount, Baseline: beforeCount == 0, AfterID: beforeMaxID}
+	if !nm.Baseline && newCount > 0 {
+		if n, err := s.repo.CountUnseenAfterID(folderID, beforeMaxID); err == nil {
+			nm.UnseenTotal = int(n)
+		}
+		if nm.UnseenTotal > 0 {
+			nm.Unseen, _ = s.repo.UnseenAfterID(folderID, beforeMaxID, newMailUnseenCap)
+		}
+	}
 	if uidNext == 0 {
 		if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
 			uidNext = maxUID + 1
@@ -221,7 +247,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		UIDNext:     uidNext,
 		Total:       int(total),
 		Unread:      int(unread),
-	}, newCount, nil
+	}, nm, nil
 }
 
 // fetchSeqRangeBatched 把序号区间 [from,end] 切成 fetchBatchSize 的子区间逐批抓取并 upsert。
@@ -348,9 +374,13 @@ func (s *Service) CountByFolder(folderID uint) (int64, error) {
 	return s.repo.CountByFolder(folderID)
 }
 
-// AggregateCounts 返回三个聚合入口的徽标计数。
+// AggregateCounts 返回三个聚合入口的徽标计数，外加收件箱聚合的条目总数。
+//
+// inbox 键是未读数（入口徽标的语义），列表标题要显示的「共几封」是另一回事，
+// 因此单独给出 inbox_total；unread / starred 两个视图里每一条都符合该条件，
+// 徽标数本身就是总数，无需另算。
 func (s *Service) AggregateCounts() (map[string]int64, error) {
-	out := make(map[string]int64, 3)
+	out := make(map[string]int64, 4)
 	for _, v := range []string{"inbox", "unread", "starred"} {
 		n, err := s.repo.CountAggregate(v)
 		if err != nil {
@@ -358,7 +388,45 @@ func (s *Service) AggregateCounts() (map[string]int64, error) {
 		}
 		out[v] = n
 	}
+	total, err := s.repo.CountAggregateTotal("inbox")
+	if err != nil {
+		return nil, err
+	}
+	out["inbox_total"] = total
 	return out, nil
+}
+
+// PendingBodies 返回该账户缺正文、落在预取范围内的邮件（recent/all 模式用）。
+func (s *Service) PendingBodies(accountID uint, sinceDays, limit int) ([]Message, error) {
+	return s.repo.PendingBodies(accountID, sinceDays, limit)
+}
+
+// PendingBodiesAfterID 返回某文件夹本轮新增中缺正文的邮件（new 模式用）。
+func (s *Service) PendingBodiesAfterID(folderID uint, afterID uint, limit int) ([]Message, error) {
+	return s.repo.PendingBodiesAfterID(folderID, afterID, limit)
+}
+
+// CountPendingBodies 返回该账户预取范围内还缺多少封正文。
+func (s *Service) CountPendingBodies(accountID uint, sinceDays int) (int64, error) {
+	return s.repo.CountPendingBodies(accountID, sinceDays)
+}
+
+// DeleteByIDs 批量删除本地元数据行（批量删除/移动用）。
+func (s *Service) DeleteByIDs(ids []uint) error { return s.repo.DeleteByIDs(ids) }
+
+// SetSeenByIDs 批量置已读/未读。
+func (s *Service) SetSeenByIDs(ids []uint, seen bool) error {
+	return s.repo.SetSeenByIDs(ids, seen)
+}
+
+// SetFlaggedByIDs 批量置星标。
+func (s *Service) SetFlaggedByIDs(ids []uint, flagged bool) error {
+	return s.repo.SetFlaggedByIDs(ids, flagged)
+}
+
+// AccountUnreadCounts 返回各账户的未读数（account_id → 未读），供侧栏账户角标使用。
+func (s *Service) AccountUnreadCounts() (map[uint]int64, error) {
+	return s.repo.AccountUnreadCounts()
 }
 
 // StoreParsedBody 落正文+附件，回填 snippet/has_attachment/body_synced。

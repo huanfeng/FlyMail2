@@ -69,7 +69,7 @@ func TestSetEnabledEmitsAccountStatus(t *testing.T) {
 	var gotType string
 	var gotAccount uint
 	var gotBody string
-	svc.SetEmitter(func(eventType string, accountID uint, title, body string) {
+	svc.SetEmitter(func(eventType string, accountID uint, _ uint, title, body string) {
 		calls++
 		gotType = eventType
 		gotAccount = accountID
@@ -90,7 +90,7 @@ func TestSetEnabledEmitsAccountStatus(t *testing.T) {
 func TestSetEnabledNoEmitOnError(t *testing.T) {
 	svc, _, _ := newSvc(t)
 	var calls int
-	svc.SetEmitter(func(string, uint, string, string) { calls++ })
+	svc.SetEmitter(func(string, uint, uint, string, string) { calls++ })
 	// 账户不存在 → SetEnabled 失败，不应触发通知
 	_ = svc.SetEnabled(9999, false)
 	if calls != 0 {

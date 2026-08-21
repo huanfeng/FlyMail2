@@ -65,6 +65,20 @@ func (h *handler) setAll(c *gin.Context) {
 		}
 	}
 
+	// 校验 body_sync_mode
+	if v, ok := body.Settings[KeyBodySyncMode]; ok && !ValidBodySyncMode(v) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body_sync_mode 必须是 new/recent/all 之一"})
+		return
+	}
+	// 校验 body_sync_recent_days
+	if v, ok := body.Settings[KeyBodySyncRecentDays]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 3650 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "body_sync_recent_days 必须是 1..3650 的整数"})
+			return
+		}
+	}
+
 	if err := h.svc.SetMany(body.Settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败"})
 		return

@@ -13,11 +13,13 @@ import (
 //   - GET /folders/:fid/messages?before_uid=&limit=      单文件夹列表
 //   - GET /aggregate/messages?view=&before_date=&before_id=&limit=  跨账户聚合列表
 //   - GET /aggregate/counts                              聚合入口徽标计数
+//   - GET /aggregate/account-unread                      各账户未读数（侧栏角标）
 func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	h := &handler{svc: svc}
 	rg.GET("/folders/:fid/messages", h.list)
 	rg.GET("/aggregate/messages", h.listAggregate)
 	rg.GET("/aggregate/counts", h.aggregateCounts)
+	rg.GET("/aggregate/account-unread", h.accountUnread)
 	rg.GET("/search/messages", h.search)
 	rg.GET("/contacts", h.contacts)
 }
@@ -93,6 +95,16 @@ func (h *handler) listAggregate(c *gin.Context) {
 
 func (h *handler) aggregateCounts(c *gin.Context) {
 	counts, err := h.svc.AggregateCounts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"counts": counts})
+}
+
+// accountUnread 返回各账户未读数：{"counts": {"1": 3}}（键为账户 id 的字符串形式）。
+func (h *handler) accountUnread(c *gin.Context) {
+	counts, err := h.svc.AccountUnreadCounts()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -42,13 +42,13 @@ type App struct {
 	authSvc  *auth.Service
 
 	// emitHook 是通知事件的额外观察者（桌面形态注入：新邮件弹系统 toast）。
-	// 与 notify 落库/外发解耦，为空时零开销。
+	// 与 notify 落库/外发解耦，为空时零开销。messageID 仅单封新邮件事件非 0。
 	emitHookMu sync.RWMutex
-	emitHook   func(eventType string, accountID uint, title, body string)
+	emitHook   func(eventType string, accountID uint, messageID uint, title, body string)
 }
 
 // SetEmitHook 注册通知事件观察者。桌面形态在 OnStartup 时注入，nil 表示移除。
-func (a *App) SetEmitHook(fn func(eventType string, accountID uint, title, body string)) {
+func (a *App) SetEmitHook(fn func(eventType string, accountID uint, messageID uint, title, body string)) {
 	a.emitHookMu.Lock()
 	a.emitHook = fn
 	a.emitHookMu.Unlock()
@@ -112,13 +112,13 @@ func New(cfg *config.Config) (*App, error) {
 	// 外层再包一层 emitHook 观察者：桌面形态借此弹系统原生通知。
 	notifySvc := notify.NewService(notify.NewRepository(db))
 	baseEmit := notifySvc.EmitFunc()
-	emit := func(eventType string, accountID uint, title, body string) {
-		baseEmit(eventType, accountID, title, body)
+	emit := func(eventType string, accountID uint, messageID uint, title, body string) {
+		baseEmit(eventType, accountID, messageID, title, body)
 		a.emitHookMu.RLock()
 		hook := a.emitHook
 		a.emitHookMu.RUnlock()
 		if hook != nil {
-			hook(eventType, accountID, title, body)
+			hook(eventType, accountID, messageID, title, body)
 		}
 	}
 	syncSvc.SetEmitter(emit)
@@ -131,6 +131,10 @@ func New(cfg *config.Config) (*App, error) {
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
 	manager.SetMaxConcurrentProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxConcurrent, 8) })
 	manager.SetMaxIdleProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxIdleConns, 100) })
+	manager.SetBodySyncProviders(
+		func() string { return settingSvc.GetString(setting.KeyBodySyncMode, setting.DefaultBodySyncMode) },
+		func() int { return settingSvc.GetInt(setting.KeyBodySyncRecentDays, 30) },
+	)
 	// 手动触发/详情/附件/回写经 Manager 投递到账户 runner，并与 Manager 共享同步进度存储。
 	manager.EnableWriteback(db)
 	syncSvc.SetManager(manager)

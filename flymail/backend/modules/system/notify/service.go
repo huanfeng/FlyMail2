@@ -39,6 +39,7 @@ func (s *Service) Emit(evt Event) {
 	if err := s.repo.InsertNotification(&Notification{
 		Type:      string(evt.Type),
 		AccountID: evt.AccountID,
+		MessageID: evt.MessageID,
 		Title:     evt.Title,
 		Body:      evt.Body,
 	}); err != nil {
@@ -53,9 +54,10 @@ func (s *Service) Emit(evt Event) {
 }
 
 // EmitFunc 返回可注入到各事件源的轻量回调（解耦：事件源不依赖 notify 包）。
-func (s *Service) EmitFunc() func(eventType string, accountID uint, title, body string) {
-	return func(eventType string, accountID uint, title, body string) {
-		s.Emit(Event{Type: EventType(eventType), AccountID: accountID, Title: title, Body: body})
+// messageID 仅单封新邮件事件非 0，其余事件传 0。
+func (s *Service) EmitFunc() func(eventType string, accountID uint, messageID uint, title, body string) {
+	return func(eventType string, accountID uint, messageID uint, title, body string) {
+		s.Emit(Event{Type: EventType(eventType), AccountID: accountID, MessageID: messageID, Title: title, Body: body})
 	}
 }
 

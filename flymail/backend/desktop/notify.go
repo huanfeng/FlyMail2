@@ -24,7 +24,7 @@ func initToast() {
 
 // onNotifyEvent 是注入 App 通知链的观察者：新邮件事件弹 Windows 原生 toast。
 // 其余事件（同步失败/账户状态）留在站内通知中心，避免打扰。
-func (d *desktop) onNotifyEvent(eventType string, _ uint, title, body string) {
+func (d *desktop) onNotifyEvent(eventType string, _ uint, _ uint, title, body string) {
 	if eventType != string(notify.EventMailNew) {
 		return
 	}

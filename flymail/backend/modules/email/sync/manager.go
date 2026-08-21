@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	gosync "sync"
 	"time"
 
@@ -25,6 +26,11 @@ const (
 
 	defaultMaxConcurrent = 8   // 同时执行全量同步的 runner 数上限（sync_max_concurrent）
 	defaultMaxIdleConns  = 100 // 常驻 IDLE 连接数上限（sync_max_idle_conns）
+
+	// notifyDedupTTL 是新邮件通知的去重窗口：同一封（组）邮件在窗口内只提醒一次。
+	// Gmail 把标签映射成 IMAP 文件夹，一封新邮件会在 INBOX 与各标签文件夹里
+	// 分别被识别为「新增未读」，各文件夹的同步间隔可能相差数十秒，故留足窗口。
+	notifyDedupTTL = 10 * time.Minute
 )
 
 // errSyncSlotBusy 表示全局同步名额已满，本轮全量同步让路，稍后重试（非连接故障）。
@@ -46,6 +52,10 @@ type Manager struct {
 	maxConcurrent func() int
 	maxIdle       func() int
 
+	// 正文预取配置（见 bodyprefetch.go）；未注入时取默认 new / 30 天。
+	bodyMode       func() string
+	bodyRecentDays func() int
+
 	mu          gosync.Mutex
 	runners     map[uint]*runner
 	idleAllowed map[uint]bool // 获得常驻 IDLE 名额的账户集合（reconcile 时按 id 排序重算）
@@ -53,6 +63,9 @@ type Manager struct {
 
 	syncMu     gosync.Mutex
 	syncActive int // 当前正在执行全量同步的 runner 数
+
+	notifyMu   gosync.Mutex
+	notifySeen map[string]time.Time // 新邮件通知去重：dedupKey → 上次提醒时间
 
 	status *statusStore // 与 Service 共享；FullSync 借此上报进度（可能为 nil）
 	wb     *wbStore     // 持久化回写队列（EnableWriteback 装配，可能为 nil）
@@ -304,8 +317,19 @@ func (m *Manager) recomputeIdleQuotaLocked(ids []uint) {
 
 // ── runnerHost 实现 ──────────────────────────────────────────────────────────
 
-// FullSync 执行一轮全文件夹增量同步（全局并发受信号量限制；文件夹边界让位前台任务）。
+// FullSync 执行一轮全文件夹增量同步，随后回补一批历史正文（若已开启）。
+// 正文回补刻意放在同步名额释放之后：它是后台补齐，不该占着并发名额挡住其他账户。
 func (m *Manager) FullSync(accountID uint, sess Session, yield func()) error {
+	if err := m.fullSyncMessages(accountID, sess, yield); err != nil {
+		return err
+	}
+	m.prefetchHistoryBodies(accountID, sess, yield)
+	return nil
+}
+
+// fullSyncMessages 是一轮全文件夹增量同步的主体（全局并发受信号量限制；
+// 文件夹边界让位前台任务）。
+func (m *Manager) fullSyncMessages(accountID uint, sess Session, yield func()) error {
 	if !m.acquireSyncSlot() {
 		return errSyncSlotBusy
 	}
@@ -411,7 +435,7 @@ func (m *Manager) pollInbox(accountID uint, sess Session) error {
 }
 
 func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) error {
-	state, newCount, err := m.messages.IncrementalSync(
+	state, nm, err := m.messages.IncrementalSync(
 		accountID, f.ID, f.Path, f.UIDValidity, f.UIDNext, f.TotalCount, sess,
 	)
 	if err != nil {
@@ -427,24 +451,82 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 	logger.Info("sync-manager: 文件夹同步完成",
 		zap.Uint("account_id", accountID), zap.String("folder", f.Path),
 		zap.Int("local", state.Total), zap.Int("unread", state.Unread),
-		zap.Uint32("uid_next", uint32(state.UIDNext)), zap.Int("new", newCount))
-	if newCount > 0 {
+		zap.Uint32("uid_next", uint32(state.UIDNext)), zap.Int("new", nm.Count))
+	// 新收到的邮件顺手把正文也抓下来，点开即读不必现拉。
+	m.prefetchNewBodies(accountID, f, nm, sess)
+	if nm.Count > 0 {
+		// SSE 始终发布（含基线导入）：前端据此刷新列表/未读数。
 		if m.pub != nil {
 			payload, _ := json.Marshal(Event{
 				Type:      "new_mail",
 				AccountID: accountID,
 				FolderID:  f.ID,
-				NewCount:  newCount,
+				NewCount:  nm.Count,
 			})
 			m.pub.Publish(payload)
 		}
-		// 站内/外发通知：新邮件
-		if m.emit != nil {
-			m.emit(string(notifyMailNew), accountID,
-				"新邮件", fmt.Sprintf("收到 %d 封新邮件", newCount))
+		// 站内/外发通知，三重闸门：
+		//  1. 文件夹类型 —— 只有收件箱与自定义文件夹（标签）值得提醒；
+		//     archive 是 Gmail「所有邮件」全库镜像，junk/trash/sent/drafts 同理不提醒。
+		//  2. 非基线导入的新增未读 —— 旧账户的历史邮件与已读邮件不该触发提醒。
+		//  3. 跨文件夹去重 —— 同一封新邮件会在 INBOX 与各标签文件夹分别被识别为新增，
+		//     不去重就会连发多条内容相同的提醒。
+		// 单封未读时带上消息 ID 与发件人/主题，前端可精准跳转。
+		notifiable := f.Type == "inbox" || f.Type == "custom"
+		if m.emit != nil && notifiable && !nm.Baseline && nm.UnseenTotal > 0 && m.claimNotify(accountID, nm) {
+			if nm.UnseenTotal == 1 && len(nm.Unseen) > 0 {
+				msg := nm.Unseen[0]
+				from := msg.FromName
+				if from == "" {
+					from = msg.FromAddr
+				}
+				subject := msg.Subject
+				if subject == "" {
+					subject = "（无主题）"
+				}
+				m.emit(string(notifyMailNew), accountID, msg.ID, "新邮件 · "+from, subject)
+			} else {
+				m.emit(string(notifyMailNew), accountID, 0,
+					"新邮件", fmt.Sprintf("收到 %d 封新邮件", nm.UnseenTotal))
+			}
 		}
 	}
 	return nil
+}
+
+// claimNotify 申领一次新邮件提醒资格：同一封（组）邮件在 notifyDedupTTL 内只放行一次。
+// 去重键取「账户 + 本轮未读总数 + 未读邮件的 RFC Message-ID（排序后）」——Gmail 场景下
+// 同一封邮件在 INBOX 与各标签文件夹里的 Message-ID 相同，键因此一致。
+// 邮件缺 Message-ID（少数不合规发信端）时无法可靠去重，一律放行，宁可重复也不漏提醒。
+func (m *Manager) claimNotify(accountID uint, nm *message.NewMail) bool {
+	ids := make([]string, 0, len(nm.Unseen))
+	for i := range nm.Unseen {
+		if id := nm.Unseen[i].MessageID; id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return true
+	}
+	sort.Strings(ids)
+	key := fmt.Sprintf("%d|%d|%s", accountID, nm.UnseenTotal, strings.Join(ids, ","))
+
+	now := time.Now()
+	m.notifyMu.Lock()
+	defer m.notifyMu.Unlock()
+	if m.notifySeen == nil {
+		m.notifySeen = map[string]time.Time{}
+	}
+	for k, at := range m.notifySeen {
+		if now.Sub(at) > notifyDedupTTL {
+			delete(m.notifySeen, k)
+		}
+	}
+	if at, ok := m.notifySeen[key]; ok && now.Sub(at) <= notifyDedupTTL {
+		return false
+	}
+	m.notifySeen[key] = now
+	return true
 }
 
 // stopTimer 停止 timer 并清空其 channel，便于后续安全 Reset。

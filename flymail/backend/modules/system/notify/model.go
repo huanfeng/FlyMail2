@@ -38,10 +38,12 @@ func ValidKind(k string) bool {
 }
 
 // Notification 是站内通知中心的一条事件记录。
+// MessageID 仅在单封新邮件事件时非 0，供前端精准跳转到该邮件。
 type Notification struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Type      string    `gorm:"index;not null" json:"type"`
 	AccountID uint      `json:"account_id"`
+	MessageID uint      `gorm:"not null;default:0" json:"message_id,omitempty"`
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
 	Read      bool      `gorm:"not null;default:false;index" json:"read"`

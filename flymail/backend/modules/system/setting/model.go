@@ -26,4 +26,29 @@ const (
 	// KeySyncMaxIdleConns 常驻 IDLE 连接数上限（超额账户降为轮询模式）。
 	KeySyncMaxIdleConns     = "sync_max_idle_conns"
 	DefaultSyncMaxIdleConns = "100"
+
+	// KeyBodySyncMode 正文预取模式，决定同步时顺带把哪些邮件的正文也下载到本地：
+	//   new    仅新邮件——只预取本轮增量新收到的（默认，不回补历史）
+	//   recent 最近 N 天内的历史邮件也补齐
+	//   all    全部历史邮件都补齐
+	// 预取范围限收件箱 + 自定义文件夹（与未读口径一致），避免 Gmail「所有邮件」
+	// 这类全库镜像把整个邮箱的正文重复下一遍。
+	KeyBodySyncMode     = "body_sync_mode"
+	DefaultBodySyncMode = BodySyncNew
+
+	// KeyBodySyncRecentDays 是 recent 模式的天数窗口。
+	KeyBodySyncRecentDays     = "body_sync_recent_days"
+	DefaultBodySyncRecentDays = "30"
 )
+
+// 正文预取模式取值。
+const (
+	BodySyncNew    = "new"
+	BodySyncRecent = "recent"
+	BodySyncAll    = "all"
+)
+
+// ValidBodySyncMode 报告字符串是否为合法的正文预取模式。
+func ValidBodySyncMode(v string) bool {
+	return v == BodySyncNew || v == BodySyncRecent || v == BodySyncAll
+}

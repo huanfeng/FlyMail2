@@ -1,6 +1,8 @@
 package sync
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"flymail-core/logger"
@@ -48,15 +50,31 @@ func (s *Service) SetFlagged(messageID uint, flagged bool) error {
 	return nil
 }
 
-// enqueueWriteback 构造回写操作并投递：有 Manager 走持久队列 + runner 连接；
-// 无 Manager（单测）退回即时直连尽力而为。
+// enqueueWriteback 构造单封邮件的回写操作并投递。
 func (s *Service) enqueueWriteback(accountID, folderID uint, uid uint32, op string) {
+	s.enqueueWritebackUIDs(accountID, folderID, []uint32{uid}, op, "")
+}
+
+// enqueueWritebackUIDs 构造一条覆盖多个 UID 的回写操作并投递：有 Manager 走持久队列
+// + runner 连接；无 Manager（单测）退回即时直连尽力而为。
+// targetPath 仅 move 用；同组 UID 合并成一条，服务器侧一次 SELECT + 一次动作即可完成。
+func (s *Service) enqueueWritebackUIDs(accountID, folderID uint, uids []uint32, op, targetPath string) {
+	if len(uids) == 0 {
+		return
+	}
 	f, err := s.folders.GetByID(folderID)
 	if err != nil {
 		logger.Error("sync/writeback: 取文件夹失败", zap.Uint("folder_id", folderID), zap.Error(err))
 		return
 	}
-	wo := &WritebackOp{AccountID: accountID, FolderPath: f.Path, UID: uid, Op: op}
+	wo := &WritebackOp{
+		AccountID:  accountID,
+		FolderPath: f.Path,
+		UID:        uids[0],
+		UIDs:       joinUIDs(uids),
+		Op:         op,
+		TargetPath: targetPath,
+	}
 	if s.orch != nil {
 		s.orch.EnqueueWriteback(wo)
 		return
@@ -66,25 +84,63 @@ func (s *Service) enqueueWriteback(accountID, folderID uint, uid uint32, op stri
 		return applyWriteback(sess, *wo)
 	}); err != nil {
 		logger.Warn("sync/writeback: 直连回写失败(回退路径)",
-			zap.Uint("account_id", accountID), zap.Uint32("uid", uid), zap.Error(err))
+			zap.Uint("account_id", accountID), zap.String("op", op),
+			zap.Int("uids", len(uids)), zap.Error(err))
 	}
 }
 
-// applyWriteback 在给定连接上执行一条回写操作（选文件夹→更新标志）。
+// opUIDs 解析一条回写操作覆盖的 UID 列表：优先 UIDs（批量合并），为空回退单个 UID
+// （兼容升级前入队的旧数据）。无法解析的片段跳过。
+func opUIDs(op WritebackOp) []imapv2.UID {
+	if op.UIDs == "" {
+		if op.UID == 0 {
+			return nil
+		}
+		return []imapv2.UID{imapv2.UID(op.UID)}
+	}
+	parts := strings.Split(op.UIDs, ",")
+	uids := make([]imapv2.UID, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.ParseUint(strings.TrimSpace(p), 10, 32)
+		if err != nil || n == 0 {
+			continue
+		}
+		uids = append(uids, imapv2.UID(uint32(n)))
+	}
+	return uids
+}
+
+// joinUIDs 把 UID 列表序列化成 UIDs 字段的逗号分隔形式。
+func joinUIDs(uids []uint32) string {
+	parts := make([]string, 0, len(uids))
+	for _, u := range uids {
+		parts = append(parts, strconv.FormatUint(uint64(u), 10))
+	}
+	return strings.Join(parts, ",")
+}
+
+// applyWriteback 在给定连接上执行一条回写操作（选文件夹 → 对该组 UID 一次性动作）。
 func applyWriteback(sess Session, op WritebackOp) error {
+	uids := opUIDs(op)
+	if len(uids) == 0 {
+		return nil // 空操作：直接判成功，避免死留在队列里
+	}
 	if _, err := sess.SelectFolder(op.FolderPath); err != nil {
 		return err
 	}
-	uid := imapv2.UID(op.UID)
 	switch op.Op {
 	case wbOpRead:
-		return sess.MarkRead(uid)
+		return sess.MarkRead(uids...)
 	case wbOpUnread:
-		return sess.MarkUnread(uid)
+		return sess.MarkUnread(uids...)
 	case wbOpStar:
-		return sess.MarkStarred(uid)
+		return sess.MarkStarred(uids...)
 	case wbOpUnstar:
-		return sess.MarkUnstarred(uid)
+		return sess.MarkUnstarred(uids...)
+	case wbOpMove:
+		return sess.Move(op.TargetPath, uids...)
+	case wbOpExpunge:
+		return sess.Delete(uids...)
 	}
 	return nil
 }
@@ -150,7 +206,7 @@ func (m *Manager) applyAndSettle(sess Session, op WritebackOp) {
 				zap.Uint("account_id", op.AccountID), zap.Uint32("uid", op.UID),
 				zap.String("op", op.Op), zap.Int("attempts", attempts), zap.Error(err))
 			if m.emit != nil {
-				m.emit(notifySyncFailed, op.AccountID, "回写失败",
+				m.emit(notifySyncFailed, op.AccountID, 0, "回写失败",
 					"邮件标记回写多次失败已放弃，下次同步将以服务器状态为准")
 			}
 		}

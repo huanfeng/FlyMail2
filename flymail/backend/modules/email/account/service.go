@@ -6,7 +6,7 @@ type Service struct {
 	repo *Repository
 	enc  *crypto.Encryptor
 	// emit 通知回调（解耦：account 包不依赖 notify 包，由 app 装配）。
-	emit func(eventType string, accountID uint, title, body string)
+	emit func(eventType string, accountID uint, messageID uint, title, body string)
 }
 
 func NewService(repo *Repository, enc *crypto.Encryptor) *Service {
@@ -14,7 +14,7 @@ func NewService(repo *Repository, enc *crypto.Encryptor) *Service {
 }
 
 // SetEmitter 注入通知回调（账户状态变化等事件）。
-func (s *Service) SetEmitter(fn func(eventType string, accountID uint, title, body string)) {
+func (s *Service) SetEmitter(fn func(eventType string, accountID uint, messageID uint, title, body string)) {
 	s.emit = fn
 }
 
@@ -112,7 +112,7 @@ func (s *Service) SetEnabled(id uint, enabled bool) error {
 		if enabled {
 			state = "已启用"
 		}
-		s.emit("account_status", id, "账户状态变化", "账户「"+name+"」"+state)
+		s.emit("account_status", id, 0, "账户状态变化", "账户「"+name+"」"+state)
 	}
 	return nil
 }

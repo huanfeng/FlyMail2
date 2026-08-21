@@ -6,13 +6,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// 回写操作动词（与 SetRead/SetFlagged 一一对应）。
-// delete/move 为即时同步执行、不入此队列（见设计 §6）。
+// 回写操作动词。所有改动邮件状态的操作都走这条队列：本地先落库，服务器异步补齐。
+// move 需要 TargetPath；expunge 是就地永久删除（\Deleted + EXPUNGE）。
 const (
-	wbOpRead   = "read"
-	wbOpUnread = "unread"
-	wbOpStar   = "star"
-	wbOpUnstar = "unstar"
+	wbOpRead    = "read"
+	wbOpUnread  = "unread"
+	wbOpStar    = "star"
+	wbOpUnstar  = "unstar"
+	wbOpMove    = "move"
+	wbOpExpunge = "expunge"
 )
 
 const (
@@ -28,10 +30,16 @@ const (
 type WritebackOp struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 	// account_id + next_attempt_at 组合索引：DuePending 按账户捞取到期项的主查询路径。
-	AccountID     uint      `gorm:"not null;index:idx_wb_due,priority:1" json:"account_id"`
-	FolderPath    string    `gorm:"not null" json:"folder_path"`
-	UID           uint32    `gorm:"not null" json:"uid"`
-	Op            string    `gorm:"not null" json:"op"` // read/unread/star/unstar
+	AccountID  uint   `gorm:"not null;index:idx_wb_due,priority:1" json:"account_id"`
+	FolderPath string `gorm:"not null" json:"folder_path"`
+	UID        uint32 `gorm:"not null" json:"uid"`
+	// UIDs 是本条操作覆盖的全部 UID（逗号分隔），批量操作合并成一条队列记录，
+	// 一次 SELECT + 一次 STORE/MOVE 完成，避免几十封各排一条各自往返。
+	// 为空时回退到单个 UID 字段（兼容升级前入队的旧数据）。
+	UIDs string `json:"uids,omitempty"`
+	Op   string `gorm:"not null" json:"op"` // read/unread/star/unstar/move/expunge
+	// TargetPath 仅 move 使用：目标文件夹的 IMAP 路径。
+	TargetPath    string    `json:"target_path,omitempty"`
 	Attempts      int       `gorm:"not null;default:0" json:"attempts"`
 	NextAttemptAt time.Time `gorm:"index:idx_wb_due,priority:2" json:"next_attempt_at"`
 	LastError     string    `json:"last_error,omitempty"`

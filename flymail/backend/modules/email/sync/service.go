@@ -40,8 +40,8 @@ type Session interface {
 }
 
 // EmitFunc 是通知事件回调（解耦：sync 包不依赖 notify 包，由 app 装配指向 notify.Emit）。
-// 参数：事件类型、相关账户 id（0 表示无）、标题、正文。
-type EmitFunc func(eventType string, accountID uint, title, body string)
+// 参数：事件类型、相关账户 id（0 表示无）、消息 id（仅单封新邮件非 0）、标题、正文。
+type EmitFunc func(eventType string, accountID uint, messageID uint, title, body string)
 
 // 事件类型字符串（与 notify 包常量保持一致；此处镜像以避免反向依赖 notify）。
 const (
@@ -243,7 +243,7 @@ func (s *Service) runTrigger(accountID uint) {
 	if err := s.orch.TriggerSync(context.Background(), accountID); err != nil && !errors.Is(err, context.Canceled) {
 		s.status.fail(accountID, err.Error())
 		if s.emit != nil {
-			s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
+			s.emit(notifySyncFailed, accountID, 0, "同步失败", err.Error())
 		}
 	}
 }
@@ -327,7 +327,7 @@ func (s *Service) fail(accountID uint, err error) {
 	})
 	// 站内/外发通知：同步失败
 	if s.emit != nil {
-		s.emit(notifySyncFailed, accountID, "同步失败", err.Error())
+		s.emit(notifySyncFailed, accountID, 0, "同步失败", err.Error())
 	}
 }
 

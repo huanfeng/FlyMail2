@@ -20,6 +20,15 @@ func (s *Service) GetInt(key string, def int) int {
 	return n
 }
 
+// GetString 取字符串设置；取不到或为空返回 def。
+func (s *Service) GetString(key, def string) string {
+	val, found, err := s.repo.Get(key)
+	if err != nil || !found || val == "" {
+		return def
+	}
+	return val
+}
+
 // SetMany 批量保存键值对。
 func (s *Service) SetMany(m map[string]string) error {
 	for k, v := range m {

@@ -99,7 +99,7 @@ func TestIncrementalSyncKnownUIDNext(t *testing.T) {
 		numMessages: 10,
 		emails:      mkEmails(6, 10), // 服务器侧新邮件 uid 6..10
 	}
-	state, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 6, 5, f)
+	state, nm, err := svc.IncrementalSync(1, 1, "INBOX", 1, 6, 5, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
@@ -115,8 +115,11 @@ func TestIncrementalSyncKnownUIDNext(t *testing.T) {
 	if state.UIDNext != 11 {
 		t.Errorf("state.UIDNext = %d, 期望 11", state.UIDNext)
 	}
-	if newCount != 5 {
-		t.Errorf("newCount = %d, 期望 5", newCount)
+	if nm.Count != 5 {
+		t.Errorf("nm.Count = %d, 期望 5", nm.Count)
+	}
+	if !nm.Baseline {
+		t.Errorf("本地原本为空应判定为基线导入（不触发新邮件提醒）")
 	}
 	if cnt, _ := repo.CountByFolder(1); cnt != 5 {
 		t.Errorf("本地邮件数 = %d, 期望 5", cnt)
@@ -137,7 +140,7 @@ func TestIncrementalSyncNoUIDNext(t *testing.T) {
 		statusUIDNext: nil,
 		emails:        mkEmails(11, 12), // 服务器侧新邮件 uid 11、12
 	}
-	state, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 10, f)
+	state, nm, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 10, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
@@ -150,8 +153,14 @@ func TestIncrementalSyncNoUIDNext(t *testing.T) {
 	if f.seqFetchCalled {
 		t.Errorf("本地有基线时不应调用 FetchBySeqRange")
 	}
-	if newCount != 2 {
-		t.Errorf("newCount = %d, 期望 2（uid 11、12 为新增）", newCount)
+	if nm.Count != 2 {
+		t.Errorf("nm.Count = %d, 期望 2（uid 11、12 为新增）", nm.Count)
+	}
+	if nm.Baseline {
+		t.Errorf("本地有基线的增量不应判定为基线导入")
+	}
+	if nm.UnseenTotal != 2 || len(nm.Unseen) != 2 {
+		t.Errorf("新增未读 = %d/%d, 期望 2/2", nm.UnseenTotal, len(nm.Unseen))
 	}
 	if state.UIDNext != 13 { // 本地 maxUID(12)+1
 		t.Errorf("state.UIDNext = %d, 期望 13 (maxUID+1)", state.UIDNext)
@@ -168,7 +177,7 @@ func TestIncrementalSyncNoUIDNextFirstSync(t *testing.T) {
 		statusUIDNext: nil,
 		emails:        mkEmails(1, 5),
 	}
-	_, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 0, f)
+	_, nm, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 0, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
@@ -178,8 +187,11 @@ func TestIncrementalSyncNoUIDNextFirstSync(t *testing.T) {
 	if f.uidFetchCalled {
 		t.Errorf("首次同步不应走 UID 锚点")
 	}
-	if newCount != 5 {
-		t.Errorf("newCount = %d, 期望 5", newCount)
+	if nm.Count != 5 {
+		t.Errorf("nm.Count = %d, 期望 5", nm.Count)
+	}
+	if !nm.Baseline {
+		t.Errorf("首次同步应判定为基线导入")
 	}
 }
 
@@ -196,7 +208,7 @@ func TestIncrementalSyncNoUIDNextWithDeletions(t *testing.T) {
 		statusUIDNext: nil,
 		emails:        mkEmails(101, 103), // UID > 100 的新邮件
 	}
-	_, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 100, f)
+	_, nm, err := svc.IncrementalSync(1, 1, "INBOX", 1, 0, 100, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
@@ -206,8 +218,11 @@ func TestIncrementalSyncNoUIDNextWithDeletions(t *testing.T) {
 	if f.uidFrom != 101 || f.uidTo != 0 {
 		t.Errorf("FetchByUIDRange 入参 = [%d,%d], 期望 [101,0(*)]", f.uidFrom, f.uidTo)
 	}
-	if newCount != 3 {
-		t.Errorf("newCount = %d, 期望 3", newCount)
+	if nm.Count != 3 {
+		t.Errorf("nm.Count = %d, 期望 3", nm.Count)
+	}
+	if nm.UnseenTotal != 3 {
+		t.Errorf("nm.UnseenTotal = %d, 期望 3", nm.UnseenTotal)
 	}
 }
 
@@ -221,15 +236,15 @@ func TestIncrementalSyncNoNewMessages(t *testing.T) {
 		numMessages: 10,
 		emails:      map[uint32]*types.ParsedEmail{},
 	}
-	state, newCount, err := svc.IncrementalSync(1, 1, "INBOX", 1, 11, 10, f)
+	state, nm, err := svc.IncrementalSync(1, 1, "INBOX", 1, 11, 10, f)
 	if err != nil {
 		t.Fatalf("IncrementalSync: %v", err)
 	}
 	if f.uidFetchCalled || f.seqFetchCalled {
 		t.Errorf("无新邮件时不应触发任何 Fetch (uid=%v seq=%v)", f.uidFetchCalled, f.seqFetchCalled)
 	}
-	if newCount != 0 {
-		t.Errorf("newCount = %d, 期望 0", newCount)
+	if nm.Count != 0 {
+		t.Errorf("nm.Count = %d, 期望 0", nm.Count)
 	}
 	if state.UIDNext != 11 {
 		t.Errorf("state.UIDNext = %d, 期望 11", state.UIDNext)

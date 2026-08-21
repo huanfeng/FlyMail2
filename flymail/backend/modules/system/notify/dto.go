@@ -3,9 +3,11 @@ package notify
 import "strings"
 
 // Event 是一次通知触发的数据载体（由各事件源经 emit 回调传入）。
+// MessageID 仅单封新邮件事件非 0（供前端精准跳转），其余事件为 0。
 type Event struct {
 	Type      EventType
 	AccountID uint
+	MessageID uint
 	Title     string
 	Body      string
 }

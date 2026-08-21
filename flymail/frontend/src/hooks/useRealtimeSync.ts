@@ -15,6 +15,7 @@ export function useRealtimeSync(): void {
         void qc.invalidateQueries({ queryKey: ['folders'] })
         void qc.invalidateQueries({ queryKey: ['messages'] })
         void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+        void qc.invalidateQueries({ queryKey: ['account-unread'] })
         // 新邮件会产生站内通知，刷新铃铛角标与通知列表
         void qc.invalidateQueries({ queryKey: ['notifications-unread'] })
         void qc.invalidateQueries({ queryKey: ['notifications'] })

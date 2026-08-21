@@ -5,6 +5,7 @@ import { groupByDate } from '@/lib/date-group'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
+import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
 import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 import { searchShortcutHint } from '@/lib/platform'
 
@@ -55,8 +56,15 @@ interface Props {
   onBatchMove: (folderId: number) => void
   /** 批量移动目标（已选邮件共同账户的文件夹；跨账户/为空时禁用移动） */
   moveTargets: Folder[]
+  /** 偏好：始终显示行内选择框（无需先进入选择模式） */
+  alwaysShowSelect: boolean
   /** 列表行 hover 快捷删除单封 */
   onDeleteMessage: (id: number) => void
+  // ── 右键菜单 ──
+  /** 当前账户的文件夹列表（右键「移动到」目标；与邮件账户不符时不展示移动） */
+  folders: Folder[]
+  onMarkRead: (id: number, read: boolean) => void
+  onMoveMessage: (id: number, folderId: number) => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +122,7 @@ function relTime(isoStr: string, lang: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 选择复选框：覆盖在头像上（hover/已选时显现），点击不触发打开邮件
+// 选择复选框：行首独立一列（仅选择模式下由 CSS 显示），点击不触发打开邮件
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
@@ -202,7 +210,10 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
       {/* 未读圆点（CSS 控制可见性）*/}
       <span className="mi-unread-dot" />
 
-      {/* 方形头像（含选择复选框覆盖层）*/}
+      {/* 选择复选框（独立列，仅选择模式下显示）*/}
+      <SelectBox checked={selected} onToggle={onToggleSelect} />
+
+      {/* 方形头像 */}
       <span className="mi-avatar-wrap">
         <div
           className="avatar-sq"
@@ -210,13 +221,21 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
         >
           {initials(msg.from_name, msg.from_addr)}
         </div>
-        <SelectBox checked={selected} onToggle={onToggleSelect} />
       </span>
 
       <div style={{ minWidth: 0 }}>
-        {/* 第一行：发件人 + 时间 */}
+        {/* 第一行：发件人 + 附件标记 + 时间。
+            附件标记并入本行而非另起一行——行高必须与 estimateSize 恒等，
+            不能随「有无附件」浮动。 */}
         <div className="mi-top">
           <span className="mi-sender">{msg.from_name || msg.from_addr}</span>
+          {msg.has_attachment && (
+            <span className="mi-tags">
+              <span className="mi-tag mi-attach">
+                <Icon name="attach" size={10} />
+              </span>
+            </span>
+          )}
           <span className="mi-time">{relTime(msg.date, lang)}</span>
         </div>
 
@@ -228,15 +247,6 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
         {/* 第三行：摘要（2 行截断由 CSS 控制）*/}
         {msg.snippet && (
           <div className="mi-preview">{msg.snippet}</div>
-        )}
-
-        {/* 标签行：附件 */}
-        {msg.has_attachment && (
-          <div className="mi-tags">
-            <span className="mi-tag mi-attach">
-              <Icon name="attach" size={10} />
-            </span>
-          </div>
         )}
       </div>
 
@@ -304,7 +314,10 @@ function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onT
       {/* 未读圆点 */}
       <span className="mi-unread-dot" />
 
-      {/* 方形头像（小，含选择复选框覆盖层）*/}
+      {/* 选择复选框（独立列，仅选择模式下显示）*/}
+      <SelectBox checked={selected} onToggle={onToggleSelect} />
+
+      {/* 方形头像（小）*/}
       <span className="mi-avatar-wrap">
         <div
           className="avatar-sq"
@@ -312,7 +325,6 @@ function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onT
         >
           {initials(msg.from_name, msg.from_addr)}
         </div>
-        <SelectBox checked={selected} onToggle={onToggleSelect} />
       </span>
 
       {/* 发件人列 */}
@@ -397,7 +409,11 @@ export function MailList({
   onBatchDelete,
   onBatchMove,
   moveTargets,
+  alwaysShowSelect,
   onDeleteMessage,
+  folders,
+  onMarkRead,
+  onMoveMessage,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -425,6 +441,9 @@ export function MailList({
 
   // ── 批量移动下拉开关 ───────────────────────────────────────────────────────
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
+
+  // ── 选择模式：由工具栏开关控制，控制行内复选框列是否出现 ──────────────────
+  const [selectMode, setSelectMode] = useState(false)
 
   // ── 标题 ─────────────────────────────────────────────────────────────────
   // 聚合视图无 folder，使用 titleOverride
@@ -470,13 +489,19 @@ export function MailList({
     return filtered.map((msg): RowItem => ({ type: 'item', msg }))
   })()
 
-  // ── 行高估算 ─────────────────────────────────────────────────────────────
+  // ── 行高 ─────────────────────────────────────────────────────────────────
+  // ⚠ 这不是"估算"而是硬契约：没有接 measureElement，虚拟列表就完全按这里的数值
+  // 用 translateY 排布行槽位。行的真实高度一旦超出，就会压到下一行头上，
+  // 表现为 hover / 选中高亮与行边界错位重叠。
+  // index.css 用 .mail-item{height:100%} 让行严格填满槽位，两边必须同步改。
+  // 卡片行 105 = 28(padding) + 18(发件人) + 2+19(主题) + 2+35(两行摘要) + 1(border)
+  // 紧凑行  44 = 22(padding) + 21(单行内容) + 1(border)
   const estimateSize = useCallback(
     (index: number): number => {
       const row = rows[index]
       if (!row) return 52
       if (row.type === 'header') return 28
-      return listStyle === 'compact' ? 44 : 84
+      return listStyle === 'compact' ? 44 : 105
     },
     [rows, listStyle],
   )
@@ -492,6 +517,9 @@ export function MailList({
   useEffect(() => {
     scrollRef.current?.scrollTo(0, 0)
     virtualizer.measure()
+    // 换数据源时退出选择模式（选中项由 Shell 一并清空）
+    setSelectMode(false)
+    setBatchMoveOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
 
@@ -509,12 +537,25 @@ export function MailList({
   // ── 批量选择派生状态 ──────────────────────────────────────────────────────
   const selectedCount = selectedIds.size
   const allVisibleSelected = filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))
+  // 选择态 = 偏好设为常显、手动开了选择模式，或已有选中项
+  const selecting = alwaysShowSelect || selectMode || selectedCount > 0
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setBatchMoveOpen(false)
+    onClearSelection()
+  }
+
+  function toggleSelectMode() {
+    if (selecting) exitSelectMode()
+    else setSelectMode(true)
+  }
 
   // ── 渲染 ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full flex-col">
 
-      {/* ── 顶部标题栏 ── */}
+      {/* ── 顶部标题栏：标题占固定宽度，搜索框紧随其后（位置不随标题长短抖动）── */}
       <div className="list-head">
         <div className="title-wrap">
           <div className="list-title">{title}</div>
@@ -522,92 +563,7 @@ export function MailList({
             <div className="list-sub">{subLabel}</div>
           )}
         </div>
-      </div>
 
-      {/* ── 批量操作条（有选中时显示）── */}
-      {selectedCount > 0 && (
-        <div className="batch-bar">
-          {/* 全选/取消全选 */}
-          <input
-            type="checkbox"
-            checked={allVisibleSelected}
-            onChange={() => (allVisibleSelected ? onClearSelection() : onSelectAllVisible())}
-            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
-            aria-label={t('list.selectAll')}
-          />
-          <span className="bb-count">{t('list.selectedCount', { count: selectedCount })}</span>
-
-          <button type="button" className="bb-btn" onClick={() => onBatchRead(true)}>
-            <Icon name="check" size={13} /> {t('list.batchRead')}
-          </button>
-          <button type="button" className="bb-btn" onClick={() => onBatchRead(false)}>
-            {t('list.batchUnread')}
-          </button>
-          <button type="button" className="bb-btn" onClick={() => onBatchFlag(true)}>
-            <Icon name="star" size={13} /> {t('list.batchFlag')}
-          </button>
-
-          {/* 移动下拉（跨账户/无目标时禁用）*/}
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="bb-btn"
-              onClick={() => setBatchMoveOpen((o) => !o)}
-              disabled={moveTargets.length === 0}
-              title={moveTargets.length === 0 ? t('list.batchMoveDisabled') : t('list.batchMove')}
-            >
-              <Icon name="folder" size={13} /> {t('list.batchMove')}
-            </button>
-            {batchMoveOpen && moveTargets.length > 0 && (
-              <>
-                <div onClick={() => setBatchMoveOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                <div
-                  style={{
-                    position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41,
-                    minWidth: 170, maxHeight: 280, overflowY: 'auto',
-                    background: 'var(--surface)', border: '1px solid var(--rule)',
-                    borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 4,
-                  }}
-                >
-                  {moveTargets
-                    .filter((f) => f.selectable)
-                    .map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => { setBatchMoveOpen(false); onBatchMove(f.id) }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                          padding: '7px 10px', border: 'none', background: 'transparent',
-                          borderRadius: 6, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left',
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-                      >
-                        <Icon name="folder" size={13} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          <button type="button" className="bb-btn" onClick={onBatchDelete} style={{ color: 'var(--destructive)' }}>
-            <Icon name="trash" size={13} /> {t('list.batchDelete')}
-          </button>
-
-          {/* 清除选择 */}
-          <button type="button" className="bb-btn" onClick={onClearSelection} title={t('list.clearSelection')}>
-            <Icon name="close" size={13} />
-          </button>
-        </div>
-      )}
-
-      {/* ── 搜索栏 ── */}
-      <div className="search-bar">
         <div className="search-input">
           <Icon name="search" size={14} />
           <input
@@ -636,28 +592,158 @@ export function MailList({
         </div>
       </div>
 
-      {/* ── filter chips ── */}
-      <div className="filter-chips">
-        {(
-          [
-            { id: 'all',     label: t('list.filterAll') },
-            { id: 'unread',  label: t('list.filterUnread') },
-            { id: 'flagged', label: t('list.filterFlagged') },
-          ] as { id: FilterType; label: string }[]
-        ).map((c) => (
+      {/* ── 统一工具栏：选择开关 + 筛选 + 批量操作同处一条 44px ──
+           筛选 chips 常驻，选择态只是在同一行追加操作组（两者并存而非互斥），
+           高度恒定，列表不会因为进入选择而跳动。 */}
+      <div className="list-toolbar">
+        {/* 选择模式开关（偏好设为「始终显示选择框」时无需此开关）*/}
+        {!alwaysShowSelect && (
           <button
-            key={c.id}
             type="button"
-            className={'chip' + (filter === c.id ? ' active' : '')}
-            onClick={() => setFilter(c.id)}
+            className={'lt-btn' + (selecting ? ' active' : '')}
+            onClick={toggleSelectMode}
+            title={selecting ? t('list.exitSelect') : t('list.selectMode')}
+            aria-label={selecting ? t('list.exitSelect') : t('list.selectMode')}
+            aria-pressed={selecting}
           >
-            {c.label}
+            <Icon name="check" size={16} />
           </button>
-        ))}
+        )}
+
+        {/* 筛选 chips：不随选择态消失 */}
+        <div className="lt-chips">
+          {(
+            [
+              { id: 'all',     label: t('list.filterAll') },
+              { id: 'unread',  label: t('list.filterUnread') },
+              { id: 'flagged', label: t('list.filterFlagged') },
+            ] as { id: FilterType; label: string }[]
+          ).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className={'chip' + (filter === c.id ? ' active' : '')}
+              onClick={() => setFilter(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 选择区：进入选择态后在同一行追加，紧跟筛选之后（不右对齐，位置稳定）*/}
+        {selecting && (
+          <>
+            <span className="lt-sep" />
+
+            {/* 全选/取消全选当前可见 */}
+            <label className="lt-all" title={t('list.selectAll')}>
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={() => (allVisibleSelected ? onClearSelection() : onSelectAllVisible())}
+                aria-label={t('list.selectAll')}
+              />
+            </label>
+            {selectedCount > 0 && (
+              <span className="lt-count">{t('list.selectedCount', { count: selectedCount })}</span>
+            )}
+
+            <div className="lt-actions">
+              <button
+                type="button" className="lt-btn" disabled={selectedCount === 0}
+                onClick={() => onBatchRead(true)}
+                title={t('list.batchRead')} aria-label={t('list.batchRead')}
+              >
+                <Icon name="check" size={16} />
+              </button>
+              <button
+                type="button" className="lt-btn" disabled={selectedCount === 0}
+                onClick={() => onBatchRead(false)}
+                title={t('list.batchUnread')} aria-label={t('list.batchUnread')}
+              >
+                <Icon name="mail" size={16} />
+              </button>
+              <button
+                type="button" className="lt-btn" disabled={selectedCount === 0}
+                onClick={() => onBatchFlag(true)}
+                title={t('list.batchFlag')} aria-label={t('list.batchFlag')}
+              >
+                <Icon name="star" size={16} />
+              </button>
+
+              {/* 移动下拉（跨账户/无目标时禁用）*/}
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="lt-btn"
+                  onClick={() => setBatchMoveOpen((o) => !o)}
+                  disabled={selectedCount === 0 || moveTargets.length === 0}
+                  title={moveTargets.length === 0 ? t('list.batchMoveDisabled') : t('list.batchMove')}
+                  aria-label={t('list.batchMove')}
+                >
+                  <Icon name="folder" size={16} />
+                </button>
+                {batchMoveOpen && moveTargets.length > 0 && (
+                  <>
+                    <div onClick={() => setBatchMoveOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                    <div
+                      style={{
+                        position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41,
+                        minWidth: 170, maxHeight: 280, overflowY: 'auto',
+                        background: 'var(--surface)', border: '1px solid var(--rule)',
+                        borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 4,
+                      }}
+                    >
+                      {moveTargets
+                        .filter((f) => f.selectable)
+                        .map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => { setBatchMoveOpen(false); onBatchMove(f.id) }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                              padding: '7px 10px', border: 'none', background: 'transparent',
+                              borderRadius: 6, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                          >
+                            <Icon name="folder" size={13} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <button
+                type="button" className="lt-btn danger" disabled={selectedCount === 0}
+                onClick={onBatchDelete}
+                title={t('list.batchDelete')} aria-label={t('list.batchDelete')}
+              >
+                <Icon name="trash" size={16} />
+              </button>
+              {/* 始终显示选择框时没有「退出」可言，退化为清空选择 */}
+              <button
+                type="button" className="lt-btn"
+                onClick={exitSelectMode}
+                disabled={alwaysShowSelect && selectedCount === 0}
+                title={alwaysShowSelect ? t('list.clearSelection') : t('list.exitSelect')}
+                aria-label={alwaysShowSelect ? t('list.clearSelection') : t('list.exitSelect')}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ── 列表区域（有选中时加 selecting，常显所有复选框便于多选）── */}
-      <div ref={scrollRef} className={'mail-list' + (selectedCount > 0 ? ' selecting' : '')}>
+      {/* ── 列表区域（选择模式下 selecting 让每行显出复选框列）── */}
+      <div ref={scrollRef} className={'mail-list' + (selecting ? ' selecting' : '')}>
 
         {/* 首屏加载骨架 */}
         {loading && <SkeletonList />}
@@ -690,7 +776,54 @@ export function MailList({
               const row = rows[vItem.index]
               if (!row) return null
 
-              return (
+              // 右键菜单项（仅邮件行）：已读/星标/移动/删除。
+              // 「移动到」目标 = 当前账户文件夹中与该邮件同账户的其他可选文件夹
+              // （聚合视图里其他账户的邮件不展示移动项）。
+              const menuItems: CtxMenuItem[] = row.type === 'item'
+                ? (() => {
+                    const msg = row.msg
+                    const targets = folders.filter(
+                      (f) => f.account_id === msg.account_id && f.id !== msg.folder_id && f.selectable,
+                    )
+                    const items: CtxMenuItem[] = [
+                      {
+                        key: 'read',
+                        label: msg.seen ? t('ctx.markUnread') : t('ctx.markRead'),
+                        icon: 'mail',
+                        onSelect: () => onMarkRead(msg.id, !msg.seen),
+                      },
+                      {
+                        key: 'flag',
+                        label: msg.flagged ? t('ctx.unstar') : t('ctx.star'),
+                        icon: msg.flagged ? 'star-fill' : 'star',
+                        onSelect: () => onToggleFlag(msg.id, !msg.flagged),
+                      },
+                    ]
+                    if (targets.length > 0) {
+                      items.push({
+                        key: 'move',
+                        label: t('ctx.moveTo'),
+                        icon: 'folder',
+                        children: targets.map((f) => ({
+                          key: `mv-${f.id}`,
+                          label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                          onSelect: () => onMoveMessage(msg.id, f.id),
+                        })),
+                      })
+                    }
+                    items.push({ key: 'sep', separator: true })
+                    items.push({
+                      key: 'del',
+                      label: t('ctx.delete'),
+                      icon: 'trash',
+                      destructive: true,
+                      onSelect: () => onDeleteMessage(msg.id),
+                    })
+                    return items
+                  })()
+                : []
+
+              const positioned = (
                 <div
                   key={vItem.key}
                   data-index={vItem.index}
@@ -751,6 +884,13 @@ export function MailList({
                     />
                   )}
                 </div>
+              )
+
+              // 邮件行包一层右键菜单；分组标题行原样返回
+              return row.type === 'item' ? (
+                <CtxMenu key={vItem.key} items={menuItems} trigger={positioned} />
+              ) : (
+                positioned
               )
             })}
           </div>

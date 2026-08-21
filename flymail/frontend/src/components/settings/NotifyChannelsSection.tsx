@@ -1,12 +1,13 @@
 // 设置 → 通知渠道：外发推送渠道(通用 webhook / 飞书)的增删改 + 测试 + 投递日志。
+// 添加/编辑走 ChannelDialog 对话框（radix，浮于设置弹框之上），列表本身不做内嵌变形。
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
+import { ChannelDialog } from './ChannelDialog'
 import {
   useNotifyChannels,
-  useCreateNotifyChannel,
   useUpdateNotifyChannel,
   useDeleteNotifyChannel,
   useTestNotifyChannel,
@@ -14,25 +15,10 @@ import {
 } from '@/lib/queries'
 import type { NotifyChannel } from '@/lib/types'
 
-const EVENT_TYPES = ['mail_new', 'sync_failed', 'account_status'] as const
 const EVENT_LABEL: Record<string, string> = {
   mail_new: 'notif.tabMail',
   sync_failed: 'notif.tabSync',
   account_status: 'notif.tabAccount',
-}
-
-interface FormState {
-  id: number | null
-  name: string
-  kind: string
-  url: string
-  secret: string
-  events: string[]
-  enabled: boolean
-}
-
-function emptyForm(): FormState {
-  return { id: null, name: '', kind: 'webhook', url: '', secret: '', events: ['mail_new'], enabled: true }
 }
 
 export function NotifyChannelsSection() {
@@ -40,41 +26,22 @@ export function NotifyChannelsSection() {
   const { toast } = useToast()
   const { data: channels = [] } = useNotifyChannels()
   const { data: logs = [] } = useNotifyLogs()
-  const createCh = useCreateNotifyChannel()
   const updateCh = useUpdateNotifyChannel()
   const deleteCh = useDeleteNotifyChannel()
   const testCh = useTestNotifyChannel()
 
-  const [form, setForm] = React.useState<FormState | null>(null) // null = 表单关闭
+  // 对话框状态：open + 编辑目标（null = 添加模式）
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editing, setEditing] = React.useState<NotifyChannel | null>(null)
   const [showLogs, setShowLogs] = React.useState(false)
 
-  function openAdd() { setForm(emptyForm()) }
+  function openAdd() {
+    setEditing(null)
+    setDialogOpen(true)
+  }
   function openEdit(c: NotifyChannel) {
-    setForm({ id: c.id, name: c.name, kind: c.kind, url: c.url, secret: '', events: c.events, enabled: c.enabled })
-  }
-  function toggleEvent(ev: string) {
-    setForm((f) => {
-      if (!f) return f
-      const events = f.events.includes(ev) ? f.events.filter((e) => e !== ev) : [...f.events, ev]
-      return { ...f, events }
-    })
-  }
-
-  function handleSave() {
-    if (!form) return
-    if (!form.name.trim() || !form.url.trim()) {
-      toast(t('settings.notify.invalid'))
-      return
-    }
-    const input = {
-      name: form.name.trim(), kind: form.kind, url: form.url.trim(),
-      secret: form.secret, events: form.events, enabled: form.enabled,
-    }
-    if (form.id != null) {
-      updateCh.mutate({ id: form.id, input }, { onSuccess: () => { toast(t('settings.notify.saved')); setForm(null) } })
-    } else {
-      createCh.mutate(input, { onSuccess: () => { toast(t('settings.notify.saved')); setForm(null) } })
-    }
+    setEditing(c)
+    setDialogOpen(true)
   }
 
   function handleDelete(c: NotifyChannel) {
@@ -99,7 +66,7 @@ export function NotifyChannelsSection() {
       <p className="help">{t('settings.notify.help')}</p>
 
       {/* 渠道列表 */}
-      {channels.length === 0 && !form && (
+      {channels.length === 0 && (
         <div style={{ color: 'var(--ink-3)', fontSize: 13, padding: '10px 0' }}>{t('settings.notify.none')}</div>
       )}
       {channels.map((c) => (
@@ -142,57 +109,12 @@ export function NotifyChannelsSection() {
         </div>
       ))}
 
-      {/* 新增/编辑表单 */}
-      {form ? (
-        <div className="account-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
-          <div className="settings-row">
-            <div className="sr-label">{t('settings.notify.name')}</div>
-            <input className="inline-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </div>
-          <div className="settings-row">
-            <div className="sr-label">{t('settings.notify.kind')}</div>
-            <div className="mode-toggle">
-              <button type="button" className={form.kind === 'webhook' ? 'active' : ''} onClick={() => setForm({ ...form, kind: 'webhook' })}>
-                {t('settings.notify.kindWebhook')}
-              </button>
-              <button type="button" className={form.kind === 'feishu' ? 'active' : ''} onClick={() => setForm({ ...form, kind: 'feishu' })}>
-                {t('settings.notify.kindFeishu')}
-              </button>
-            </div>
-          </div>
-          <div className="settings-row">
-            <div className="sr-label">{t('settings.notify.url')}</div>
-            <input className="inline-input" style={{ minWidth: 240 }} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://..." />
-          </div>
-          <div className="settings-row">
-            <div>
-              <div className="sr-label">{t('settings.notify.secret')}</div>
-              <div className="sr-help">{form.id != null ? t('settings.notify.secretKeep') : t('settings.notify.secretHint')}</div>
-            </div>
-            <input className="inline-input" type="password" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} autoComplete="new-password" />
-          </div>
-          <div className="settings-row">
-            <div className="sr-label">{t('settings.notify.events')}</div>
-            <div className="filter-chips" style={{ padding: 0 }}>
-              {EVENT_TYPES.map((ev) => (
-                <button key={ev} type="button" className={'chip' + (form.events.includes(ev) ? ' active' : '')} onClick={() => toggleEvent(ev)}>
-                  {t(EVENT_LABEL[ev])}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-            <button type="button" className="pill-btn primary" onClick={handleSave} disabled={createCh.isPending || updateCh.isPending}>
-              {t('settings.notify.save')}
-            </button>
-            <button type="button" className="pill-btn" onClick={() => setForm(null)}>{t('settings.notify.cancel')}</button>
-          </div>
-        </div>
-      ) : (
-        <button type="button" className="pill-btn" style={{ marginTop: 14 }} onClick={openAdd}>
-          <Icon name="plus" size={12} /> {t('settings.notify.addChannel')}
-        </button>
-      )}
+      <button type="button" className="pill-btn" style={{ marginTop: 14 }} onClick={openAdd}>
+        <Icon name="plus" size={12} /> {t('settings.notify.addChannel')}
+      </button>
+
+      {/* 添加/编辑对话框 */}
+      <ChannelDialog open={dialogOpen} channel={editing} onOpenChange={setDialogOpen} />
 
       {/* 投递日志（可折叠） */}
       <div style={{ marginTop: 20 }}>

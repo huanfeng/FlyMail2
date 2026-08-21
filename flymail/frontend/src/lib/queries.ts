@@ -1,6 +1,16 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
+import {
+  applyUnreadDelta,
+  beginOptimistic,
+  bumpAggregateCount,
+  findCachedMessages,
+  patchMessageDetail,
+  patchMessages,
+  removeMessages,
+  restoreMail,
+} from '@/lib/optimistic'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -17,6 +27,9 @@ export function useFolders(accountId: number | null) {
   return useQuery({
     queryKey: ['folders', accountId],
     enabled: accountId != null,
+    // 轮询兜底：桌面端（Wails）SSE 经 WebView2 自定义协议可能失效/缓冲，
+    // 新账户初始同步逐步发现文件夹时也没有 SSE 事件，定时刷新保证列表自更新。
+    refetchInterval: 30_000,
     queryFn: async (): Promise<Folder[]> => {
       const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${accountId}/folders`)
       return data.folders ?? []
@@ -94,14 +107,48 @@ export function useInfiniteAggregate(view: AggregateView | null) {
   })
 }
 
-/** 聚合入口徽标计数：{ inbox, unread, starred } */
+/**
+ * 聚合入口计数。
+ *
+ * ⚠ inbox 是收件箱聚合的**未读数**（入口徽标的语义），不是条目总数；
+ * 列表标题要显示的「共几封」用 inboxTotal。
+ * unread / starred 视图里每条都符合该条件，徽标数本身就是总数。
+ */
 export function useAggregateCounts() {
   return useQuery({
     queryKey: ['aggregate-counts'],
-    queryFn: async (): Promise<Record<AggregateView, number>> => {
+    // 与 useFolders 同理：SSE 失效时的轮询兜底
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<Record<AggregateView, number> & { inboxTotal: number }> => {
       const { data } = await api.get<{ counts: Record<string, number> }>('/aggregate/counts')
       const c = data.counts ?? {}
-      return { inbox: c.inbox ?? 0, unread: c.unread ?? 0, starred: c.starred ?? 0 }
+      return {
+        inbox: c.inbox ?? 0,
+        unread: c.unread ?? 0,
+        starred: c.starred ?? 0,
+        inboxTotal: c.inbox_total ?? 0,
+      }
+    },
+  })
+}
+
+/**
+ * 各账户未读数（侧栏账户角标）。
+ *
+ * 不能用「该账户各文件夹 unread_count 求和」代替：Gmail 把标签映射成 IMAP 文件夹，
+ * 同一封未读会被 INBOX 与各标签文件夹重复累加。后端按 收件箱+自定义 的口径统计
+ * 并对跨文件夹副本去重，与「全部未读」聚合入口保持同一个数。
+ */
+export function useAccountUnread() {
+  return useQuery({
+    queryKey: ['account-unread'],
+    // 与 useFolders 同理：SSE 失效时的轮询兜底
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<Record<number, number>> => {
+      const { data } = await api.get<{ counts: Record<string, number> }>('/aggregate/account-unread')
+      const out: Record<number, number> = {}
+      for (const [id, n] of Object.entries(data.counts ?? {})) out[Number(id)] = n
+      return out
     },
   })
 }
@@ -129,6 +176,16 @@ export function useInfiniteSearch(q: string) {
   })
 }
 
+/**
+ * 从缓存里移除一批邮件的乐观更新（删除/移动共用）：
+ * 列表立即去掉这些行，未读的还要把各级角标减回去。
+ */
+function optimisticRemove(qc: ReturnType<typeof useQueryClient>, ids: Set<number>) {
+  const affected = findCachedMessages(qc, ids)
+  removeMessages(qc, ids)
+  applyUnreadDelta(qc, affected.filter((m) => !m.seen), -1)
+}
+
 /** 删除邮件（移到回收站；已在回收站则永久删除，由后端判定）。 */
 export function useDeleteMessage() {
   const qc = useQueryClient()
@@ -136,11 +193,14 @@ export function useDeleteMessage() {
     mutationFn: async (id: number) => {
       await api.post(`/messages/${id}/delete`)
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['messages'] })
-      void qc.invalidateQueries({ queryKey: ['folders'] })
-      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    // 乐观更新：本地立即消失，服务器侧由后端回写队列异步完成
+    onMutate: async (id: number) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRemove(qc, new Set([id]))
+      return snap
     },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
@@ -151,19 +211,42 @@ export function useMoveMessage() {
     mutationFn: async ({ id, folderId }: { id: number; folderId: number }) => {
       await api.post(`/messages/${id}/move`, { folder_id: folderId })
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['messages'] })
-      void qc.invalidateQueries({ queryKey: ['folders'] })
-      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    // 移动后邮件从源文件夹消失；目标文件夹里的那份由下次同步补齐
+    onMutate: async ({ id }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRemove(qc, new Set([id]))
+      return snap
     },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
-/** 批量操作统一的缓存失效（邮件列表/文件夹/聚合计数/邮件详情）。 */
+/** 批量操作统一的缓存失效（邮件列表/文件夹/聚合计数/账户未读）。 */
 function invalidateMailCaches(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['messages'] })
   void qc.invalidateQueries({ queryKey: ['folders'] })
   void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+  void qc.invalidateQueries({ queryKey: ['account-unread'] })
+}
+
+/**
+ * 标记已读/未读的乐观更新（单封与批量共用）。
+ * 未读角标只按「状态确实会变」的那些邮件调整，重复标记不会让计数漂移。
+ */
+function optimisticRead(qc: ReturnType<typeof useQueryClient>, ids: Set<number>, read: boolean) {
+  const changed = findCachedMessages(qc, ids).filter((m) => m.seen !== read)
+  patchMessages(qc, ids, { seen: read })
+  for (const id of ids) patchMessageDetail(qc, id, { seen: read })
+  applyUnreadDelta(qc, changed, read ? -1 : 1)
+}
+
+/** 加/取消星标的乐观更新（单封与批量共用）。 */
+function optimisticFlag(qc: ReturnType<typeof useQueryClient>, ids: Set<number>, flagged: boolean) {
+  const changed = findCachedMessages(qc, ids).filter((m) => m.flagged !== flagged)
+  patchMessages(qc, ids, { flagged })
+  for (const id of ids) patchMessageDetail(qc, id, { flagged })
+  bumpAggregateCount(qc, 'starred', changed.length * (flagged ? 1 : -1))
 }
 
 /** 批量删除（移到回收站；已在回收站则永久删除）。 */
@@ -171,7 +254,13 @@ export function useBatchDelete() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (ids: number[]) => { await api.post('/batch/delete', { ids }) },
-    onSuccess: () => invalidateMailCaches(qc),
+    onMutate: async (ids: number[]) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRemove(qc, new Set(ids))
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
@@ -182,7 +271,13 @@ export function useBatchMove() {
     mutationFn: async ({ ids, folderId }: { ids: number[]; folderId: number }) => {
       await api.post('/batch/move', { ids, folder_id: folderId })
     },
-    onSuccess: () => invalidateMailCaches(qc),
+    onMutate: async ({ ids }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRemove(qc, new Set(ids))
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
@@ -193,7 +288,13 @@ export function useBatchRead() {
     mutationFn: async ({ ids, read }: { ids: number[]; read: boolean }) => {
       await api.post('/batch/read', { ids, read })
     },
-    onSuccess: () => invalidateMailCaches(qc),
+    onMutate: async ({ ids, read }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRead(qc, new Set(ids), read)
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
@@ -204,7 +305,13 @@ export function useBatchFlag() {
     mutationFn: async ({ ids, flagged }: { ids: number[]; flagged: boolean }) => {
       await api.post('/batch/flag', { ids, flagged })
     },
-    onSuccess: () => invalidateMailCaches(qc),
+    onMutate: async ({ ids, flagged }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticFlag(qc, new Set(ids), flagged)
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 
@@ -458,6 +565,12 @@ export function useMessageDetail(messageId: number | null) {
   return useQuery({
     queryKey: ['message', messageId],
     enabled: messageId != null,
+    // 切换邮件时保留上一封的数据，直到新数据到达。
+    // 否则每次点击都要走一遍 isLoading → 骨架屏 → 内容：本地接口只要几毫秒，
+    // 这一两帧的骨架表现为第三栏"闪一下"。
+    // ⚠ 保留期内 data 属于上一封邮件（data.id !== messageId），
+    // Reader 必须据此禁用工具栏，避免"看着旧邮件、操作新邮件"。
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<MessageDetail> => {
       const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
       return data
@@ -471,10 +584,15 @@ export function useMarkRead() {
     mutationFn: async ({ id, read }: { id: number; read: boolean }) => {
       await api.post(`/messages/${id}/read`, { read })
     },
-    onSuccess: (_d, { id }) => {
-      void qc.invalidateQueries({ queryKey: ['messages'] })
-      void qc.invalidateQueries({ queryKey: ['folders'] })
-      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    // 乐观更新：列表行、详情、各级未读角标立即变，服务器回写走后端队列
+    onMutate: async ({ id, read }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticRead(qc, new Set([id]), read)
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: (_d, _e, { id }) => {
+      invalidateMailCaches(qc)
       void qc.invalidateQueries({ queryKey: ['message', id] })
     },
   })
@@ -486,12 +604,22 @@ export function useToggleFlag() {
     mutationFn: async ({ id, flagged }: { id: number; flagged: boolean }) => {
       await api.post(`/messages/${id}/flag`, { flagged })
     },
-    onSuccess: (_d, { id }) => {
-      void qc.invalidateQueries({ queryKey: ['messages'] })
-      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+    onMutate: async ({ id, flagged }) => {
+      const snap = await beginOptimistic(qc)
+      optimisticFlag(qc, new Set([id]), flagged)
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: (_d, _e, { id }) => {
+      invalidateMailCaches(qc)
       void qc.invalidateQueries({ queryKey: ['message', id] })
     },
   })
+}
+
+/** 后端返回的正文预取模式做一次白名单校验，取值异常时回落到默认的「仅新邮件」。 */
+function parseBodySyncMode(raw: string | undefined): BodySyncMode {
+  return raw === 'recent' || raw === 'all' ? raw : 'new'
 }
 
 export function useSettings() {
@@ -502,6 +630,8 @@ export function useSettings() {
       return {
         sync_depth: Number(data.settings?.sync_depth ?? 1000) || 1000,
         sync_poll_interval: Number(data.settings?.sync_poll_interval ?? 180) || 180,
+        body_sync_mode: parseBodySyncMode(data.settings?.body_sync_mode),
+        body_sync_recent_days: Number(data.settings?.body_sync_recent_days ?? 30) || 30,
       }
     },
   })

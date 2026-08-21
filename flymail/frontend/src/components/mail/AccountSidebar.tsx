@@ -6,7 +6,15 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
-import { useNotificationUnread, useMe } from '@/lib/queries'
+import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
+import { AccountDialog } from '@/components/mail/AccountDialog'
+import {
+  useNotificationUnread,
+  useAccountUnread,
+  useMe,
+  useSetAccountEnabled,
+  useDeleteAccount,
+} from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import type { Account, Folder } from '@/lib/types'
 import { auth } from '@/lib/auth'
@@ -73,10 +81,12 @@ interface FolderRowProps {
   active: boolean
   count?: number
   onClick: () => void
+  /** 右键菜单项（可选） */
+  ctxItems?: CtxMenuItem[]
 }
 
-function FolderRow({ iconName, label, active, count, onClick }: FolderRowProps) {
-  return (
+function FolderRow({ iconName, label, active, count, onClick, ctxItems }: FolderRowProps) {
+  const btn = (
     <button
       type="button"
       className={'folder-row' + (active ? ' active' : '')}
@@ -96,6 +106,7 @@ function FolderRow({ iconName, label, active, count, onClick }: FolderRowProps) 
       )}
     </button>
   )
+  return ctxItems && ctxItems.length > 0 ? <CtxMenu trigger={btn} items={ctxItems} /> : btn
 }
 
 // ── 账户行（可展开，含文件夹列表）────────────────────────
@@ -107,10 +118,16 @@ interface AccountBlockProps {
   folders: Folder[]
   activeFolderId: number | null
   syncing: boolean
+  /** 账户级未读数（后端去重口径，见 useAccountUnread） */
+  unread: number
   onToggleExpand: () => void
   onSync: () => void
   onSelectFolder: (id: number) => void
   onOpenDrafts: () => void
+  // ── 右键菜单动作 ──
+  onEdit: () => void
+  onToggleEnabled: () => void
+  onDelete: () => void
 }
 
 function AccountBlock({
@@ -120,20 +137,42 @@ function AccountBlock({
   folders,
   activeFolderId,
   syncing,
+  unread,
   onToggleExpand,
   onSync,
   onSelectFolder,
   onOpenDrafts,
+  onEdit,
+  onToggleEnabled,
+  onDelete,
 }: AccountBlockProps) {
   const { t } = useTranslation()
 
-  // 计算账户下全部未读数
-  const totalUnread = folders.reduce((sum, f) => sum + (f.unread_count ?? 0), 0)
+  // 账户右键菜单：同步 / 编辑 / 启停 / 删除
+  const accountCtxItems: CtxMenuItem[] = [
+    { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: onSync, disabled: !acc.enabled },
+    { key: 'edit', label: t('ctx.editAccount'), icon: 'compose', onSelect: onEdit },
+    {
+      key: 'enabled',
+      label: acc.enabled ? t('ctx.disableAccount') : t('ctx.enableAccount'),
+      icon: 'circle-dot',
+      onSelect: onToggleEnabled,
+    },
+    { key: 'sep', separator: true },
+    { key: 'del', label: t('ctx.deleteAccount'), icon: 'trash', destructive: true, onSelect: onDelete },
+  ]
+  // 文件夹右键菜单：立即同步该账户
+  const folderCtxItems: CtxMenuItem[] = [
+    { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: onSync, disabled: !acc.enabled },
+  ]
 
   return (
     <div>
-      {/* 账户标题行 — 点击展开/收起 */}
-      <div className="group" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      {/* 账户标题行 — 点击展开/收起，右键弹操作菜单 */}
+      <CtxMenu
+        items={accountCtxItems}
+        trigger={
+          <div className="group" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <button
           type="button"
           className={'account-row' + (active ? ' active' : '')}
@@ -151,9 +190,9 @@ function AccountBlock({
           />
           {/* 账户名（优先显示 name，回落到 email） */}
           <span className="acct-name">{acc.name || acc.email}</span>
-          {/* 未读总数 */}
-          {totalUnread > 0 && (
-            <span className="acct-unread">{totalUnread > 99 ? '99+' : totalUnread}</span>
+          {/* 未读总数（后端去重口径：收件箱+自定义文件夹，同一封跨标签只计一次） */}
+          {unread > 0 && (
+            <span className="acct-unread">{unread > 99 ? '99+' : unread}</span>
           )}
         </button>
 
@@ -178,7 +217,9 @@ function AccountBlock({
             />
           </button>
         </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* 展开的文件夹列表 */}
       {expanded && (
@@ -195,8 +236,15 @@ function AccountBlock({
                   iconName={iconName}
                   label={label}
                   active={f.id === activeFolderId}
-                  count={f.type === 'inbox' || f.type === 'junk' ? f.unread_count : undefined}
+                  count={
+                    // 文件夹行徽标：收件箱/垃圾邮件/自定义显示各自未读（主流客户端行为），
+                    // archive（Gmail 所有邮件）/回收站/已发送/草稿不显示
+                    f.type === 'inbox' || f.type === 'junk' || f.type === 'custom'
+                      ? f.unread_count
+                      : undefined
+                  }
                   onClick={() => onSelectFolder(f.id)}
+                  ctxItems={folderCtxItems}
                 />
               )
             })}
@@ -239,6 +287,8 @@ export function AccountSidebar({
   const { t } = useTranslation()
   // 站内未读通知数（铃铛角标）
   const { data: unreadNotifs = 0 } = useNotificationUnread()
+  // 各账户未读（后端统一口径，非激活账户也能显示）
+  const { data: accountUnread = {} } = useAccountUnread()
   // 当前管理员资料（底部用户卡）
   const { data: me } = useMe()
 
@@ -256,6 +306,16 @@ export function AccountSidebar({
 
   function toggleExpand(id: number) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  // ── 账户右键菜单动作（编辑对话框 + 启停/删除 mutation，自包含于侧栏） ──
+  const [editAcc, setEditAcc] = useState<Account | null>(null)
+  const setEnabled = useSetAccountEnabled()
+  const deleteAccount = useDeleteAccount()
+
+  function handleDeleteAccount(acc: Account) {
+    if (!window.confirm(t('account.deleteConfirm'))) return
+    deleteAccount.mutate(acc.id)
   }
 
   // 聚合入口在邮件视图下才可能高亮
@@ -358,6 +418,7 @@ export function AccountSidebar({
             folders={acc.id === activeAccountId ? folders : []}
             activeFolderId={activeFolderId}
             syncing={syncing}
+            unread={accountUnread[acc.id] ?? 0}
             onToggleExpand={() => {
               // 展开时同时切换账户选中（若点击非激活账户）
               if (acc.id !== activeAccountId) onSelectAccount(acc.id)
@@ -366,12 +427,22 @@ export function AccountSidebar({
             onSync={() => onSync(acc.id)}
             onSelectFolder={onSelectFolder}
             onOpenDrafts={() => onOpenDrafts(acc.id)}
+            onEdit={() => setEditAcc(acc)}
+            onToggleEnabled={() => setEnabled.mutate({ id: acc.id, enabled: !acc.enabled })}
+            onDelete={() => handleDeleteAccount(acc)}
           />
         ))}
 
         {/* labels 标签区：FlyMail 暂无标签功能，本阶段完全隐藏（不放静态假数据） */}
 
       </div>
+
+      {/* 账户右键「编辑」对话框 */}
+      <AccountDialog
+        open={editAcc !== null}
+        account={editAcc}
+        onOpenChange={(open) => { if (!open) setEditAcc(null) }}
+      />
 
       {/* ── 底部 .sidebar-foot ─────────────────────────────── */}
       <div className="sidebar-foot">

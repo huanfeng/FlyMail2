@@ -15,6 +15,14 @@ import type { Notification } from '@/lib/types'
 
 interface NotificationsPageProps {
   onBack: () => void
+  /** 点击通知卡片：跳转到关联邮件/账户（由 Shell 实现导航） */
+  onOpen?: (n: Notification) => void
+  /**
+   * 是否渲染自带的「返回收件箱」按钮。
+   * 双栏浮动模式下面板左上角已有关闭键、窄屏顶栏已有返回键，
+   * 传 false（窄屏另有 CSS 兜底隐藏），仅三栏形态需要自带返回。
+   */
+  showBack?: boolean
 }
 
 type Tab = 'all' | 'unread' | 'mail_new' | 'sync_failed' | 'account_status'
@@ -26,7 +34,7 @@ const TYPE_META: Record<string, { icon: IconName; kind: string }> = {
   account_status: { icon: 'tag', kind: 'kind-acct' },
 }
 
-export function NotificationsPage({ onBack }: NotificationsPageProps) {
+export function NotificationsPage({ onBack, onOpen, showBack = true }: NotificationsPageProps) {
   const { t, i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [tab, setTab] = useState<Tab>('all')
@@ -84,12 +92,14 @@ export function NotificationsPage({ onBack }: NotificationsPageProps) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
       {/* 顶部操作栏 */}
       <div className="fp-tabs">
-        <button type="button" className="fp-back" onClick={onBack}>
-          <span style={{ transform: 'scaleX(-1)', display: 'inline-block' }}>
-            <Icon name="chevron-right" size={14} />
-          </span>
-          {t('notif.backToInbox')}
-        </button>
+        {showBack && (
+          <button type="button" className="fp-back notif-screen-back" onClick={onBack}>
+            <span style={{ transform: 'scaleX(-1)', display: 'inline-block' }}>
+              <Icon name="chevron-right" size={14} />
+            </span>
+            {t('notif.backToInbox')}
+          </button>
+        )}
         <div className="spacer" style={{ flex: 1 }} />
         <button
           type="button"
@@ -154,10 +164,18 @@ export function NotificationsPage({ onBack }: NotificationsPageProps) {
                   <div
                     key={n.id}
                     className={'notif-card' + (n.read ? '' : ' unread')}
-                    onClick={() => { if (!n.read) markRead.mutate(n.id) }}
+                    onClick={() => {
+                      if (!n.read) markRead.mutate(n.id)
+                      onOpen?.(n)
+                    }}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !n.read) markRead.mutate(n.id) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        if (!n.read) markRead.mutate(n.id)
+                        onOpen?.(n)
+                      }
+                    }}
                   >
                     <div className={'nf-icon ' + meta.kind}>
                       <Icon name={meta.icon} size={16} />

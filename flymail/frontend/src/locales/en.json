@@ -1,5 +1,18 @@
 {
   "app": { "name": "FlyMail" },
+  "ctx": {
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "star": "Add star",
+    "unstar": "Remove star",
+    "moveTo": "Move to",
+    "delete": "Delete",
+    "syncNow": "Sync now",
+    "editAccount": "Edit account",
+    "enableAccount": "Enable account",
+    "disableAccount": "Disable account",
+    "deleteAccount": "Delete account"
+  },
   "login": {
     "subtitle": "Sign in to continue",
     "username": "Username",
@@ -46,6 +59,8 @@
     "batchDelete": "Delete",
     "batchDeleteConfirm": "Delete the {{count}} selected messages? (Moved to Trash; permanently deleted if already in Trash)",
     "clearSelection": "Clear selection",
+    "selectMode": "Select messages",
+    "exitSelect": "Exit selection",
     "deletedToast": "Deleted",
     "relTime": {
       "justNow": "now",
@@ -100,7 +115,13 @@
     "imapOk": "IMAP connection successful", "imapFail": "IMAP connection failed",
     "smtpOk": "SMTP connection successful", "smtpFail": "SMTP connection failed",
     "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
-    "nameRequired": "Name and email are required", "passwordRequired": "Password is required"
+    "nameRequired": "Name and email are required", "passwordRequired": "Password is required",
+    "advanced": "Server Settings",
+    "testNeedsInput": "Enter email and password before testing",
+    "testError": "Test request failed",
+    "advancedAuto": "Server settings auto-detected from email",
+    "notConfigured": "Not configured",
+    "serverRequired": "IMAP/SMTP server host is required"
   },
   "compose": {
     "title": "Compose",
@@ -257,6 +278,7 @@
       "help": "Push to external channels (generic Webhook / Feishu) when events occur, with delivery logs.",
       "none": "No channels yet. Add one below.",
       "addChannel": "Add Channel",
+      "editChannel": "Edit Channel",
       "name": "Name",
       "kind": "Type",
       "kindWebhook": "Generic Webhook",
@@ -293,6 +315,8 @@
       "listWidth": "List width",
       "widthHint": "You can also drag the dividers between columns",
       "density": "List density",
+      "alwaysShowSelect": "Always show checkboxes",
+      "alwaysShowSelectHint": "When off, click the select button in the toolbar to reveal row checkboxes",
       "layout": "Layout",
       "layoutHelp": "Choose three columns, or two columns with a slide-in reading panel",
       "layoutThree": "Three columns",
@@ -350,6 +374,15 @@
       "saved": "Saved",
       "invalidDepth": "Sync depth must be between 100 and 5000",
       "invalidInterval": "Poll interval must be between 30 and 3600",
+      "bodySync": "Message body sync",
+      "bodySyncHint": "Download message bodies during sync so opening mail never waits on the server. Covers inbox and custom folders only",
+      "bodySync_new": "New only",
+      "bodySync_recent": "Recent",
+      "bodySync_all": "All",
+      "bodyDays": "Recent window",
+      "bodyDaysHint": "Backfill bodies for messages within this window; larger values use more disk",
+      "daysValue": "{{count}} days",
+      "invalidBodyDays": "Days must be between 1 and 3650",
       "listStyle": "List style",
       "listCompact": "Compact",
       "listCard": "Card"

@@ -34,6 +34,9 @@ interface AppLayoutProps {
 
 type PaneKey = 'sidebar' | 'list'
 
+/** 阅读区（第三栏）拖拽保底宽度，与 index.css 中 .col.reader 的 min-width 保持一致。 */
+const READER_MIN = 300
+
 /** 监听媒体查询是否匹配（用于桌面/移动布局切换）。 */
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(
@@ -76,10 +79,11 @@ export function AppLayout({
   const wRef = useRef(w)
   wRef.current = w
 
-  // 同步 CSS 变量到 :root，驱动 .col.sidebar / .col.list 宽度
+  // 同步 CSS 变量到 :root，驱动 .col.sidebar / .col.list / .reader-slide 宽度
   useEffect(() => {
     document.documentElement.style.setProperty('--sidebar-w', `${w.sidebar}px`)
     document.documentElement.style.setProperty('--list-w', `${w.list}px`)
+    document.documentElement.style.setProperty('--slide-w', `${w.slide}px`)
   }, [w])
 
   // 监听设置弹框滑块的宽度变更，即时同步（拖拽自身写入也会触发，setW 同值为 no-op）
@@ -113,7 +117,14 @@ export function AppLayout({
           const dx = ev.clientX - lastX
           lastX = ev.clientX
           setW((prev) => {
-            const next = clamp(prev[key] + dx, LIMITS[key].min, LIMITS[key].max)
+            // 三栏形态下动态收紧上限：不允许把阅读区挤到 READER_MIN 以下
+            // （双栏模式第三栏是浮层，不受列宽挤压，无需此约束）。
+            let max: number = LIMITS[key].max
+            if (effLayout === 'three') {
+              const other = key === 'list' ? prev.sidebar : prev.list
+              max = Math.min(max, window.innerWidth - other - READER_MIN)
+            }
+            const next = clamp(prev[key] + dx, LIMITS[key].min, max)
             return { ...prev, [key]: next }
           })
         }
@@ -134,6 +145,37 @@ export function AppLayout({
         el.addEventListener('pointercancel', onUp)
       },
     }
+  }
+
+  // 浮动阅读/通知面板（reader-slide）左缘拖拽：面板右锚定，向左拖增宽、向右拖减窄
+  function onSlideResizeDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    el.classList.add('dragging')
+    document.body.classList.add('is-resizing')
+    let lastX = e.clientX
+
+    function onMove(ev: PointerEvent) {
+      const dx = ev.clientX - lastX
+      lastX = ev.clientX
+      setW((prev) => ({
+        ...prev,
+        slide: clamp(prev.slide - dx, LIMITS.slide.min, LIMITS.slide.max),
+      }))
+    }
+    function onUp(ev: PointerEvent) {
+      el.releasePointerCapture(ev.pointerId)
+      el.classList.remove('dragging')
+      document.body.classList.remove('is-resizing')
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      persistWidths(wRef.current)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
   }
 
   return (
@@ -213,6 +255,14 @@ export function AppLayout({
           <div className="reader-slide">
             {readerOpen && (
               <>
+                {/* 左缘拖拽手柄：调整浮动面板宽度 */}
+                <div
+                  className="slide-resize"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="调整面板宽度"
+                  onPointerDown={onSlideResizeDown}
+                />
                 {/* 关闭按钮（浮于阅读面板左上角，返回方向指向左侧列表，符合操作逻辑）*/}
                 <button
                   type="button"

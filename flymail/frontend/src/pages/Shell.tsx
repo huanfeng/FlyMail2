@@ -29,6 +29,7 @@ import {
   useMarkRead,
   useToggleFlag,
   useDeleteMessage,
+  useMoveMessage,
   useBatchDelete,
   useBatchMove,
   useBatchRead,
@@ -37,11 +38,17 @@ import {
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
-import { getListStyle, setListStyle } from '@/lib/list-prefs'
+import {
+  getListStyle,
+  setListStyle,
+  getAlwaysShowSelect,
+  setAlwaysShowSelect,
+} from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
 import type { LayoutMode } from '@/lib/layout-mode'
-import type { Account, Draft, MessageDetail } from '@/lib/types'
+import api from '@/lib/api'
+import type { Account, Draft, Folder, MessageDetail, Notification } from '@/lib/types'
 
 /** 校验 URL 中的 agg 参数是否为合法聚合视图 */
 function parseAgg(v: string | null): AggregateView | null {
@@ -71,6 +78,13 @@ export function ShellPage() {
     setListStyleState(style)
   }
 
+  // 行内选择框是否常显（持久化偏好，见 list-prefs）
+  const [alwaysShowSelect, setAlwaysShowSelectState] = useState<boolean>(() => getAlwaysShowSelect())
+  function handleChangeAlwaysShowSelect(on: boolean) {
+    setAlwaysShowSelect(on)
+    setAlwaysShowSelectState(on)
+  }
+
   // 布局模式偏好（三栏 / 双栏浮动阅读）
   const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => getLayoutMode())
   function handleChangeLayoutMode(mode: LayoutMode) {
@@ -95,7 +109,7 @@ export function ShellPage() {
   const aggInfinite = useInfiniteAggregate(searching ? null : agg)
   const searchInfinite = useInfiniteSearch(debouncedQuery)
   // 聚合入口徽标计数
-  const { data: aggCounts = { inbox: 0, unread: 0, starred: 0 } } = useAggregateCounts()
+  const { data: aggCounts = { inbox: 0, unread: 0, starred: 0, inboxTotal: 0 } } = useAggregateCounts()
 
   // 当前生效的数据源元信息
   const messages = searching
@@ -168,6 +182,7 @@ export function ShellPage() {
   const batchRead = useBatchRead()
   const batchFlag = useBatchFlag()
   const deleteOne = useDeleteMessage()
+  const moveOne = useMoveMessage()
   const { toast } = useToast()
 
   // 列表行 hover 快捷删除单封：删后若正打开该邮件则清空选中，并给 Toast 反馈
@@ -327,6 +342,46 @@ export function ShellPage() {
     setParam((p) => p.set('message', String(id)))
   }
 
+  // 点击通知跳转：单封新邮件（带 message_id）→ 精准打开该邮件；
+  // 否则回退到该账户的收件箱。邮件可能已被删除，失败时同样回退。
+  async function openNotification(n: Notification) {
+    if (n.type !== 'mail_new' && !n.account_id) return
+    if (n.message_id) {
+      try {
+        const { data } = await api.get<MessageDetail>(`/messages/${n.message_id}`)
+        setView('messages')
+        setAppView('mail')
+        setSearchQuery('')
+        setParam((p) => {
+          p.set('account', String(data.account_id))
+          p.set('folder', String(data.folder_id))
+          p.set('message', String(data.id))
+          p.delete('agg')
+        })
+        return
+      } catch {
+        /* 邮件已删除等情况 → 回退账户收件箱 */
+      }
+    }
+    if (!n.account_id) return
+    try {
+      const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${n.account_id}/folders`)
+      const inbox = data.folders?.find((f) => f.type === 'inbox')
+      setView('messages')
+      setAppView('mail')
+      setSearchQuery('')
+      setParam((p) => {
+        p.set('account', String(n.account_id))
+        if (inbox) p.set('folder', String(inbox.id))
+        else p.delete('folder')
+        p.delete('message')
+        p.delete('agg')
+      })
+    } catch {
+      selectAccount(n.account_id)
+    }
+  }
+
   function onSync(id: number) {
     setSyncEnabled(true)
     triggerSync.mutate(id)
@@ -406,7 +461,20 @@ export function ShellPage() {
 
   // 列表标题/副标题：搜索 > 聚合 > 文件夹（文件夹由 MailList 内部据 folder 计算）
   const listTitle = searching ? t('list.searchTitle') : agg ? t(aggLabelKey[agg]) : undefined
-  const listSubtitle = searching || agg ? t('list.totalCount', { count: messages.length }) : undefined
+  // 聚合视图的「共 N 封」取后端的真实总数，而不是 messages.length——
+  // 后者只是当前已加载的那一页，翻页时数字还会往上跳，读起来像邮箱里只有 50 封。
+  // 收件箱聚合额外带上未读数，与文件夹视图的副标题保持同一种写法。
+  const listSubtitle = (() => {
+    if (searching) return t('list.totalCount', { count: messages.length })
+    if (!agg) return undefined
+    if (agg === 'inbox') {
+      const total = t('list.totalCount', { count: aggCounts.inboxTotal })
+      return aggCounts.inbox > 0
+        ? `${total} · ${t('list.unreadCount', { count: aggCounts.inbox })}`
+        : total
+    }
+    return t('list.totalCount', { count: aggCounts[agg] })
+  })()
 
   // ── Sidebar（常驻所有视图）────────────────────────────────────────────────────
   const sidebar = (
@@ -472,13 +540,22 @@ export function ShellPage() {
               onBatchDelete={onBatchDelete}
               onBatchMove={onBatchMove}
               moveTargets={moveTargets}
+              alwaysShowSelect={alwaysShowSelect}
               onDeleteMessage={onDeleteOne}
+              folders={folders}
+              onMarkRead={(id, read) => markRead.mutate({ id, read })}
+              onMoveMessage={(id, fid) => moveOne.mutate({ id, folderId: fid })}
             />
           )
         }
         reader={
           appView === 'notif' ? (
-            <NotificationsPage onBack={() => setAppView('mail')} />
+            <NotificationsPage
+              onBack={() => setAppView('mail')}
+              onOpen={(n) => void openNotification(n)}
+              // 双栏浮动模式面板自带关闭键，避免双返回；窄屏由 CSS 隐藏
+              showBack={layoutMode !== 'two-slide'}
+            />
           ) : (
             <Reader
               messageId={messageId}
@@ -506,6 +583,8 @@ export function ShellPage() {
         <SettingsDialog
           listStyle={listStyle}
           onChangeListStyle={handleChangeListStyle}
+          alwaysShowSelect={alwaysShowSelect}
+          onChangeAlwaysShowSelect={handleChangeAlwaysShowSelect}
           layoutMode={layoutMode}
           onChangeLayoutMode={handleChangeLayoutMode}
           onClose={() => setSettingsOpen(false)}

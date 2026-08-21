@@ -15,9 +15,16 @@ export interface Account {
   enabled: boolean
 }
 
+/** 正文预取模式：仅新邮件 / 最近 N 天 / 全部历史 */
+export type BodySyncMode = 'new' | 'recent' | 'all'
+
 export interface AppSettings {
   sync_depth: number
   sync_poll_interval: number
+  /** 同步时把哪些邮件的正文也下载到本地 */
+  body_sync_mode: BodySyncMode
+  /** recent 模式的天数窗口 */
+  body_sync_recent_days: number
 }
 
 /** 管理员资料 */
@@ -56,6 +63,8 @@ export interface Notification {
   id: number
   type: NotifyEventType | string
   account_id: number
+  /** 单封新邮件通知携带的消息 ID（用于精准跳转），其余情况缺省/0 */
+  message_id?: number
   title: string
   body: string
   read: boolean

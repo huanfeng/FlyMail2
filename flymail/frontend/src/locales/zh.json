@@ -1,5 +1,18 @@
 {
   "app": { "name": "FlyMail" },
+  "ctx": {
+    "markRead": "标为已读",
+    "markUnread": "标为未读",
+    "star": "加星标",
+    "unstar": "取消星标",
+    "moveTo": "移动到",
+    "delete": "删除",
+    "syncNow": "立即同步",
+    "editAccount": "编辑账户",
+    "enableAccount": "启用账户",
+    "disableAccount": "停用账户",
+    "deleteAccount": "删除账户"
+  },
   "login": {
     "subtitle": "登录以继续",
     "username": "用户名",
@@ -46,6 +59,8 @@
     "batchDelete": "删除",
     "batchDeleteConfirm": "确认删除选中的 {{count}} 封邮件？（移至回收站；回收站内则永久删除）",
     "clearSelection": "取消选择",
+    "selectMode": "选择邮件",
+    "exitSelect": "退出选择",
     "deletedToast": "已删除",
     "relTime": {
       "justNow": "刚刚",
@@ -100,7 +115,13 @@
     "imapOk": "IMAP 连接成功", "imapFail": "IMAP 连接失败",
     "smtpOk": "SMTP 连接成功", "smtpFail": "SMTP 连接失败",
     "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
-    "nameRequired": "请填写名称和邮箱", "passwordRequired": "请填写密码"
+    "nameRequired": "请填写名称和邮箱", "passwordRequired": "请填写密码",
+    "advanced": "服务器设置",
+    "testNeedsInput": "测试前请填写邮箱和密码",
+    "testError": "测试请求失败",
+    "advancedAuto": "已根据邮箱自动识别服务器",
+    "notConfigured": "未配置",
+    "serverRequired": "请填写 IMAP/SMTP 服务器地址"
   },
   "compose": {
     "title": "写邮件",
@@ -257,6 +278,7 @@
       "help": "事件发生时推送到外部渠道(通用 Webhook / 飞书),并记录投递日志。",
       "none": "暂无渠道，点击下方添加。",
       "addChannel": "添加渠道",
+      "editChannel": "编辑渠道",
       "name": "名称",
       "kind": "类型",
       "kindWebhook": "通用 Webhook",
@@ -293,6 +315,8 @@
       "listWidth": "列表宽度",
       "widthHint": "也可以直接拖拽栏目之间的分隔线",
       "density": "列表密度",
+      "alwaysShowSelect": "始终显示选择框",
+      "alwaysShowSelectHint": "关闭时，需先点工具栏的选择按钮才会出现行内选择框",
       "layout": "布局",
       "layoutHelp": "选择三栏式，或双栏 + 右侧滑入的浮动阅读面板",
       "layoutThree": "三栏",
@@ -350,6 +374,15 @@
       "saved": "已保存",
       "invalidDepth": "同步深度需在 100–5000 之间",
       "invalidInterval": "轮询间隔需在 30–3600 之间",
+      "bodySync": "正文同步范围",
+      "bodySyncHint": "同步时把正文一并下载到本地，点开邮件不必再等服务器。只覆盖收件箱与自定义文件夹",
+      "bodySync_new": "仅新邮件",
+      "bodySync_recent": "最近",
+      "bodySync_all": "全部",
+      "bodyDays": "最近天数",
+      "bodyDaysHint": "只把这个时间窗口内的历史邮件正文补齐；越大占用磁盘越多",
+      "daysValue": "{{count}} 天",
+      "invalidBodyDays": "天数需在 1–3650 之间",
       "listStyle": "列表样式",
       "listCompact": "紧凑",
       "listCard": "卡片"

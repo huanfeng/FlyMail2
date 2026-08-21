@@ -159,7 +159,7 @@ function AccountHealthRow({ a }: { a: AccountHealth }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="account-card" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+    <div className="form-card">
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div
           className="ac-avatar"

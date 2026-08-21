@@ -8,13 +8,16 @@ export const LAYOUT_EVENT = 'flymail:layout-changed'
 export interface LayoutWidths {
   sidebar: number
   list: number
+  /** 双栏模式右侧浮动阅读/通知面板宽度 */
+  slide: number
 }
 
-export const LAYOUT_DEFAULTS: LayoutWidths = { sidebar: 248, list: 380 }
+export const LAYOUT_DEFAULTS: LayoutWidths = { sidebar: 248, list: 380, slide: 720 }
 
 export const LAYOUT_LIMITS = {
   sidebar: { min: 180, max: 420 },
   list: { min: 300, max: 680 },
+  slide: { min: 420, max: 1200 },
 } as const
 
 export function clampWidth(v: number, min: number, max: number): number {
@@ -30,6 +33,7 @@ export function loadLayoutWidths(): LayoutWidths {
       return {
         sidebar: clampWidth(p.sidebar ?? LAYOUT_DEFAULTS.sidebar, LAYOUT_LIMITS.sidebar.min, LAYOUT_LIMITS.sidebar.max),
         list: clampWidth(p.list ?? LAYOUT_DEFAULTS.list, LAYOUT_LIMITS.list.min, LAYOUT_LIMITS.list.max),
+        slide: clampWidth(p.slide ?? LAYOUT_DEFAULTS.slide, LAYOUT_LIMITS.slide.min, LAYOUT_LIMITS.slide.max),
       }
     }
   } catch {

@@ -64,20 +64,33 @@ func (r *Repository) SetFlaggedByIDs(ids []uint, flagged bool) error {
 
 // SearchMessages 跨账户全文检索：在 主题/发件人名/发件人地址/摘要/正文 上做 LIKE。
 // 按 (date, id) 降序 keyset 分页，与聚合一致。q 已由调用方做转义。
-func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+// searchScope 构造搜索的匹配条件，供列表查询与计数共用。
+// 抽出来是因为两处各写一遍这串 LIKE 迟早会漂移，届时「共 N 封」会与实际能翻到的条目数对不上。
+func (r *Repository) searchScope(q string) *gorm.DB {
 	like := "%" + escapeLike(q) + "%"
-	dbq := r.db.Model(&Message{}).
+	// message_bodies 与 messages 是一对一，LEFT JOIN 不会放大行数，计数可安全复用
+	return r.db.Model(&Message{}).
 		Joins("LEFT JOIN message_bodies ON message_bodies.message_id = messages.id").
 		Where(
 			"messages.subject LIKE ? ESCAPE '\\' OR messages.from_name LIKE ? ESCAPE '\\' OR "+
 				"messages.from_addr LIKE ? ESCAPE '\\' OR messages.snippet LIKE ? ESCAPE '\\' OR "+
 				"message_bodies.text_body LIKE ? ESCAPE '\\'",
 			like, like, like, like, like,
-		).
-		Select("messages.*")
+		)
+}
+
+// CountSearchMessages 返回搜索命中的总条数，与列表同口径去重。
+func (r *Repository) CountSearchMessages(q string) (int64, error) {
+	var n int64
+	err := dedupeSameMessage(r.searchScope(q)).Count(&n).Error
+	return n, err
+}
+
+func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	dbq := r.searchScope(q).Select("messages.*")
 	if beforeDate != nil {
 		dbq = dbq.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
 	}

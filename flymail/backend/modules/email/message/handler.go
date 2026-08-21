@@ -58,7 +58,19 @@ func (h *handler) search(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"messages": items, "next_cursor": cursor})
+
+	resp := gin.H{"messages": items, "next_cursor": cursor}
+	// 命中总数只在第一页算：这是一次全表 LIKE，翻页时重复计算会让开销翻倍，
+	// 而结果对同一次搜索是不变的，前端记住首页那个数即可。
+	if beforeDate == nil && beforeID == 0 {
+		total, err := h.svc.CountSearchMessages(q)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		resp["total"] = total
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // validAggregateView 限定聚合视图取值。

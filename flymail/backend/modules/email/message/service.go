@@ -374,6 +374,11 @@ func (s *Service) CountByFolder(folderID uint) (int64, error) {
 	return s.repo.CountByFolder(folderID)
 }
 
+// CountSearchMessages 返回搜索命中的总条数。
+func (s *Service) CountSearchMessages(q string) (int64, error) {
+	return s.repo.CountSearchMessages(q)
+}
+
 // AggregateCounts 返回三个聚合入口的徽标计数，外加收件箱聚合的条目总数。
 //
 // inbox 键是未读数（入口徽标的语义），列表标题要显示的「共几封」是另一回事，

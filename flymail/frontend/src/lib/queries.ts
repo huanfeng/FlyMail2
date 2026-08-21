@@ -82,6 +82,8 @@ interface AggCursor {
 interface AggregatePage {
   messages: MessageListItem[]
   next_cursor: AggCursor | null
+  /** 命中总数。搜索接口只在第一页返回（全表 LIKE，翻页重复计算会让开销翻倍） */
+  total?: number
 }
 
 /**
@@ -170,10 +172,19 @@ export function useInfiniteSearch(q: string) {
         params.set('before_id', String(pageParam.before_id))
       }
       const { data } = await api.get<AggregatePage>(`/search/messages?${params.toString()}`)
-      return { messages: data.messages ?? [], next_cursor: data.next_cursor ?? null }
+      return {
+        messages: data.messages ?? [],
+        next_cursor: data.next_cursor ?? null,
+        total: data.total,
+      }
     },
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })
+}
+
+/** 从无限搜索结果里取命中总数（后端只在第一页给出） */
+export function searchTotalOf(pages: { total?: number }[] | undefined): number | undefined {
+  return pages?.[0]?.total
 }
 
 /**

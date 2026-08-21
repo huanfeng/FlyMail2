@@ -22,6 +22,7 @@ import {
   useInfiniteMessages,
   useInfiniteAggregate,
   useInfiniteSearch,
+  searchTotalOf,
   useAggregateCounts,
   useMessageDetail,
   useSyncStatus,
@@ -465,7 +466,11 @@ export function ShellPage() {
   // 后者只是当前已加载的那一页，翻页时数字还会往上跳，读起来像邮箱里只有 50 封。
   // 收件箱聚合额外带上未读数，与文件夹视图的副标题保持同一种写法。
   const listSubtitle = (() => {
-    if (searching) return t('list.totalCount', { count: messages.length })
+    if (searching) {
+      // 命中总数由后端给出；尚未返回时（首页在途）退回已加载条数
+      const total = searchTotalOf(searchInfinite.data?.pages) ?? messages.length
+      return t('list.totalCount', { count: total })
+    }
     if (!agg) return undefined
     if (agg === 'inbox') {
       const total = t('list.totalCount', { count: aggCounts.inboxTotal })

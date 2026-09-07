@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Star } from 'lucide-react'
-import { useMessageDetail, useMarkRead, useToggleFlag, useDeleteMessage, useMoveMessage, useFolders } from '@/lib/queries'
+import { DropMenu } from '@/components/ui/DropMenu'
+import type { CtxMenuItem } from '@/components/ui/ContextMenu'
+import { useMessageDetail, useMarkRead, useToggleFlag, useDeleteMessage, useMoveMessage, useFolders, useAccounts } from '@/lib/queries'
 import type { Address, MessageDetail } from '@/lib/types'
 import {
   attachmentUrl,
@@ -11,7 +12,7 @@ import {
 } from '@/lib/attachments'
 import { Icon } from '@/components/ui/Icon'
 import { formatBytes } from '@/lib/format'
-import { isDesktop, openExternal } from '@/lib/platform'
+import { openExternal } from '@/lib/platform'
 
 // ── 工具函数 ─────────────────────────────────────────────
 
@@ -340,10 +341,21 @@ function formatDate(dateStr: string): string {
   }
 }
 
-/** 把 Address 数组渲染为 "name <email>" 逗号连接字符串 */
-function formatAddresses(addrs: Address[]): string {
+/**
+ * 把 Address 数组渲染为 "name <email>" 逗号连接字符串。
+ *
+ * 命中当前账户自己的地址时显示为「我」：收信人里躺着一串自己的邮箱地址，
+ * 对正在读这封信的人是零信息量，还把真正需要看的其他收件人挤出可视区。
+ * 比较忽略大小写与首尾空白——邮箱本地部分理论上大小写敏感，
+ * 但没有服务商真的这么用，按大小写敏感比反而会漏判。
+ */
+function formatAddresses(addrs: Address[], selfAddr: string, meLabel: string): string {
+  const self = selfAddr.trim().toLowerCase()
   return addrs
-    .map((a) => (a.name ? `${a.name} <${a.email}>` : a.email))
+    .map((a) => {
+      if (self && a.email.trim().toLowerCase() === self) return meLabel
+      return a.name ? `${a.name} <${a.email}>` : a.email
+    })
     .join(', ')
 }
 
@@ -430,6 +442,14 @@ interface ReaderProps {
   onForward?: (d: MessageDetail) => void
   /** 删除/移动成功后回调（用于清空当前选中邮件） */
   onClose?: () => void
+  /**
+   * 上一封 / 下一封。null 表示已在列表边界（按钮置灰）。
+   * 列表上下文在 Shell 手里，这里只负责触发——与 j/k 快捷键走同一套顺序。
+   */
+  onPrev?: (() => void) | null
+  onNext?: (() => void) | null
+  /** 归档成功后的提示回调（Toast 由 Shell 统一发） */
+  onArchived?: () => void
 }
 
 /** 从 localStorage 读取"默认加载远程图片"设置 */
@@ -458,11 +478,9 @@ function useDelayedFlag(flag: boolean, delay: number): boolean {
 
 // ── 主组件 ───────────────────────────────────────────────
 
-export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) {
+export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext, onArchived }: ReaderProps) {
   const { t } = useTranslation()
   const [showImages, setShowImages] = useState(() => getRemoteImageDefault())
-  // 移动到文件夹的下拉菜单开关
-  const [moveOpen, setMoveOpen] = useState(false)
 
   // messageId 切换时，将 showImages 重置为 localStorage 中的默认值
   useEffect(() => {
@@ -476,6 +494,8 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
   const moveMessage = useMoveMessage()
   // 移动目标：当前邮件所属账户的文件夹（detail 未就绪时为 null）
   const { data: accountFolders = [] } = useFolders(detail?.account_id ?? null)
+  // 账户列表：用于识别收件人中的「我」（已在别处请求过，这里命中缓存）
+  const { data: accounts = [] } = useAccounts()
 
   // 删除当前邮件（移到回收站/永久删除由后端判定），成功后清空选中
   function handleDelete() {
@@ -487,8 +507,22 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
   // 移动当前邮件到目标文件夹，成功后清空选中
   function handleMove(folderId: number) {
     if (messageId == null) return
-    setMoveOpen(false)
     moveMessage.mutate({ id: messageId, folderId }, { onSuccess: () => onClose?.() })
+  }
+
+  // 归档 = 移动到该账户的 archive 文件夹。
+  // 独立成一个按钮而不是让用户走「移动到」下拉：归档是高频动作，
+  // 两步下拉对一个每天点几十次的操作来说太重。
+  const archiveFolder = accountFolders.find((f) => f.type === 'archive' && f.selectable)
+  // 已经在归档文件夹里就没有再归档一次的意义
+  const canArchive = archiveFolder != null && archiveFolder.id !== detail?.folder_id
+
+  function handleArchive() {
+    if (messageId == null || archiveFolder == null) return
+    moveMessage.mutate(
+      { id: messageId, folderId: archiveFolder.id },
+      { onSuccess: () => { onArchived?.(); onClose?.() } },
+    )
   }
 
   // 先改写 cid 内联图引用，再做远程图拦截
@@ -576,6 +610,39 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
   // detail 此时保证非 null
   if (!detail) return null
 
+  // ── 「更多」菜单项 ────────────────────────────────────────
+  // 收纳标准：低频 + 文案会变长变短的（星标）+ 需要二级选择的（移动到）。
+  // 高频的回复/转发/归档/删除留在工具栏上，保持一眼可点。
+  const moveTargets = accountFolders.filter((f) => f.selectable && f.id !== detail.folder_id)
+  const moreItems: CtxMenuItem[] = [
+    {
+      key: 'flag',
+      label: detail.flagged ? t('reader.unstar') : t('reader.star'),
+      icon: detail.flagged ? 'star-fill' : 'star',
+      onSelect: () => toggleFlag.mutate({ id: messageId, flagged: !detail.flagged }),
+    },
+    {
+      key: 'unread',
+      label: t('reader.markUnread'),
+      icon: 'mail',
+      onSelect: () => markRead.mutate({ id: messageId, read: false }),
+    },
+  ]
+  if (moveTargets.length > 0) {
+    moreItems.push({
+      key: 'move',
+      label: t('reader.move'),
+      icon: 'folder',
+      disabled: moveMessage.isPending,
+      children: moveTargets.map((f) => ({
+        key: `mv-${f.id}`,
+        label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+        icon: 'folder',
+        onSelect: () => handleMove(f.id),
+      })),
+    })
+  }
+
   // showImages=true：用 cidHtml（不拦截远程图）
   // showImages=false：用 processedHtml（拦截远程图）
   const bodyHtml = showImages ? cidHtml : processedHtml
@@ -590,8 +657,11 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
   const initial = senderInitial(detail.from_name, detail.from_addr)
 
   // 收件人 / 抄送显示文字
-  const toText = formatAddresses(detail.to ?? [])
-  const ccText = detail.cc && detail.cc.length > 0 ? formatAddresses(detail.cc) : ''
+  // 当前账户自己的地址，用于把收件人里的自己显示成「我」
+  const selfAddr = accounts.find((a) => a.id === detail.account_id)?.email ?? ''
+  const meLabel = t('reader.me')
+  const toText = formatAddresses(detail.to ?? [], selfAddr, meLabel)
+  const ccText = detail.cc && detail.cc.length > 0 ? formatAddresses(detail.cc, selfAddr, meLabel) : ''
 
   return (
     <section className="col reader">
@@ -602,6 +672,34 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
         className="reader-toolbar"
         style={stale ? { pointerEvents: 'none' } : undefined}
       >
+        {/* 上一封 / 下一封：纯图标（这两个是导航不是操作，不占文字宽度），
+            置于最左并与操作组以分隔线隔开。键盘用户走 j/k，这里是给鼠标用户的入口。 */}
+        {(onPrev !== undefined || onNext !== undefined) && (
+          <>
+            <button
+              type="button"
+              className="tb-btn tb-icon"
+              onClick={() => onPrev?.()}
+              disabled={!onPrev}
+              title={t('reader.prev')}
+              aria-label={t('reader.prev')}
+            >
+              <Icon name="chevron-up" size={15} />
+            </button>
+            <button
+              type="button"
+              className="tb-btn tb-icon"
+              onClick={() => onNext?.()}
+              disabled={!onNext}
+              title={t('reader.next')}
+              aria-label={t('reader.next')}
+            >
+              <Icon name="chevron-down" size={15} />
+            </button>
+            <div className="tb-sep" />
+          </>
+        )}
+
         {/* 回复 */}
         {onReply && (
           <button
@@ -629,106 +727,19 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
 
         <div className="tb-sep" />
 
-        {/* 星标切换 */}
-        <button
-          type="button"
-          className="tb-btn"
-          onClick={() => toggleFlag.mutate({ id: messageId, flagged: !detail.flagged })}
-          title={detail.flagged ? t('reader.unstar') : t('reader.star')}
-          style={detail.flagged ? { color: 'var(--accent-color)' } : undefined}
-        >
-          {/* 用 lucide Star 保留填充效果，与 Icon 组件并存 */}
-          <Star
-            size={14}
-            fill={detail.flagged ? 'var(--accent-color)' : 'none'}
-            stroke={detail.flagged ? 'var(--accent-color)' : 'currentColor'}
-          />
-          <span>{detail.flagged ? t('reader.unstar') : t('reader.star')}</span>
-        </button>
-
-        {/* 标为未读 */}
-        <button
-          type="button"
-          className="tb-btn"
-          onClick={() => markRead.mutate({ id: messageId, read: false })}
-          title={t('reader.markUnread')}
-        >
-          <Icon name="inbox" size={14} />
-          <span>{t('reader.markUnread')}</span>
-        </button>
-
-        <div className="tb-sep" />
-
-        {/* 移动到文件夹（下拉） */}
-        <div className="tb-menu-wrap">
+        {/* 一键归档（仅当账户有归档文件夹、且当前不在归档里时出现）*/}
+        {canArchive && (
           <button
             type="button"
             className="tb-btn"
-            onClick={() => setMoveOpen((o) => !o)}
-            title={t('reader.move')}
+            onClick={handleArchive}
+            title={t('reader.archive')}
             disabled={moveMessage.isPending}
           >
-            <Icon name="folder" size={14} />
-            <span>{t('reader.move')}</span>
+            <Icon name="archive" size={14} />
+            <span>{t('reader.archive')}</span>
           </button>
-          {moveOpen && (
-            <>
-              {/* 点击空白处关闭的透明遮罩 */}
-              <div
-                onClick={() => setMoveOpen(false)}
-                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: 4,
-                  zIndex: 41,
-                  minWidth: 180,
-                  maxHeight: 280,
-                  overflowY: 'auto',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--rule)',
-                  borderRadius: 8,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                  padding: 4,
-                }}
-              >
-                {accountFolders
-                  .filter((f) => f.selectable && f.id !== detail.folder_id)
-                  .map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => handleMove(f.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        width: '100%',
-                        padding: '7px 10px',
-                        border: 'none',
-                        background: 'transparent',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: 'var(--ink)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-                    >
-                      <Icon name="folder" size={13} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
-                      </span>
-                    </button>
-                  ))}
-              </div>
-            </>
-          )}
-        </div>
+        )}
 
         {/* 删除 */}
         <button
@@ -742,6 +753,23 @@ export function Reader({ messageId, onReply, onForward, onClose }: ReaderProps) 
           <Icon name="trash" size={14} />
           <span>{t('reader.delete')}</span>
         </button>
+
+        {/* 更多：低频动作收进菜单，工具栏只留回复/转发/归档/删除四个高频项。
+            顺带解决了工具栏宽度不稳定——星标按钮的文案会在「星标 / 取消星标」
+            之间变长变短，留在栏上就是一个随邮件抖动的宽度源。 */}
+        <DropMenu
+          items={moreItems}
+          trigger={
+            <button
+              type="button"
+              className="tb-btn tb-icon"
+              title={t('reader.more')}
+              aria-label={t('reader.more')}
+            >
+              <Icon name="more" size={16} />
+            </button>
+          }
+        />
       </div>
 
       {/* ── 正文滚动区 ──────────────────────────────────── */}

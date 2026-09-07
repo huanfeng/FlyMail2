@@ -42,8 +42,6 @@ const FOLDER_ICON: Record<string, IconName> = {
   custom: 'folder',
 }
 
-/** 应用级视图（第三栏模式）：邮件 / 通知 */
-export type AppView = 'mail' | 'notif'
 
 // ── Props ────────────────────────────────────────────────
 interface Props {
@@ -52,8 +50,8 @@ interface Props {
   activeAccountId: number | null
   activeFolderId: number | null
   syncing: boolean
-  /** 当前第三栏视图，用于高亮铃铛 */
-  activeView: AppView
+  /** 通知浮层是否打开，用于高亮铃铛 */
+  notifOpen: boolean
   /** 设置浮层是否打开，用于高亮齿轮 */
   settingsOpen: boolean
   /** 当前激活的聚合入口（null 表示未选中聚合） */
@@ -65,8 +63,8 @@ interface Props {
   onSelectAggregate: (view: AggregateView) => void
   onSync: (accountId: number) => void
   onAddAccount: () => void
-  /** 切换第三栏视图（mail / notif） */
-  onSetView: (view: AppView) => void
+  /** 切换通知浮层 */
+  onToggleNotif: () => void
   /** 切换设置浮层 */
   onToggleSettings: () => void
   onCompose: () => void
@@ -270,7 +268,7 @@ export function AccountSidebar({
   activeAccountId,
   activeFolderId,
   syncing,
-  activeView,
+  notifOpen,
   settingsOpen,
   activeAgg,
   aggCounts,
@@ -279,7 +277,7 @@ export function AccountSidebar({
   onSelectAggregate,
   onSync,
   onAddAccount,
-  onSetView,
+  onToggleNotif,
   onToggleSettings,
   onCompose,
   onOpenDrafts,
@@ -319,7 +317,8 @@ export function AccountSidebar({
   }
 
   // 聚合入口在邮件视图下才可能高亮
-  const inMail = activeView === 'mail' && !settingsOpen
+  // 聚合入口的高亮只在没有浮层压在上面时才代表「当前所在位置」
+  const inMail = !notifOpen && !settingsOpen
 
   // 聚合入口配置
   const aggItems: { id: AggregateView; icon: IconName; labelKey: string }[] = [
@@ -334,27 +333,20 @@ export function AccountSidebar({
 
       {/* ── 顶部品牌栏 .sidebar-head ───────────────────────── */}
       <div className="sidebar-head">
-        {/* 品牌方块 logo，点击回到邮件视图 */}
-        <button
-          type="button"
-          className="brand-mark"
-          style={{ cursor: 'pointer' }}
-          onClick={() => onSetView('mail')}
-          aria-label={t('app.name')}
-        >
-          F
-        </button>
+        {/* 品牌方块 logo。通知改为浮层后没有「回到邮件视图」这回事了
+            （主区域始终是邮件），于是退回纯展示元素，不再是可点击控件。 */}
+        <div className="brand-mark" aria-hidden="true">F</div>
         {/* 品牌名 */}
         <div className="brand-name">{t('app.name')}</div>
         {/* brand-dot：视觉装饰 */}
         <div className="brand-dot" />
-        {/* 铃铛按钮：切换到通知视图（第三栏特殊模式）*/}
+        {/* 铃铛按钮：开关通知浮层 */}
         <button
           type="button"
-          className={'icon-btn bell-wrap' + (activeView === 'notif' ? ' active' : '')}
+          className={'icon-btn bell-wrap' + (notifOpen ? ' active' : '')}
           title={t('notif.title')}
           aria-label={t('notif.title')}
-          onClick={() => onSetView(activeView === 'notif' ? 'mail' : 'notif')}
+          onClick={onToggleNotif}
         >
           <Icon name="bell" size={14} />
           {unreadNotifs > 0 && <span className="bell-badge" />}

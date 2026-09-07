@@ -1,7 +1,19 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
+import { shouldLoadMore } from '@/lib/list-guards'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { groupByDate } from '@/lib/date-group'
+import type { GroupLabeler } from '@/lib/date-group'
+import { isFilterActive } from '@/lib/list-filters'
+import type { FilterKey, ListFilter } from '@/lib/list-filters'
+import {
+  LAYOUT_EVENT,
+  LAYOUT_LIMITS,
+  clampWidth,
+  loadLayoutWidths,
+  saveLayoutWidths,
+} from '@/lib/layout-prefs'
+import type { LayoutWidths } from '@/lib/layout-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
@@ -17,9 +29,6 @@ import { searchShortcutHint } from '@/lib/platform'
 type RowItem =
   | { type: 'header'; label: string }
   | { type: 'item'; msg: MessageListItem }
-
-/** filter chip 过滤类型 */
-type FilterType = 'all' | 'unread' | 'flagged'
 
 interface Props {
   folder: Folder | null
@@ -39,6 +48,14 @@ interface Props {
   /** 搜索框值（受控，由 Shell 管理以驱动后端搜索） */
   searchValue: string
   onSearchChange: (v: string) => void
+  /**
+   * 筛选条件（受控，由 Shell 管理）。
+   * 必须由 Shell 持有：筛选是后端查询条件的一部分，在这里做前端过滤只能筛到
+   * 已加载的那一页——用户点「未读」看到 5 条，实际有 32 条未读还没翻到。
+   */
+  filter: ListFilter
+  onToggleFilter: (key: FilterKey) => void
+  onClearFilter: () => void
   /**
    * 数据源标识（搜索/聚合/文件夹 + 列表样式）。变化时内部重置滚动并重新测量虚拟列表。
    * 注意：不用 React key 重挂载组件——否则会打断搜索框输入焦点，导致字母键落到全局快捷键。
@@ -399,6 +416,9 @@ export function MailList({
   subtitleOverride,
   searchValue,
   onSearchChange,
+  filter,
+  onToggleFilter,
+  onClearFilter,
   sourceKey,
   selectedIds,
   onToggleSelect,
@@ -436,9 +456,6 @@ export function MailList({
     }
   }, [])
 
-  // ── filter chips 状态 ─────────────────────────────────────────────────────
-  const [filter, setFilter] = useState<FilterType>('all')
-
   // ── 批量移动下拉开关 ───────────────────────────────────────────────────────
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
 
@@ -463,30 +480,88 @@ export function MailList({
   // 是否显示副标题（folder 视图或聚合视图都显示）
   const showSub = folder != null || subtitleOverride != null
 
-  // ── 前端过滤：仅 chips（搜索已由后端完成，messages 即为结果集）──────────────
-  const filtered = (() => {
-    let list = messages
-    if (filter === 'unread') list = list.filter((m) => !m.seen)
-    if (filter === 'flagged') list = list.filter((m) => m.flagged)
-    return list
-  })()
+  // ── 日期分组标题 ──────────────────────────────────────────────────────────
+  // 固定分组（今天/昨天/本周/本月/更早）走 i18n；历史月份交给 Intl 按当前语言渲染
+  // ——zh-CN 得到「2024年5月」，en 得到「May 2024」，不必为每种语言的年月语序
+  // 单独维护一条模板。
+  const groupLabel = useMemo<GroupLabeler>(() => ({
+    fixed: (kind) => t(`dateGroup.${kind}`),
+    month: (year, month) =>
+      new Date(year, month - 1).toLocaleDateString(lang.startsWith('zh') ? 'zh-CN' : lang, {
+        year: 'numeric',
+        month: 'long',
+      }),
+  }), [t, lang])
+
+  // 是否有筛选生效（驱动空态文案与「清除筛选」按钮的出现）
+  const filterActive = isFilterActive(filter)
+
+  // ── 发件人列宽的就地拖拽 ──────────────────────────────────────────────────
+  // 列宽的真相源是 layout-prefs（localStorage + LAYOUT_EVENT 广播），
+  // 这里只是第二个编辑入口——设置里的滑块是第一个，两边通过事件互相同步。
+  const [senderCol, setSenderCol] = useState(() => loadLayoutWidths().senderCol)
+  useEffect(() => {
+    function onLayoutChange(e: Event) {
+      const d = (e as CustomEvent<LayoutWidths>).detail
+      if (d) setSenderCol(d.senderCol)
+    }
+    window.addEventListener(LAYOUT_EVENT, onLayoutChange)
+    return () => window.removeEventListener(LAYOUT_EVENT, onLayoutChange)
+  }, [])
+
+  /**
+   * 手柄按下：拖拽期间直接改 CSS 变量让列宽跟手，松手才落盘并广播。
+   * 每帧写 localStorage 既无必要也会拖慢拖拽手感（与 AppLayout 分栏拖拽同款处理）。
+   */
+  function onSenderResizeDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    el.classList.add('dragging')
+    document.body.classList.add('is-resizing')
+
+    let lastX = e.clientX
+    // 用局部变量跟踪当前值：setState 是异步的，闭包里读 senderCol 会拿到陈旧值
+    let cur = senderCol
+
+    function onMove(ev: PointerEvent) {
+      const dx = ev.clientX - lastX
+      lastX = ev.clientX
+      cur = clampWidth(cur + dx, LAYOUT_LIMITS.senderCol.min, LAYOUT_LIMITS.senderCol.max)
+      setSenderCol(cur)
+      document.documentElement.style.setProperty('--sender-col-w', `${cur}px`)
+    }
+    function onUp(ev: PointerEvent) {
+      el.releasePointerCapture(ev.pointerId)
+      el.classList.remove('dragging')
+      document.body.classList.remove('is-resizing')
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      // 落盘并广播，让设置里的滑块同步到新值
+      saveLayoutWidths({ ...loadLayoutWidths(), senderCol: cur })
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
+  // 搜索与筛选都由后端完成，messages 即为最终结果集，此处不再做任何前端过滤。
+  const filtered = messages
 
   // ── 构造虚拟化行模型 ──────────────────────────────────────────────────────
+  // 两种列表样式都按日期分组：低密度的卡片模式更需要分组标题来制造阅读节奏，
+  // 否则一屏五六张卡片糊成一片，反而比紧凑模式更难扫读。
   const rows: RowItem[] = (() => {
-    if (listStyle === 'compact') {
-      // 紧凑模式：按日期分组，插入分组 header 行
-      const groups = groupByDate(filtered, (m) => m.date)
-      const result: RowItem[] = []
-      for (const group of groups) {
-        result.push({ type: 'header', label: group.label })
-        for (const msg of group.items) {
-          result.push({ type: 'item', msg })
-        }
+    const groups = groupByDate(filtered, (m) => m.date, undefined, groupLabel)
+    const result: RowItem[] = []
+    for (const group of groups) {
+      result.push({ type: 'header', label: group.label })
+      for (const msg of group.items) {
+        result.push({ type: 'item', msg })
       }
-      return result
     }
-    // 卡片模式：纯 item 列表，不分组
-    return filtered.map((msg): RowItem => ({ type: 'item', msg }))
+    return result
   })()
 
   // ── 行高 ─────────────────────────────────────────────────────────────────
@@ -513,6 +588,9 @@ export function MailList({
     overscan: 5,
   })
 
+  // 上一次触发翻页时的底层邮件条数（判据见 list-guards.ts 的 shouldLoadMore）
+  const loadedLenRef = useRef(-1)
+
   // 数据源/样式切换时重置滚动 + 重新测量（替代 React key 重挂载，避免打断搜索框焦点）。
   useEffect(() => {
     scrollRef.current?.scrollTo(0, 0)
@@ -520,6 +598,8 @@ export function MailList({
     // 换数据源时退出选择模式（选中项由 Shell 一并清空）
     setSelectMode(false)
     setBatchMoveOpen(false)
+    // 换数据源后条数可能与上一个数据源巧合相同，翻页守卫必须一并归零
+    loadedLenRef.current = -1
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
 
@@ -527,12 +607,27 @@ export function MailList({
   const virtualItems = virtualizer.getVirtualItems()
   const lastIndex = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1
 
+  // onLoadMore 是 Shell 里的普通函数声明，每次渲染都是新引用；放进依赖数组会让下面的
+  // effect 每渲染必跑（和「仅依赖最末可见行索引」的本意相反）。用 ref 固定住。
+  const onLoadMoreRef = useRef(onLoadMore)
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore
+  })
+
   // 仅依赖最末可见行索引，避免每帧滚动都重跑（virtualItems 每次都是新数组引用）
   useEffect(() => {
-    if (lastIndex >= rows.length - 5 && hasNextPage && !isFetchingNextPage) {
-      onLoadMore()
-    }
-  }, [lastIndex, rows.length, hasNextPage, isFetchingNextPage, onLoadMore])
+    const go = shouldLoadMore({
+      lastIndex,
+      rowCount: rows.length,
+      messageCount: messages.length,
+      lastLoadedCount: loadedLenRef.current,
+      hasNextPage,
+      isFetchingNextPage,
+    })
+    if (!go) return
+    loadedLenRef.current = messages.length
+    onLoadMoreRef.current()
+  }, [lastIndex, rows.length, messages.length, hasNextPage, isFetchingNextPage])
 
   // ── 批量选择派生状态 ──────────────────────────────────────────────────────
   const selectedCount = selectedIds.size
@@ -610,24 +705,41 @@ export function MailList({
           </button>
         )}
 
-        {/* 筛选 chips：不随选择态消失 */}
+        {/* 筛选 chips：不随选择态消失。
+             每个 chip 是独立开关而非三选一——「未读 + 有附件」是一次真实的检索意图，
+             互斥单选表达不了。条件送到后端参与查询，不是对已加载分页做前端过滤。
+             「不筛选」由所有开关关闭表达，因此没有「全部」按钮。 */}
         <div className="lt-chips">
           {(
             [
-              { id: 'all',     label: t('list.filterAll') },
-              { id: 'unread',  label: t('list.filterUnread') },
-              { id: 'flagged', label: t('list.filterFlagged') },
-            ] as { id: FilterType; label: string }[]
+              { id: 'unread',     label: t('list.filterUnread') },
+              { id: 'flagged',    label: t('list.filterFlagged') },
+              { id: 'attachment', label: t('list.filterAttachment') },
+            ] as { id: FilterKey; label: string }[]
           ).map((c) => (
             <button
               key={c.id}
               type="button"
-              className={'chip' + (filter === c.id ? ' active' : '')}
-              onClick={() => setFilter(c.id)}
+              className={'chip' + (filter[c.id] ? ' active' : '')}
+              onClick={() => onToggleFilter(c.id)}
+              aria-pressed={filter[c.id]}
             >
               {c.label}
             </button>
           ))}
+          {/* 一键清空所有筛选：开关多了之后逐个点回去很烦，
+              且能明确告诉用户「列表为什么是空的」有个出口。 */}
+          {filterActive && (
+            <button
+              type="button"
+              className="chip chip-clear"
+              onClick={onClearFilter}
+              title={t('list.clearFilter')}
+              aria-label={t('list.clearFilter')}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          )}
         </div>
 
         {/* 选择区：进入选择态后在同一行追加，紧跟筛选之后（不右对齐，位置稳定）*/}
@@ -742,7 +854,28 @@ export function MailList({
         )}
       </div>
 
-      {/* ── 列表区域（选择模式下 selecting 让每行显出复选框列）── */}
+      {/* ── 列表区域（选择模式下 selecting 让每行显出复选框列）──
+           外面这层不滚动，只为给列宽手柄一个定位参照——手柄若放进滚动容器里
+           会跟着列表一起滚走。 */}
+      <div className="mail-list-wrap">
+
+      {/* 发件人/主题分界线上的拖拽手柄：平时透明，hover 才浮现。
+          仅紧凑样式有列的概念；卡片样式是三行堆叠，没有列宽可调。
+          left 用 calc 跟着 --sender-col-w 走，不靠 JS 定位，
+          避免拖拽时手柄与列边界脱节。
+          基准 = 行 padding-left(20) + 头像列(28) + gap(14) [+ 选择模式的 20+14]，
+          再加半个 gap(7) 落到两列正中，最后减半个手柄宽(4.5)。 */}
+      {listStyle === 'compact' && (
+        <div
+          className="list-col-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('settings.page.senderColWidth')}
+          style={{ left: `calc(${selecting ? 96 : 62}px + var(--sender-col-w, 150px) + 2.5px)` }}
+          onPointerDown={onSenderResizeDown}
+        />
+      )}
+
       <div ref={scrollRef} className={'mail-list' + (selecting ? ' selecting' : '')}>
 
         {/* 首屏加载骨架 */}
@@ -764,7 +897,11 @@ export function MailList({
               {t('list.nothingHere')}
             </div>
             <div>
-              {query || filter !== 'all' ? t('list.searchNoResult') : t('list.noMessages')}
+              {query
+                ? t('list.searchNoResult')
+                : filterActive
+                  ? t('list.filterNoResult')
+                  : t('list.noMessages')}
             </div>
           </div>
         )}
@@ -908,6 +1045,7 @@ export function MailList({
                 : null}
           </div>
         )}
+      </div>
       </div>
     </div>
   )

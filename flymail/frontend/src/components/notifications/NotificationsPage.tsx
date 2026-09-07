@@ -1,7 +1,13 @@
-// 通知中心（站内 feed）— 渲染进第三栏 reader 区
+// 通知中心（站内 feed）— 居中浮层
+//
+// 归属：与「设置」一致做成浮层，而不是占据第三栏。
+// 侧栏那两个辅助入口（铃铛 / 齿轮）行为因此统一，主区域始终是邮件；
+// 更重要的是消除了与阅读区抢第三栏导致的互斥——通知开着时点邮件列表，
+// 曾经因为 Reader 根本没挂载而表现为「点击无反应」。
+//
 // 数据来自后端 /notifications；支持按类型/未读筛选、按日分组、单条/全部已读、清空、加载更多。
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
@@ -14,15 +20,13 @@ import {
 import type { Notification } from '@/lib/types'
 
 interface NotificationsPageProps {
-  onBack: () => void
-  /** 点击通知卡片：跳转到关联邮件/账户（由 Shell 实现导航） */
-  onOpen?: (n: Notification) => void
+  /** 关闭浮层 */
+  onClose: () => void
   /**
-   * 是否渲染自带的「返回收件箱」按钮。
-   * 双栏浮动模式下面板左上角已有关闭键、窄屏顶栏已有返回键，
-   * 传 false（窄屏另有 CSS 兜底隐藏），仅三栏形态需要自带返回。
+   * 点击通知卡片：跳转到关联邮件/账户（由 Shell 实现导航）。
+   * 跳转后浮层自动关闭——用户的意图已经从「看通知」转成「看那封邮件」。
    */
-  showBack?: boolean
+  onOpen?: (n: Notification) => void
 }
 
 type Tab = 'all' | 'unread' | 'mail_new' | 'sync_failed' | 'account_status'
@@ -34,7 +38,7 @@ const TYPE_META: Record<string, { icon: IconName; kind: string }> = {
   account_status: { icon: 'tag', kind: 'kind-acct' },
 }
 
-export function NotificationsPage({ onBack, onOpen, showBack = true }: NotificationsPageProps) {
+export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
   const { t, i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [tab, setTab] = useState<Tab>('all')
@@ -80,6 +84,22 @@ export function NotificationsPage({ onBack, onOpen, showBack = true }: Notificat
     g.items.push(n)
   }
 
+  // Esc 关闭（与设置浮层一致）
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  /** 点击通知卡片：标记已读 + 跳转 + 关闭浮层 */
+  function handleOpen(n: Notification) {
+    if (!n.read) markRead.mutate(n.id)
+    onOpen?.(n)
+    onClose()
+  }
+
   const tabs: { id: Tab; labelKey: string }[] = [
     { id: 'all', labelKey: 'notif.tabAll' },
     { id: 'unread', labelKey: 'notif.tabUnread' },
@@ -89,17 +109,24 @@ export function NotificationsPage({ onBack, onOpen, showBack = true }: Notificat
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
-      {/* 顶部操作栏 */}
+    // 遮罩层复用设置浮层的那一套（点空白关闭 + 暗色加深 + 淡入）
+    <div
+      className="settings-backdrop"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="notif-dialog" onMouseDown={(e) => e.stopPropagation()}>
+      {/* 顶栏：标题与操作合并在同一行。
+          原来标题是独占一行的 28px 大字（全屏页面的排版），搬进浮层后
+          光标题区就吃掉近 90px 高，留给通知条目的空间反而不够。 */}
       <div className="fp-tabs">
-        {showBack && (
-          <button type="button" className="fp-back notif-screen-back" onClick={onBack}>
-            <span style={{ transform: 'scaleX(-1)', display: 'inline-block' }}>
-              <Icon name="chevron-right" size={14} />
-            </span>
-            {t('notif.backToInbox')}
-          </button>
-        )}
+        <div className="nd-head">
+          <span className="nd-title">{t('notif.title')}</span>
+          <span className="nd-sub">
+            {isZh
+              ? `${unreadCount} 条未读 · 共 ${all.length} 条`
+              : `${unreadCount} unread · ${all.length} total`}
+          </span>
+        </div>
         <div className="spacer" style={{ flex: 1 }} />
         <button
           type="button"
@@ -117,20 +144,18 @@ export function NotificationsPage({ onBack, onOpen, showBack = true }: Notificat
         >
           <Icon name="trash" size={13} /> {t('notif.clear')}
         </button>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onClose}
+          title={t('reader.close')}
+          aria-label={t('reader.close')}
+        >
+          <Icon name="close" size={14} />
+        </button>
       </div>
 
       <div className="fullpage">
-        <div className="fp-head">
-          <div style={{ flex: 1 }}>
-            <div className="fp-title">{t('notif.title')}</div>
-            <div className="fp-sub">
-              {isZh
-                ? `${unreadCount} 条未读 · 共 ${all.length} 条`
-                : `${unreadCount} unread · ${all.length} total`}
-            </div>
-          </div>
-        </div>
-
         {/* tab 行 */}
         <div className="notif-tabs">
           {tabs.map((x) => (
@@ -164,17 +189,11 @@ export function NotificationsPage({ onBack, onOpen, showBack = true }: Notificat
                   <div
                     key={n.id}
                     className={'notif-card' + (n.read ? '' : ' unread')}
-                    onClick={() => {
-                      if (!n.read) markRead.mutate(n.id)
-                      onOpen?.(n)
-                    }}
+                    onClick={() => handleOpen(n)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        if (!n.read) markRead.mutate(n.id)
-                        onOpen?.(n)
-                      }
+                      if (e.key === 'Enter' || e.key === ' ') handleOpen(n)
                     }}
                   >
                     <div className={'nf-icon ' + meta.kind}>
@@ -204,6 +223,7 @@ export function NotificationsPage({ onBack, onOpen, showBack = true }: Notificat
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

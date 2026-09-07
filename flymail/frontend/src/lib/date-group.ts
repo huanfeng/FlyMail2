@@ -1,8 +1,47 @@
-// 按日期分组工具函数：将条目按本地时间归入中文日期分组
+// 按日期分组工具函数：将条目按本地时间归入日期分组
+//
+// 分组语义与显示文本分离：内部一律用语义 key 归组，显示文本最后由 GroupLabeler 渲染。
+// 这样既能接 i18n，也避免了「两个不同语义被翻译成同一字符串后误合并」——
+// 若直接拿译文当 Map 的 key，某种语言里 today 与 thisWeek 恰好同形就会串组。
+
+/** 固定分组的语义标识（历史月份分组不在其列，见 monthKey） */
+export type DateGroupKind = 'today' | 'yesterday' | 'week' | 'month' | 'earlier'
 
 export interface DateGroup<T> {
+  /** 分组语义标识：固定分组为 DateGroupKind，历史月份为 `m:YYYY-M` */
+  key: string
+  /** 显示文本，由 GroupLabeler 渲染 */
   label: string
   items: T[]
+}
+
+/** 分组标题的渲染器：把分组语义翻译成显示文本 */
+export interface GroupLabeler {
+  /** 固定分组标题 */
+  fixed(kind: DateGroupKind): string
+  /** 历史月份标题；month 为 1-12（非 Date 的 0-11） */
+  month(year: number, month: number): string
+}
+
+/** 默认（中文）标签器。作为 groupByDate 的缺省值，非 i18n 场景与单测直接可用。 */
+export const zhLabeler: GroupLabeler = {
+  fixed(kind) {
+    switch (kind) {
+      case 'today': return '今天'
+      case 'yesterday': return '昨天'
+      case 'week': return '本周'
+      case 'month': return '本月'
+      case 'earlier': return '更早'
+    }
+  },
+  month(year, month) {
+    return `${year}年${month}月`
+  },
+}
+
+/** 历史月份分组的 key */
+function monthKey(year: number, month: number): string {
+  return `m:${year}-${month}`
 }
 
 /**
@@ -11,11 +50,13 @@ export interface DateGroup<T> {
  * @param items   条目数组（调用方保证已按时间降序排列）
  * @param getDate 从条目中提取 ISO 日期字符串
  * @param now     当前时间（默认 new Date()），便于测试传入固定值
+ * @param labeler 分组标题渲染器（默认中文），接 i18n 时传入对应实现
  */
 export function groupByDate<T>(
   items: T[],
   getDate: (t: T) => string,
   now?: Date,
+  labeler: GroupLabeler = zhLabeler,
 ): DateGroup<T>[] {
   const base = now ?? new Date()
 
@@ -27,43 +68,50 @@ export function groupByDate<T>(
   // 本月：当月第一天零点
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1)
 
-  // 有序分组 label 列表（更早的月份分组按需追加）
-  const fixedLabels = ['今天', '昨天', '本周', '本月'] as const
-  // 使用 Map 保证插入顺序
-  const groupMap = new Map<string, T[]>()
+  // 有序分组 key 列表（更早的月份分组按需追加）
+  const fixedKinds: DateGroupKind[] = ['today', 'yesterday', 'week', 'month']
+  // 使用 Map 保证插入顺序；key 为语义标识，value 附带渲染标题所需的信息
+  const groupMap = new Map<string, { label: string; items: T[] }>()
+
+  function push(key: string, label: string, item: T) {
+    const g = groupMap.get(key)
+    if (g) g.items.push(item)
+    else groupMap.set(key, { label, items: [item] })
+  }
 
   for (const item of items) {
-    const raw = getDate(item)
-    const d = new Date(raw)
+    const d = new Date(getDate(item))
 
-    // 非法日期归入"更早"中最旧的月份分组（用固定 label 占位）
+    // 非法日期归入「更早」（与历史月份分组区分开，不与任何真实月份混同）
     if (Number.isNaN(d.getTime())) {
-      const fallback = '更早'
-      if (!groupMap.has(fallback)) groupMap.set(fallback, [])
-      groupMap.get(fallback)!.push(item)
+      push('earlier', labeler.fixed('earlier'), item)
       continue
     }
 
-    const label = resolveLabel(d, todayStart, yesterdayStart, weekStart, monthStart)
-    if (!groupMap.has(label)) groupMap.set(label, [])
-    groupMap.get(label)!.push(item)
+    const kind = resolveKind(d, todayStart, yesterdayStart, weekStart, monthStart)
+    if (kind) {
+      push(kind, labeler.fixed(kind), item)
+    } else {
+      const y = d.getFullYear()
+      const m = d.getMonth() + 1
+      push(monthKey(y, m), labeler.month(y, m), item)
+    }
   }
 
   // 将 Map 转换为有序数组：先固定分组，再历史月份（按出现顺序）
   const result: DateGroup<T>[] = []
 
   // 固定顺序：今天 → 昨天 → 本周 → 本月
-  for (const label of fixedLabels) {
-    if (groupMap.has(label)) {
-      result.push({ label, items: groupMap.get(label)! })
-    }
+  for (const kind of fixedKinds) {
+    const g = groupMap.get(kind)
+    if (g) result.push({ key: kind, label: g.label, items: g.items })
   }
 
-  // 历史月份分组（Map 中除固定 label 外按插入顺序）
-  const fixedSet = new Set<string>(fixedLabels)
-  for (const [label, groupItems] of groupMap.entries()) {
-    if (!fixedSet.has(label)) {
-      result.push({ label, items: groupItems })
+  // 历史月份分组 + 非法日期的「更早」（Map 中除固定 kind 外按插入顺序）
+  const fixedSet = new Set<string>(fixedKinds)
+  for (const [key, g] of groupMap.entries()) {
+    if (!fixedSet.has(key)) {
+      result.push({ key, label: g.label, items: g.items })
     }
   }
 
@@ -93,22 +141,22 @@ function localWeekStart(todayStart: Date): Date {
   return addDays(todayStart, diff)
 }
 
-/** 将日期 d 映射到分组 label */
-function resolveLabel(
+/**
+ * 将日期 d 映射到固定分组；不属于任何固定分组（即「更早」）时返回 null，
+ * 由调用方按年月归组。
+ */
+function resolveKind(
   d: Date,
   todayStart: Date,
   yesterdayStart: Date,
   weekStart: Date,
   monthStart: Date,
-): string {
-  const dStart = localDayStart(d)
-  const dTime = dStart.getTime()
+): DateGroupKind | null {
+  const dTime = localDayStart(d).getTime()
 
-  if (dTime >= todayStart.getTime()) return '今天'
-  if (dTime >= yesterdayStart.getTime()) return '昨天'
-  if (dTime >= weekStart.getTime()) return '本周'
-  if (dTime >= monthStart.getTime()) return '本月'
-
-  // 更早：按"YYYY年M月"分组
-  return `${d.getFullYear()}年${d.getMonth() + 1}月`
+  if (dTime >= todayStart.getTime()) return 'today'
+  if (dTime >= yesterdayStart.getTime()) return 'yesterday'
+  if (dTime >= weekStart.getTime()) return 'week'
+  if (dTime >= monthStart.getTime()) return 'month'
+  return null
 }

@@ -36,11 +36,11 @@ func TestUpsertIsIdempotentByFolderUID(t *testing.T) {
 	if err := repo.Upsert(m2); err != nil {
 		t.Fatalf("upsert2: %v", err)
 	}
-	n, _ := repo.CountByFolder(1)
+	n, _ := repo.CountByFolder(1, message.Filter{})
 	if n != 1 {
 		t.Fatalf("want 1 row, got %d", n)
 	}
-	list, _ := repo.ListByFolder(1, 0, 50)
+	list, _ := repo.ListByFolder(1, 0, 50, message.Filter{})
 	if list[0].Subject != "A-updated" || !list[0].Seen {
 		t.Errorf("upsert did not update: %+v", list[0])
 	}
@@ -51,11 +51,11 @@ func TestListByFolderUIDCursorDesc(t *testing.T) {
 	for _, uid := range []uint32{1, 2, 3, 4, 5} {
 		_ = repo.Upsert(&message.Message{AccountID: 1, FolderID: 1, UID: uid, Date: time.Now()})
 	}
-	page1, _ := repo.ListByFolder(1, 0, 2)
+	page1, _ := repo.ListByFolder(1, 0, 2, message.Filter{})
 	if len(page1) != 2 || page1[0].UID != 5 || page1[1].UID != 4 {
 		t.Fatalf("page1 wrong: %+v", page1)
 	}
-	page2, _ := repo.ListByFolder(1, 4, 2)
+	page2, _ := repo.ListByFolder(1, 4, 2, message.Filter{})
 	if len(page2) != 2 || page2[0].UID != 3 || page2[1].UID != 2 {
 		t.Fatalf("page2 wrong: %+v", page2)
 	}
@@ -68,8 +68,8 @@ func TestDeleteByFolder(t *testing.T) {
 	if err := repo.DeleteByFolder(1); err != nil {
 		t.Fatal(err)
 	}
-	n1, _ := repo.CountByFolder(1)
-	n2, _ := repo.CountByFolder(2)
+	n1, _ := repo.CountByFolder(1, message.Filter{})
+	n2, _ := repo.CountByFolder(2, message.Filter{})
 	if n1 != 0 || n2 != 1 {
 		t.Errorf("delete scope wrong: f1=%d f2=%d", n1, n2)
 	}

@@ -107,7 +107,7 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 		}
 	}
 
-	total, _ := s.repo.CountByFolder(folderID)
+	total, _ := s.repo.CountByFolder(folderID, Filter{})
 	unread, _ := s.repo.UnreadCountByFolder(folderID)
 	// UIDNEXT 未知时，用本地已存的最大 UID + 1 作为锚点（供后续增量同步）。
 	if uidNext == 0 {
@@ -167,7 +167,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		return state, &NewMail{Count: state.Total, Baseline: true}, nil
 	}
 
-	beforeCount, _ := s.repo.CountByFolder(folderID)
+	beforeCount, _ := s.repo.CountByFolder(folderID, Filter{})
 	beforeMaxID, _ := s.repo.MaxIDByFolder(folderID)
 
 	uidNext := sel.UIDNext
@@ -221,7 +221,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		}
 	}
 
-	total, _ := s.repo.CountByFolder(folderID)
+	total, _ := s.repo.CountByFolder(folderID, Filter{})
 	unread, _ := s.repo.UnreadCountByFolder(folderID)
 	newCount := int(total) - int(beforeCount)
 	if newCount < 0 {
@@ -298,9 +298,9 @@ func (s *Service) fetchRangeBatched(accountID, folderID uint, from, end imapv2.U
 	return nil
 }
 
-// List 返回文件夹内的邮件列表项（UID 游标分页）。
-func (s *Service) List(folderID uint, beforeUID uint32, limit int) ([]MessageListItem, error) {
-	rows, err := s.repo.ListByFolder(folderID, beforeUID, limit)
+// List 返回文件夹内的邮件列表项（UID 游标分页），f 为零值时不筛选。
+func (s *Service) List(folderID uint, beforeUID uint32, limit int, f Filter) ([]MessageListItem, error) {
+	rows, err := s.repo.ListByFolder(folderID, beforeUID, limit, f)
 	if err != nil {
 		return nil, err
 	}
@@ -320,11 +320,11 @@ type AggCursor struct {
 
 // ListAggregate 返回跨账户聚合列表项 + 下一页游标（无更多时为 nil）。
 // view: inbox / unread / starred。beforeDate==nil 取首页。
-func (s *Service) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int) ([]MessageListItem, *AggCursor, error) {
+func (s *Service) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]MessageListItem, *AggCursor, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.repo.ListAggregate(view, beforeDate, beforeID, limit)
+	rows, err := s.repo.ListAggregate(view, beforeDate, beforeID, limit, f)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -341,11 +341,11 @@ func (s *Service) ListAggregate(view string, beforeDate *time.Time, beforeID uin
 }
 
 // ListSearch 跨账户全文检索，返回列表项 + 下一页游标（与聚合同款 keyset）。
-func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, limit int) ([]MessageListItem, *AggCursor, error) {
+func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]MessageListItem, *AggCursor, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.repo.SearchMessages(q, beforeDate, beforeID, limit)
+	rows, err := s.repo.SearchMessages(q, beforeDate, beforeID, limit, f)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -369,14 +369,21 @@ func (s *Service) SearchContacts(q string, limit int) ([]Contact, error) {
 	return s.repo.SearchContacts(q, limit)
 }
 
-// CountByFolder 返回文件夹内邮件总数。
-func (s *Service) CountByFolder(folderID uint) (int64, error) {
-	return s.repo.CountByFolder(folderID)
+// CountByFolder 返回文件夹内邮件总数（应用筛选后）。f 为零值时即全量。
+func (s *Service) CountByFolder(folderID uint, f Filter) (int64, error) {
+	return s.repo.CountByFolder(folderID, f)
 }
 
-// CountSearchMessages 返回搜索命中的总条数。
-func (s *Service) CountSearchMessages(q string) (int64, error) {
-	return s.repo.CountSearchMessages(q)
+// CountSearchMessages 返回搜索命中的总条数（应用筛选后）。
+func (s *Service) CountSearchMessages(q string, f Filter) (int64, error) {
+	return s.repo.CountSearchMessages(q, f)
+}
+
+// CountAggregateView 返回某聚合视图应用筛选后的条目总数，供列表标题「共 N 封」使用。
+// 与 AggregateCounts 的入口徽标不同：徽标是固定语义（如 inbox 显示未读数）且不受筛选影响，
+// 这里要的是「当前列表实际有多少条」。
+func (s *Service) CountAggregateView(view string, f Filter) (int64, error) {
+	return s.repo.CountAggregateTotal(view, f)
 }
 
 // AggregateCounts 返回三个聚合入口的徽标计数，外加收件箱聚合的条目总数。
@@ -393,7 +400,7 @@ func (s *Service) AggregateCounts() (map[string]int64, error) {
 		}
 		out[v] = n
 	}
-	total, err := s.repo.CountAggregateTotal("inbox")
+	total, err := s.repo.CountAggregateTotal("inbox", Filter{})
 	if err != nil {
 		return nil, err
 	}

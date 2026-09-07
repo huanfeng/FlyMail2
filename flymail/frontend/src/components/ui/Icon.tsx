@@ -5,6 +5,7 @@
 export type IconName =
   | 'chevron-right'
   | 'chevron-down'
+  | 'chevron-up'
   | 'plus'
   | 'search'
   | 'inbox'
@@ -68,6 +69,9 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
 
     case 'chevron-down':
       return <svg {...p}><path d="M3.5 6L8 10.5 12.5 6"/></svg>
+
+    case 'chevron-up':
+      return <svg {...p}><path d="M3.5 10L8 5.5 12.5 10"/></svg>
 
     case 'plus':
       return <svg {...p}><path d="M8 3v10M3 8h10"/></svg>

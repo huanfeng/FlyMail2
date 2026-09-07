@@ -1,5 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
+import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
+import type { ListFilter } from '@/lib/list-filters'
 import {
   applyUnreadDelta,
   beginOptimistic,
@@ -51,21 +53,28 @@ export function useMessages(folderId: number | null) {
 /**
  * 无限加载版邮件查询，复用 query key ['messages', folderId] 使现有 invalidate 生效。
  * before_uid=0 表示不限制，返回最新 50 封；翻页时传入上一页最后一封的 uid。
+ *
+ * filter 必须进 query key：否则切换筛选后 react-query 认作同一个查询，
+ * 直接返回旧缓存，点了 chip 界面纹丝不动。
  */
-export function useInfiniteMessages(folderId: number | null) {
+export function useInfiniteMessages(folderId: number | null, filter: ListFilter = EMPTY_FILTER) {
   return useInfiniteQuery({
-    queryKey: ['messages', folderId],
+    queryKey: ['messages', folderId, filterKey(filter)],
     enabled: folderId != null,
     initialPageParam: 0,
-    queryFn: async ({ pageParam }): Promise<MessageListItem[]> => {
-      const { data } = await api.get<{ messages: MessageListItem[] }>(
-        `/folders/${folderId}/messages?limit=50&before_uid=${pageParam ?? 0}`,
+    queryFn: async ({ pageParam }): Promise<AggregatePage> => {
+      const params = new URLSearchParams({ limit: '50', before_uid: String(pageParam ?? 0) })
+      applyFilterParams(params, filter)
+      const { data } = await api.get<{ messages: MessageListItem[]; total?: number }>(
+        `/folders/${folderId}/messages?${params.toString()}`,
       )
-      return data.messages ?? []
+      // 与聚合/搜索统一成 { messages, total } 形状：optimistic.mapListCache 按数据形状
+      // 分派（不认 query key），三条链路同形状后那边就只剩一个分支要维护。
+      return { messages: data.messages ?? [], next_cursor: null, total: data.total }
     },
     getNextPageParam: (lastPage) => {
-      const last = lastPage.at(-1)
-      return lastPage.length < 50 || !last ? undefined : last.uid
+      const last = lastPage.messages.at(-1)
+      return lastPage.messages.length < 50 || !last ? undefined : last.uid
     },
   })
 }
@@ -79,10 +88,16 @@ interface AggCursor {
   before_id: number
 }
 
+/** 三条列表链路（文件夹 / 聚合 / 搜索）共用的分页形状 */
 interface AggregatePage {
   messages: MessageListItem[]
+  /** keyset 游标。文件夹链路走 before_uid，此项恒为 null。 */
   next_cursor: AggCursor | null
-  /** 命中总数。搜索接口只在第一页返回（全表 LIKE，翻页重复计算会让开销翻倍） */
+  /**
+   * 该查询条件下的条目总数，后端只在第一页给出（翻页时结果不变，重复扫表纯属浪费）。
+   * 搜索链路总是返回；文件夹/聚合链路仅在筛选生效时返回——不筛选时前端用
+   * folders 表 / aggregate-counts 里现成的计数。
+   */
   total?: number
 }
 
@@ -91,9 +106,9 @@ interface AggregatePage {
  * 游标采用后端回传的 (date, id) keyset，规避跨文件夹 UID 不唯一与日期截断问题。
  * query key 以 'messages' 开头，使现有 invalidateQueries(['messages']) 一并刷新。
  */
-export function useInfiniteAggregate(view: AggregateView | null) {
+export function useInfiniteAggregate(view: AggregateView | null, filter: ListFilter = EMPTY_FILTER) {
   return useInfiniteQuery({
-    queryKey: ['messages', 'aggregate', view],
+    queryKey: ['messages', 'aggregate', view, filterKey(filter)],
     enabled: view != null,
     initialPageParam: null as AggCursor | null,
     queryFn: async ({ pageParam }): Promise<AggregatePage> => {
@@ -102,8 +117,9 @@ export function useInfiniteAggregate(view: AggregateView | null) {
         params.set('before_date', pageParam.before_date)
         params.set('before_id', String(pageParam.before_id))
       }
+      applyFilterParams(params, filter)
       const { data } = await api.get<AggregatePage>(`/aggregate/messages?${params.toString()}`)
-      return { messages: data.messages ?? [], next_cursor: data.next_cursor ?? null }
+      return { messages: data.messages ?? [], next_cursor: data.next_cursor ?? null, total: data.total }
     },
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })
@@ -159,10 +175,10 @@ export function useAccountUnread() {
  * 跨账户全文搜索（无限加载）。q 为空时禁用。
  * 与聚合同款 (date,id) keyset 游标；query key 以 'messages' 开头便于统一失效。
  */
-export function useInfiniteSearch(q: string) {
+export function useInfiniteSearch(q: string, filter: ListFilter = EMPTY_FILTER) {
   const query = q.trim()
   return useInfiniteQuery({
-    queryKey: ['messages', 'search', query],
+    queryKey: ['messages', 'search', query, filterKey(filter)],
     enabled: query.length > 0,
     initialPageParam: null as AggCursor | null,
     queryFn: async ({ pageParam }): Promise<AggregatePage> => {
@@ -171,6 +187,7 @@ export function useInfiniteSearch(q: string) {
         params.set('before_date', pageParam.before_date)
         params.set('before_id', String(pageParam.before_id))
       }
+      applyFilterParams(params, filter)
       const { data } = await api.get<AggregatePage>(`/search/messages?${params.toString()}`)
       return {
         messages: data.messages ?? [],
@@ -182,8 +199,12 @@ export function useInfiniteSearch(q: string) {
   })
 }
 
-/** 从无限搜索结果里取命中总数（后端只在第一页给出） */
-export function searchTotalOf(pages: { total?: number }[] | undefined): number | undefined {
+/**
+ * 从无限加载结果里取条目总数（后端只在第一页给出）。
+ * 三条链路通用：搜索总是有值；文件夹/聚合仅在筛选生效时有值，否则为 undefined，
+ * 调用方回落到 folders 表 / aggregate-counts 的现成计数。
+ */
+export function listTotalOf(pages: { total?: number }[] | undefined): number | undefined {
   return pages?.[0]?.total
 }
 

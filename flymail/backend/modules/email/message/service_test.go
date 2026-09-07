@@ -99,7 +99,7 @@ func TestSyncFolderMessagesStoresMetadata(t *testing.T) {
 	if state.UIDValidity != 42 || state.Total != 5 {
 		t.Errorf("state wrong: %+v", state)
 	}
-	list, _ := repo.ListByFolder(1, 0, 50)
+	list, _ := repo.ListByFolder(1, 0, 50, message.Filter{})
 	if len(list) != 5 {
 		t.Fatalf("want 5 stored, got %d", len(list))
 	}
@@ -121,7 +121,7 @@ func TestSyncRebuildsOnUIDValidityChange(t *testing.T) {
 	if !rebuilt {
 		t.Errorf("should rebuild on uidvalidity change")
 	}
-	list, _ := repo.ListByFolder(1, 0, 50)
+	list, _ := repo.ListByFolder(1, 0, 50, message.Filter{})
 	if len(list) != 1 || list[0].UID != 1 {
 		t.Errorf("old uid 999 should be gone: %+v", list)
 	}
@@ -142,7 +142,7 @@ func TestSyncFolderMessagesMultiBatch(t *testing.T) {
 	if state.Total != 450 {
 		t.Errorf("state.Total = %d, want 450", state.Total)
 	}
-	page, _ := repo.ListByFolder(1, 0, 200)
+	page, _ := repo.ListByFolder(1, 0, 200, message.Filter{})
 	if len(page) != 200 {
 		t.Errorf("first page = %d, want 200", len(page))
 	}
@@ -175,7 +175,7 @@ func TestSyncViaSeqWhenNoUIDNext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	list, _ := repo.ListByFolder(1, 0, 50)
+	list, _ := repo.ListByFolder(1, 0, 50, message.Filter{})
 	if len(list) != 5 {
 		t.Fatalf("want 5 stored via seq fetch, got %d", len(list))
 	}
@@ -199,7 +199,7 @@ func TestStoreParsedBodyAndDetail(t *testing.T) {
 		t.Fatalf("upsert message: %v", err)
 	}
 	// 取回以获得自增 ID
-	list, err := repo.ListByFolder(1, 0, 10)
+	list, err := repo.ListByFolder(1, 0, 10, message.Filter{})
 	if err != nil || len(list) == 0 {
 		t.Fatalf("list: %v, len=%d", err, len(list))
 	}

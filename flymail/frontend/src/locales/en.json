@@ -41,10 +41,13 @@
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
     "totalCount": "{{count}} messages",
-    "empty": "No messages", "noSubject": "(No subject)",
-    "filterAll": "All", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "filteredCount": "{{count}} filtered",
+    "empty": "No messages", "noSubject": "(No subject)", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "filterAttachment": "Attachments",
     "loadingMore": "Loading…", "noMore": "No more", "loadMore": "Load more",
     "clearSearch": "Clear search",
+    "clearFilter": "Clear filters",
+    "filterNoResult": "No messages match the current filters",
     "nothingHere": "Nothing here",
     "noMessages": "This folder has no messages",
     "searchNoResult": "No matching messages found",
@@ -87,6 +90,13 @@
     "noBody": "(No body)",
     "loadError": "Failed to load message body",
     "loadErrorHint": "Check your connection and try again",
+    "prev": "Previous",
+    "next": "Next",
+    "archive": "Archive",
+    "archivedToast": "Archived",
+    "more": "More",
+    "noArchiveFolder": "This account has no archive folder",
+    "me": "me",
     "star": "Star",
     "unstar": "Unstar",
     "markUnread": "Mark as unread",
@@ -314,6 +324,8 @@
       "sidebarWidth": "Sidebar width",
       "listWidth": "List width",
       "widthHint": "You can also drag the dividers between columns",
+    "senderColWidth": "Sender column width",
+    "senderColHint": "Compact list only; a narrower column leaves more room for subjects",
       "density": "List density",
       "alwaysShowSelect": "Always show checkboxes",
       "alwaysShowSelectHint": "When off, click the select button in the toolbar to reveal row checkboxes",
@@ -407,5 +419,12 @@
       "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
       "none": "No accounts yet. Click \"Add Account\" to get started."
     }
+  },
+  "dateGroup": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "week": "This week",
+    "month": "This month",
+    "earlier": "Earlier"
   }
 }

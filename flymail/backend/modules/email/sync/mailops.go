@@ -80,7 +80,7 @@ func (s *Service) MoveMessage(messageID, targetFolderID uint) error {
 // refreshFolderCounts 重算并持久化文件夹总数/未读数，使角标即时刷新（不必等下次同步）。
 // 目标文件夹的计数由下次同步补正，这里只刷新源文件夹（本地已发生行删除）。
 func (s *Service) refreshFolderCounts(folderID uint) {
-	total, terr := s.messages.CountByFolder(folderID)
+	total, terr := s.messages.CountByFolder(folderID, message.Filter{})
 	unread, uerr := s.messages.UnreadCountByFolder(folderID)
 	if terr == nil && uerr == nil {
 		_ = s.folders.SetCounts(folderID, int(total), int(unread))

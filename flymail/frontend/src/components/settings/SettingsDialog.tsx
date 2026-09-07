@@ -322,6 +322,21 @@ function AppearanceSection({
           </div>
         </Row>
 
+        {/* 发件人列宽（仅紧凑列表样式生效）：调窄它就是把宽度让给主题 */}
+        <Row label={t('settings.page.senderColWidth')} help={t('settings.page.senderColHint')}>
+          <div className="slider-row" style={{ width: 220 }}>
+            <input
+              type="range"
+              min={LAYOUT_LIMITS.senderCol.min}
+              max={LAYOUT_LIMITS.senderCol.max}
+              step={5}
+              value={widths.senderCol}
+              onChange={(e) => handleWidth('senderCol', Number(e.target.value))}
+            />
+            <span className="slider-val">{widths.senderCol}px</span>
+          </div>
+        </Row>
+
         {/* 列表密度（紧凑/卡片）*/}
         <Row label={t('settings.page.density')}>
           <div className="mode-toggle">

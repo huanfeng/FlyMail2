@@ -121,7 +121,7 @@ func TestIncrementalSyncKnownUIDNext(t *testing.T) {
 	if !nm.Baseline {
 		t.Errorf("本地原本为空应判定为基线导入（不触发新邮件提醒）")
 	}
-	if cnt, _ := repo.CountByFolder(1); cnt != 5 {
+	if cnt, _ := repo.CountByFolder(1, message.Filter{}); cnt != 5 {
 		t.Errorf("本地邮件数 = %d, 期望 5", cnt)
 	}
 }

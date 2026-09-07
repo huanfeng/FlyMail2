@@ -14,6 +14,11 @@ import (
 //   - GET /aggregate/messages?view=&before_date=&before_id=&limit=  跨账户聚合列表
 //   - GET /aggregate/counts                              聚合入口徽标计数
 //   - GET /aggregate/account-unread                      各账户未读数（侧栏角标）
+//   - GET /search/messages?q=&before_date=&before_id=&limit=        跨账户搜索
+//
+// 三个列表接口（folder / aggregate / search）都额外接受可叠加的筛选参数
+// ?seen=&flagged=&has_attachment=（见 Filter），彼此为 AND 关系；
+// 筛选生效时首页响应附带 total = 筛选后的条目总数。
 func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	h := &handler{svc: svc}
 	rg.GET("/folders/:fid/messages", h.list)
@@ -52,8 +57,9 @@ func (h *handler) search(c *gin.Context) {
 		}
 	}
 	beforeID, _ := strconv.ParseUint(c.DefaultQuery("before_id", "0"), 10, 64)
+	f := parseFilter(c)
 
-	items, cursor, err := h.svc.ListSearch(q, beforeDate, uint(beforeID), limit)
+	items, cursor, err := h.svc.ListSearch(q, beforeDate, uint(beforeID), limit, f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -62,8 +68,9 @@ func (h *handler) search(c *gin.Context) {
 	resp := gin.H{"messages": items, "next_cursor": cursor}
 	// 命中总数只在第一页算：这是一次全表 LIKE，翻页时重复计算会让开销翻倍，
 	// 而结果对同一次搜索是不变的，前端记住首页那个数即可。
+	// 与列表同筛选条件，否则「命中 N 条」会大于筛选后实际能翻到的条数。
 	if beforeDate == nil && beforeID == 0 {
-		total, err := h.svc.CountSearchMessages(q)
+		total, err := h.svc.CountSearchMessages(q, f)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -96,13 +103,25 @@ func (h *handler) listAggregate(c *gin.Context) {
 		}
 	}
 	beforeID, _ := strconv.ParseUint(c.DefaultQuery("before_id", "0"), 10, 64)
+	f := parseFilter(c)
 
-	items, cursor, err := h.svc.ListAggregate(view, beforeDate, uint(beforeID), limit)
+	items, cursor, err := h.svc.ListAggregate(view, beforeDate, uint(beforeID), limit, f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"messages": items, "next_cursor": cursor})
+
+	resp := gin.H{"messages": items, "next_cursor": cursor}
+	// 同 list：仅首页且有筛选时补总数。不筛选时前端用 /aggregate/counts 的现成计数。
+	if beforeDate == nil && beforeID == 0 && f.Active() {
+		total, cerr := h.svc.CountAggregateView(view, f)
+		if cerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": cerr.Error()})
+			return
+		}
+		resp["total"] = total
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *handler) aggregateCounts(c *gin.Context) {
@@ -134,11 +153,26 @@ func (h *handler) list(c *gin.Context) {
 	}
 	beforeUID, _ := strconv.ParseUint(c.DefaultQuery("before_uid", "0"), 10, 32)
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	f := parseFilter(c)
 
-	items, err := h.svc.List(uint(folderID), uint32(beforeUID), limit)
+	items, err := h.svc.List(uint(folderID), uint32(beforeUID), limit, f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"messages": items})
+
+	resp := gin.H{"messages": items}
+	// 筛选生效时补一个筛选后的总数，否则前端标题只能显示 folders 表里的全量计数——
+	// 「共 320 封 · 32 未读」配着一屏 5 条未读，两个数字互相打脸。
+	// 只在首页算：翻页时结果不变，重复扫表纯属浪费（与 search 同款处理）。
+	// 不筛选时不算：folders 表已有现成的 total_count/unread_count。
+	if beforeUID == 0 && f.Active() {
+		total, cerr := h.svc.CountByFolder(uint(folderID), f)
+		if cerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": cerr.Error()})
+			return
+		}
+		resp["total"] = total
+	}
+	c.JSON(http.StatusOK, resp)
 }

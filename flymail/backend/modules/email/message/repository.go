@@ -79,18 +79,18 @@ func (r *Repository) searchScope(q string) *gorm.DB {
 		)
 }
 
-// CountSearchMessages 返回搜索命中的总条数，与列表同口径去重。
-func (r *Repository) CountSearchMessages(q string) (int64, error) {
+// CountSearchMessages 返回搜索命中的总条数，与列表同口径去重 + 同筛选条件。
+func (r *Repository) CountSearchMessages(q string, f Filter) (int64, error) {
 	var n int64
-	err := dedupeSameMessage(r.searchScope(q)).Count(&n).Error
+	err := f.apply(dedupeSameMessage(r.searchScope(q))).Count(&n).Error
 	return n, err
 }
 
-func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
+func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	dbq := r.searchScope(q).Select("messages.*")
+	dbq := f.apply(r.searchScope(q)).Select("messages.*")
 	if beforeDate != nil {
 		dbq = dbq.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
 	}
@@ -130,16 +130,22 @@ func escapeLike(s string) string {
 	return string(r)
 }
 
-func (r *Repository) ListByFolder(folderID uint, beforeUID uint32, limit int) ([]Message, error) {
+// folderScope 构造单文件夹查询的公共条件（文件夹 + 筛选），供列表与计数共用。
+// 抽出来的理由同 searchScope：两处各写一遍，「共 N 封」迟早与实际能翻到的条目数对不上。
+func (r *Repository) folderScope(folderID uint, f Filter) *gorm.DB {
+	return f.apply(r.db.Model(&Message{}).Where("messages.folder_id = ?", folderID))
+}
+
+func (r *Repository) ListByFolder(folderID uint, beforeUID uint32, limit int, f Filter) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	q := r.db.Where("folder_id = ?", folderID)
+	q := r.folderScope(folderID, f)
 	if beforeUID > 0 {
-		q = q.Where("uid < ?", beforeUID)
+		q = q.Where("messages.uid < ?", beforeUID)
 	}
 	var list []Message
-	err := q.Order("uid DESC").Limit(limit).Find(&list).Error
+	err := q.Order("messages.uid DESC").Limit(limit).Find(&list).Error
 	return list, err
 }
 
@@ -189,11 +195,11 @@ func aggregateScope(db *gorm.DB, view string) *gorm.DB {
 
 // ListAggregate 跨文件夹/账户聚合邮件列表，按 (date, id) 降序 keyset 分页。
 // beforeDate==nil 取首页；翻页时传入上一页最后一封的 date+id 作游标。
-func (r *Repository) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int) ([]Message, error) {
+func (r *Repository) ListAggregate(view string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	q := dedupeSameMessage(aggregateScope(r.db.Model(&Message{}), view)).Select("messages.*")
+	q := f.apply(dedupeSameMessage(aggregateScope(r.db.Model(&Message{}), view))).Select("messages.*")
 	if beforeDate != nil {
 		q = q.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
 	}
@@ -220,9 +226,9 @@ func (r *Repository) CountAggregate(view string) (int64, error) {
 //
 // ⚠ 与 CountAggregate 的区别只在 inbox 视图：那个方法对 inbox 返回的是「未读数」
 // （入口徽标的语义），而列表标题要的是「共几封」。两者混用会让标题显示成未读数。
-func (r *Repository) CountAggregateTotal(view string) (int64, error) {
+func (r *Repository) CountAggregateTotal(view string, f Filter) (int64, error) {
 	var n int64
-	err := dedupeSameMessage(aggregateScope(r.db.Model(&Message{}), view)).Count(&n).Error
+	err := f.apply(dedupeSameMessage(aggregateScope(r.db.Model(&Message{}), view))).Count(&n).Error
 	return n, err
 }
 
@@ -247,9 +253,10 @@ func (r *Repository) AccountUnreadCounts() (map[uint]int64, error) {
 	return out, nil
 }
 
-func (r *Repository) CountByFolder(folderID uint) (int64, error) {
+// CountByFolder 返回文件夹内邮件总数；f 为零值时即全量计数。
+func (r *Repository) CountByFolder(folderID uint, f Filter) (int64, error) {
 	var n int64
-	err := r.db.Model(&Message{}).Where("folder_id = ?", folderID).Count(&n).Error
+	err := r.folderScope(folderID, f).Count(&n).Error
 	return n, err
 }
 

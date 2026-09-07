@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
-import type { AppView } from '@/components/mail/AccountSidebar'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { NotificationsPage } from '@/components/notifications/NotificationsPage'
@@ -22,7 +21,7 @@ import {
   useInfiniteMessages,
   useInfiniteAggregate,
   useInfiniteSearch,
-  searchTotalOf,
+  listTotalOf,
   useAggregateCounts,
   useMessageDetail,
   useSyncStatus,
@@ -46,7 +45,10 @@ import {
   setAlwaysShowSelect,
 } from '@/lib/list-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
+import { EMPTY_FILTER, filterKey, isFilterActive, toggleFilter } from '@/lib/list-filters'
+import type { FilterKey, ListFilter } from '@/lib/list-filters'
 import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
+import { createAutoReadGate } from '@/lib/list-guards'
 import type { LayoutMode } from '@/lib/layout-mode'
 import api from '@/lib/api'
 import type { Account, Draft, Folder, MessageDetail, Notification } from '@/lib/types'
@@ -105,10 +107,21 @@ export function ShellPage() {
   }, [searchQuery])
   const searching = debouncedQuery.length > 0
 
+  // ── 列表筛选（未读 / 星标 / 有附件，可叠加）────────────────────────────────────
+  // 状态提在这里而不是 MailList 内部：它要进三个 query 的 key 与请求参数，
+  // 由后端而非前端分页做筛选（否则「未读」只筛已加载的那 50 封）。
+  //
+  // 切换文件夹/聚合/搜索时**不重置**：「我现在只想看未读」是跨文件夹成立的浏览意图，
+  // 且 chip 常驻在列表正上方且有激活态，不会出现「列表空了却不知为何」。
+  const [filter, setFilter] = useState<ListFilter>(EMPTY_FILTER)
+  function onToggleFilter(key: FilterKey) {
+    setFilter((f) => toggleFilter(f, key))
+  }
+
   // 三选一数据源：搜索 > 聚合 > 单文件夹（互斥，未选中的禁用以免多余请求）
-  const folderInfinite = useInfiniteMessages(searching || agg ? null : folderId)
-  const aggInfinite = useInfiniteAggregate(searching ? null : agg)
-  const searchInfinite = useInfiniteSearch(debouncedQuery)
+  const folderInfinite = useInfiniteMessages(searching || agg ? null : folderId, filter)
+  const aggInfinite = useInfiniteAggregate(searching ? null : agg, filter)
+  const searchInfinite = useInfiniteSearch(debouncedQuery, filter)
   // 聚合入口徽标计数
   const { data: aggCounts = { inbox: 0, unread: 0, starred: 0, inboxTotal: 0 } } = useAggregateCounts()
 
@@ -117,7 +130,7 @@ export function ShellPage() {
     ? (searchInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
     : agg
       ? (aggInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
-      : (folderInfinite.data?.pages.flat() ?? [])
+      : (folderInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
   const messagesLoading = searching
     ? searchInfinite.isLoading
     : agg
@@ -139,8 +152,10 @@ export function ShellPage() {
     else void folderInfinite.fetchNextPage()
   }
 
-  // 数据源标识：搜索/聚合/文件夹 + 列表样式（驱动 MailList 滚动重置与选择清空）
-  const sourceKey = `${searching ? 'search' : (agg ?? folderId)}-${listStyle}`
+  // 数据源标识：搜索/聚合/文件夹 + 列表样式 + 筛选（驱动 MailList 滚动重置与选择清空）。
+  // 筛选进 key：换了筛选就是另一份结果集，停在原滚动位置会落在一片空白里，
+  // 选中项也可能已被筛掉，留着会让批量操作打到看不见的邮件上。
+  const sourceKey = `${searching ? 'search' : (agg ?? folderId)}-${listStyle}-${filterKey(filter)}`
 
   // ── 批量选择 ──────────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
@@ -227,15 +242,26 @@ export function ShellPage() {
   const markRead = useMarkRead()
   const toggleFlag = useToggleFlag()
 
-  // 打开未读邮件时自动标已读（对展平后的 messages 生效）
+  // 打开未读邮件时自动标已读（对展平后的 messages 生效）。
+  //
+  // ⚠ 必须走闸门「一封只发一次」，不能反复照着缓存里的 seen 重试：乐观更新落在
+  // onMutate 的 `await cancelQueries` 之后，而 mutate() 立刻触发一次重渲染，
+  // 这段窗口里 seen 仍是 false；onSettled 的 invalidate 又会让列表 refetch 把 seen
+  // 刷回未读。叠加成 render → mutate → render 自激后就是 React error #185。
+  // 详见 list-guards.ts。
+  const autoReadGate = useRef(createAutoReadGate())
+  // 只取一个布尔量当依赖：messages 是 flatMap 出来的新数组，
+  // 直接进依赖数组等于「每渲染必跑」。
+  const activeUnread =
+    messageId != null && messages.some((m) => m.id === messageId && !m.seen)
+
   useEffect(() => {
-    if (messageId == null) return
-    const m = messages.find((x) => x.id === messageId)
-    if (m && !m.seen) {
+    // shouldSend 为真时 messageId 必然非 null；这里多一句判断是给 TS 收窄类型用的
+    if (autoReadGate.current.shouldSend(messageId, activeUnread) && messageId != null) {
       markRead.mutate({ id: messageId, read: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messageId, messages])
+  }, [messageId, activeUnread])
 
   const [syncEnabled, setSyncEnabled] = useState(false)
   const { data: syncStatus } = useSyncStatus(accountId, syncEnabled)
@@ -247,7 +273,8 @@ export function ShellPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
 
   // ── 第三栏视图 state（邮件 / 通知）────────────────────────────────────────────
-  const [appView, setAppView] = useState<AppView>('mail')
+  // 通知中心浮层开关（与设置浮层同级；不再占用第三栏，见 NotificationsPage 头注释）
+  const [notifOpen, setNotifOpen] = useState(false)
   // ── 设置浮层 state ────────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
   // ── 快捷键速查浮层 state（`?` 触发）────────────────────────────────────────────
@@ -300,7 +327,7 @@ export function ShellPage() {
 
   function selectAccount(id: number) {
     setView('messages')
-    setAppView('mail')
+    setNotifOpen(false)
     setSettingsOpen(false)
     setDrawerOpen(false)
     setSearchQuery('')
@@ -314,7 +341,7 @@ export function ShellPage() {
 
   function selectFolder(id: number) {
     setView('messages')
-    setAppView('mail')
+    setNotifOpen(false)
     setSettingsOpen(false)
     setDrawerOpen(false)
     setSearchQuery('')
@@ -328,7 +355,7 @@ export function ShellPage() {
   // 选择聚合入口（跨所有账户）
   function selectAggregate(v: AggregateView) {
     setView('messages')
-    setAppView('mail')
+    setNotifOpen(false)
     setSettingsOpen(false)
     setDrawerOpen(false)
     setSearchQuery('')
@@ -340,6 +367,11 @@ export function ShellPage() {
   }
 
   function selectMessage(id: number) {
+    // 必须同时切回邮件视图：通知视图下第三栏渲染的是 NotificationsPage，
+    // 只改 URL 的话 Reader 根本没挂载，点列表看起来「毫无反应」。
+    // 列表与第三栏共处一屏，点列表就是要求第三栏显示那封邮件——
+    // 视图归属应当跟随这个意图，而不是让用户先手动退出通知。
+    setNotifOpen(false)
     setParam((p) => p.set('message', String(id)))
   }
 
@@ -351,7 +383,7 @@ export function ShellPage() {
       try {
         const { data } = await api.get<MessageDetail>(`/messages/${n.message_id}`)
         setView('messages')
-        setAppView('mail')
+        setNotifOpen(false)
         setSearchQuery('')
         setParam((p) => {
           p.set('account', String(data.account_id))
@@ -369,7 +401,7 @@ export function ShellPage() {
       const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${n.account_id}/folders`)
       const inbox = data.folders?.find((f) => f.type === 'inbox')
       setView('messages')
-      setAppView('mail')
+      setNotifOpen(false)
       setSearchQuery('')
       setParam((p) => {
         p.set('account', String(n.account_id))
@@ -453,10 +485,19 @@ export function ShellPage() {
     unread: 'sidebar.allUnread',
     starred: 'sidebar.starred',
   }
+  // ── 阅读区上一封 / 下一封 ─────────────────────────────────────────────────────
+  // 顺序取当前列表（已含筛选与排序），与 j/k 快捷键完全一致；
+  // 位于边界时给 null，Reader 据此置灰按钮。
+  const activeIndex = messageId == null ? -1 : messages.findIndex((m) => m.id === messageId)
+  const prevMessageId = activeIndex > 0 ? messages[activeIndex - 1].id : null
+  const nextMessageId =
+    activeIndex >= 0 && activeIndex < messages.length - 1 ? messages[activeIndex + 1].id : null
+
   // 移动端单栏：有选中邮件或处于通知视图时显示阅读面板，否则显示列表面板
-  const mobilePane: 'list' | 'reader' = messageId != null || appView === 'notif' ? 'reader' : 'list'
+  // 通知已改为浮层，不再参与移动端的主面板切换——只看有没有选中邮件
+  const mobilePane: 'list' | 'reader' = messageId != null ? 'reader' : 'list'
   function onMobileBack() {
-    setAppView('mail')
+    setNotifOpen(false)
     setParam((p) => p.delete('message'))
   }
 
@@ -465,13 +506,26 @@ export function ShellPage() {
   // 聚合视图的「共 N 封」取后端的真实总数，而不是 messages.length——
   // 后者只是当前已加载的那一页，翻页时数字还会往上跳，读起来像邮箱里只有 50 封。
   // 收件箱聚合额外带上未读数，与文件夹视图的副标题保持同一种写法。
+  //
+  // 筛选生效时一律改用后端返回的筛选后总数：否则会出现「共 320 封 · 32 未读」
+  // 配着一屏 5 条的场面——那 320 是全量计数，与眼前这份筛过的列表不是一回事。
+  const filtering = isFilterActive(filter)
   const listSubtitle = (() => {
     if (searching) {
-      // 命中总数由后端给出；尚未返回时（首页在途）退回已加载条数
-      const total = searchTotalOf(searchInfinite.data?.pages) ?? messages.length
+      // 命中总数由后端给出（已含筛选）；尚未返回时（首页在途）退回已加载条数
+      const total = listTotalOf(searchInfinite.data?.pages) ?? messages.length
       return t('list.totalCount', { count: total })
     }
-    if (!agg) return undefined
+    if (!agg) {
+      // 文件夹视图：不筛选时返回 undefined，交回 MailList 用 folder 上的现成计数。
+      if (!filtering) return undefined
+      const total = listTotalOf(folderInfinite.data?.pages) ?? messages.length
+      return t('list.filteredCount', { count: total })
+    }
+    if (filtering) {
+      const total = listTotalOf(aggInfinite.data?.pages) ?? messages.length
+      return t('list.filteredCount', { count: total })
+    }
     if (agg === 'inbox') {
       const total = t('list.totalCount', { count: aggCounts.inboxTotal })
       return aggCounts.inbox > 0
@@ -489,7 +543,7 @@ export function ShellPage() {
       activeAccountId={accountId}
       activeFolderId={folderId}
       syncing={syncing}
-      activeView={appView}
+      notifOpen={notifOpen}
       settingsOpen={settingsOpen}
       activeAgg={agg}
       aggCounts={aggCounts}
@@ -498,7 +552,7 @@ export function ShellPage() {
       onSelectAggregate={selectAggregate}
       onSync={onSync}
       onAddAccount={() => { onAddAccount(); setDrawerOpen(false) }}
-      onSetView={(v) => { setAppView(v); setDrawerOpen(false) }}
+      onToggleNotif={() => { setNotifOpen((o) => !o); setDrawerOpen(false) }}
       onToggleSettings={() => { setSettingsOpen((o) => !o); setDrawerOpen(false) }}
       onCompose={() => { onCompose(); setDrawerOpen(false) }}
       onOpenDrafts={(id) => { onOpenDrafts(id); setDrawerOpen(false) }}
@@ -536,6 +590,9 @@ export function ShellPage() {
               onLoadMore={loadMore}
               searchValue={searchQuery}
               onSearchChange={setSearchQuery}
+              filter={filter}
+              onToggleFilter={onToggleFilter}
+              onClearFilter={() => setFilter(EMPTY_FILTER)}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
               onSelectAllVisible={selectAllVisible}
@@ -554,21 +611,17 @@ export function ShellPage() {
           )
         }
         reader={
-          appView === 'notif' ? (
-            <NotificationsPage
-              onBack={() => setAppView('mail')}
-              onOpen={(n) => void openNotification(n)}
-              // 双栏浮动模式面板自带关闭键，避免双返回；窄屏由 CSS 隐藏
-              showBack={layoutMode !== 'two-slide'}
-            />
-          ) : (
-            <Reader
-              messageId={messageId}
-              onReply={onReply}
-              onForward={onForward}
-              onClose={() => setParam((p) => p.delete('message'))}
-            />
-          )
+          // 第三栏专属于阅读区。通知已改为浮层，不再与之争抢——
+          // 那正是「开着通知点邮件没反应」的成因。
+          <Reader
+            messageId={messageId}
+            onReply={onReply}
+            onForward={onForward}
+            onClose={() => setParam((p) => p.delete('message'))}
+            onPrev={prevMessageId != null ? () => selectMessage(prevMessageId) : null}
+            onNext={nextMessageId != null ? () => selectMessage(nextMessageId) : null}
+            onArchived={() => toast(t('reader.archivedToast'))}
+          />
         }
       />
       <AccountDialog
@@ -583,6 +636,13 @@ export function ShellPage() {
         initial={composeInitial}
         draftId={composeDraftId}
       />
+      {/* 通知中心（覆盖层 modal，与设置同级）*/}
+      {notifOpen && (
+        <NotificationsPage
+          onClose={() => setNotifOpen(false)}
+          onOpen={(n) => void openNotification(n)}
+        />
+      )}
       {/* 设置弹框（覆盖层 modal）*/}
       {settingsOpen && (
         <SettingsDialog

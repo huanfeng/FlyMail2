@@ -255,7 +255,7 @@ func TestManagerPollAllSyncsAndPublishes(t *testing.T) {
 
 	// DB 新增 5 行：CountByFolder == 15（预置时无邮件，实际 0+5=5）。
 	// 注意：预置 TotalCount=10 只是 folder 表字段，message 表此前为空。
-	n, _ := mrepo.CountByFolder(inbox.ID)
+	n, _ := mrepo.CountByFolder(inbox.ID, message.Filter{})
 	if n != 5 {
 		t.Errorf("CountByFolder = %d, want 5", n)
 	}

@@ -35,7 +35,7 @@ func TestBodyUpsertIdempotent(t *testing.T) {
 	if err := repo.Upsert(m); err != nil {
 		t.Fatalf("upsert message: %v", err)
 	}
-	got, _ := repo.ListByFolder(1, 0, 10)
+	got, _ := repo.ListByFolder(1, 0, 10, message.Filter{})
 	msgID := got[0].ID
 
 	b1 := &message.MessageBody{MessageID: msgID, HTMLBody: "v1"}
@@ -73,7 +73,7 @@ func TestReplaceAttachments(t *testing.T) {
 	if err := repo.Upsert(m); err != nil {
 		t.Fatalf("upsert message: %v", err)
 	}
-	got, _ := repo.ListByFolder(1, 0, 10)
+	got, _ := repo.ListByFolder(1, 0, 10, message.Filter{})
 	msgID := got[0].ID
 
 	// Replace 2 个附件
@@ -121,7 +121,7 @@ func TestGetByIDAndMarks(t *testing.T) {
 	if err := repo.Upsert(m); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	list, _ := repo.ListByFolder(3, 0, 10)
+	list, _ := repo.ListByFolder(3, 0, 10, message.Filter{})
 	id := list[0].ID
 
 	// GetByID

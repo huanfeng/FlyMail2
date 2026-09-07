@@ -69,7 +69,7 @@ func TestM3SmokeRealAccount(t *testing.T) {
 	if inbox == nil {
 		t.Fatal("inbox not found")
 	}
-	items, _ := msvc.List(inbox.ID, 0, 20)
+	items, _ := msvc.List(inbox.ID, 0, 20, message.Filter{})
 	t.Logf("inbox first page: %d messages", len(items))
 	for _, m := range items {
 		t.Logf("  uid=%d seen=%v from=%q subject=%q", m.UID, m.Seen, m.FromName, m.Subject)

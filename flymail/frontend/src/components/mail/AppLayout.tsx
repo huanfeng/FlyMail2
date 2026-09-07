@@ -84,6 +84,7 @@ export function AppLayout({
     document.documentElement.style.setProperty('--sidebar-w', `${w.sidebar}px`)
     document.documentElement.style.setProperty('--list-w', `${w.list}px`)
     document.documentElement.style.setProperty('--slide-w', `${w.slide}px`)
+    document.documentElement.style.setProperty('--sender-col-w', `${w.senderCol}px`)
   }, [w])
 
   // 监听设置弹框滑块的宽度变更，即时同步（拖拽自身写入也会触发，setW 同值为 no-op）

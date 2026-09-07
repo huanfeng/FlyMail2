@@ -356,7 +356,14 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
    下限合计 170+260+300=730 < 769（≤768 断点切单栏），三栏形态不会溢出。 */
 .col.sidebar { background: var(--bg-alt); width: var(--sidebar-w); flex: 0 1 var(--sidebar-w); min-width: 170px; }
 .col.list { background: var(--bg); width: var(--list-w); flex: 0 1 var(--list-w); min-width: 260px; border-left: 1px solid var(--rule); border-right: 1px solid var(--rule); }
-.col.reader { background: var(--bg); flex: 1 1 auto; min-width: 300px; }
+/* ⚠ flex-basis 必须是 0 而不是 auto：auto 会拿内容的 max-content 当基准，
+   而阅读区的 max-content 随邮件而变——工具栏 flex-wrap 后其 max-content
+   等于「所有按钮排成一行」的宽度，星标按钮文案在「星标 / 取消星标」间切换、
+   归档按钮按账户是否有归档文件夹出现，每封邮件都可能不同。
+   前两栏是 flex-shrink:1 可被压缩的，于是不同邮件会把它们挤成不同宽度，
+   表现为「切换邮件时三栏宽度整体抖动」。basis 0 让宽度只由剩余空间决定，
+   与内容彻底解耦。min-width 仍是布局下限，不参与 basis 计算。 */
+.col.reader { background: var(--bg); flex: 1 1 0; min-width: 300px; }
 
 /* 移动端顶栏与抽屉遮罩：桌面默认隐藏 */
 .mobile-bar { display: none; }
@@ -632,10 +639,44 @@ body.is-resizing * { cursor: col-resize !important; }
   background: var(--accent-wash); color: var(--accent-ink);
   border-color: transparent;
 }
+/* 「清除筛选」：圆形无边框，只在有筛选生效时出现，
+   视觉上比同尺寸的文字 chip 轻，不与筛选开关抢注意力。 */
+.chip-clear {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; padding: 0;
+  border-color: transparent; color: var(--ink-3);
+}
+.chip-clear:hover { background: var(--bg-hover); color: var(--ink); }
+
+/* 列表外壳：不滚动，仅作为列宽手柄的定位参照（手柄放进滚动容器会跟着滚走）。
+   overflow:hidden 是必需的——列表宽度可被拖到 300px，而发件人列上限 320px，
+   两者组合下手柄的 left 会超出列表右缘，不裁剪就会浮到阅读区上面去。 */
+.mail-list-wrap {
+  flex: 1; min-height: 0; position: relative;
+  display: flex; flex-direction: column; overflow: hidden;
+}
 
 /* scrollbar-gutter: stable —— 列表从"加载中(不足一屏)"变成"有滚动条"时，
    若不预留滚动条槽位，行内容宽度会瞬间缩窄 12px，表现为切换文件夹时整栏抖一下。 */
 .mail-list { flex: 1; overflow-y: auto; scrollbar-gutter: stable; }
+
+/* 发件人/主题分界处的列宽拖拽手柄：平时完全隐形，不占布局高度，
+   鼠标移上去才浮出一条竖线。命中区 9px（1px 的线太难瞄准），
+   视觉线只有 1px（::after），两者分离才能既好点又不显眼。 */
+.list-col-resize {
+  position: absolute; top: 0; bottom: 0;
+  width: 9px; z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+}
+.list-col-resize::after {
+  content: ''; position: absolute;
+  left: 4px; top: 0; bottom: 0; width: 1px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.list-col-resize:hover::after,
+.list-col-resize.dragging::after { background: var(--accent); }
 
 /* ⚠ 行高是与 MailList.tsx 的 estimateSize 绑定的硬契约：
    虚拟列表按 estimateSize 的间隔用 translateY 排布行槽位，行若比槽位高就会压到下一行头上，
@@ -744,14 +785,18 @@ body.is-resizing * { cursor: col-resize !important; }
 .mi-del:hover { color: var(--destructive); }
 
 /* 宽布局（滑入预览）模式：单行紧凑行 */
+/* 发件人列宽走 --sender-col-w（AppLayout 从 layout-prefs 注入，设置里可调并记忆）。
+   原先是 minmax(160px,220px)：三栏形态下总吃满 220px，而发件人多数只有三五个字，
+   空出来的宽度本该留给主题——扫读时真正要看的是主题，不是重复出现的发件人。
+   兜底值与 LAYOUT_DEFAULTS.senderCol 保持一致，供变量尚未注入的首帧使用。 */
 .mail-item.mail-item-row {
   padding: 11px 20px;
-  grid-template-columns: 28px minmax(160px, 220px) 1fr auto auto auto;
+  grid-template-columns: 28px var(--sender-col-w, 150px) 1fr auto auto auto;
   gap: 14px;
   align-items: center;
 }
 .mail-list.selecting .mail-item.mail-item-row {
-  grid-template-columns: 20px 28px minmax(160px, 220px) 1fr auto auto auto;
+  grid-template-columns: 20px 28px var(--sender-col-w, 150px) 1fr auto auto auto;
 }
 .mail-item.mail-item-row .avatar-sq { width: 28px; height: 28px; font-size: 11px; }
 /* 紧凑行是单行网格，卡片行的固定高度（mi-top 18px / mi-preview 35px）在这里必须解除 */
@@ -845,6 +890,10 @@ body.is-resizing * { cursor: col-resize !important; }
 }
 .tb-btn:hover { background: var(--bg-hover); color: var(--ink); }
 .tb-btn:disabled { opacity: 0.4; cursor: default; }
+/* 纯图标按钮（上一封/下一封）：操作按钮保持「图标+文字」，
+   而这两个是导航不是操作，收成方形省下的横向空间留给带文字的按钮。 */
+.tb-btn.tb-icon { width: 32px; padding: 0; justify-content: center; }
+.tb-btn.tb-icon:disabled:hover { background: transparent; color: var(--ink-2); }
 .tb-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; flex: 0 0 auto; }
 /* 下拉菜单的定位容器同样不能被压缩，否则里面的按钮跟着变窄 */
 .tb-menu-wrap { position: relative; flex: 0 0 auto; }
@@ -955,6 +1004,48 @@ body.is-resizing * { cursor: col-resize !important; }
   position: absolute; top: 14px; right: 14px;
   z-index: 5;
 }
+
+/* 通知中心浮层：与设置共用遮罩(.settings-backdrop)，但内容是单栏 feed，
+   所以比设置窄一些。内部沿用原来的 .fullpage / .notif-* 一套样式不变。 */
+.notif-dialog {
+  width: min(680px, 92vw); height: min(660px, 84vh);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: pop 0.2s cubic-bezier(.2,.8,.3,1.2);
+}
+/* feed 在浮层里自己滚动，顶栏/tab 行保持吸顶不动 */
+.notif-dialog .fullpage { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* .fp-* 这套间距是给全屏页面定的（左右 40px、底部 80px、820px 居中），
+   放进 680px 的浮层就成了「四周大片留白 + 条目缩在中间」。
+   这里按浮层尺度重设，只在 .notif-dialog 作用域内生效，不影响别处。 */
+.notif-dialog .fp-tabs {
+  padding: 10px 16px; min-height: 52px; gap: 4px;
+  flex-wrap: nowrap;
+}
+.notif-dialog .notif-tabs { padding: 0 16px; }
+.notif-dialog .fp-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  /* 去掉居中约束与超大内边距，条目铺满浮层宽度 */
+  max-width: none; margin: 0;
+  padding: 4px 16px 16px;
+}
+/* 顶栏里的标题块：标题与统计同处一行，不再是独占一行的 28px 大字 */
+.nd-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.nd-title {
+  font-family: var(--font-display); font-size: 15px; font-weight: 500;
+  color: var(--ink); white-space: nowrap;
+}
+.nd-sub {
+  font-size: 12px; color: var(--ink-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* 窄浮层里按钮文字省略优先于标题被挤没 */
+.notif-dialog .fp-tabs .tb-btn { padding: 0 8px; }
 .sd-nav {
   background: var(--bg-alt);
   border-right: 1px solid var(--rule);
@@ -1093,10 +1184,6 @@ body.is-resizing * { cursor: col-resize !important; }
 .ctx-item.destructive svg { color: var(--destructive); }
 .ctx-sep { height: 1px; background: var(--rule); margin: 4px 6px; }
 
-/* 通知屏自带的「返回收件箱」在窄屏隐藏（≤768 顶栏 mobile-bar 已有返回键，避免双返回） */
-@media (max-width: 768px) {
-  .notif-screen-back { display: none; }
-}
 .reader-slide .reader-embedded,
 .reader-slide .reader-embedded.col {
   width: 100% !important;

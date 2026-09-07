@@ -91,7 +91,7 @@ func TestListAggregateUnreadExcludesTrashJunk(t *testing.T) {
 	repo, db := newRepoWithDB(t)
 	seedAggregate(t, repo, db)
 
-	list, err := repo.ListAggregate("unread", nil, 0, 50)
+	list, err := repo.ListAggregate("unread", nil, 0, 50, message.Filter{})
 	if err != nil {
 		t.Fatalf("ListAggregate: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestAggregateDedupesGmailLabelCopies(t *testing.T) {
 		}
 	}
 
-	list, err := repo.ListAggregate("unread", nil, 0, 50)
+	list, err := repo.ListAggregate("unread", nil, 0, 50, message.Filter{})
 	if err != nil {
 		t.Fatalf("ListAggregate: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestListAggregateKeysetPaging(t *testing.T) {
 	seedAggregate(t, repo, db)
 
 	// inbox 聚合（收件箱全部邮件，无未读过滤）= i1-unread, i1-read-star, i2-unread 共 3 封
-	page1, err := repo.ListAggregate("inbox", nil, 0, 2)
+	page1, err := repo.ListAggregate("inbox", nil, 0, 2, message.Filter{})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestListAggregateKeysetPaging(t *testing.T) {
 		t.Fatalf("page1 order wrong: %s,%s", page1[0].Subject, page1[1].Subject)
 	}
 	last := page1[len(page1)-1]
-	page2, err := repo.ListAggregate("inbox", &last.Date, last.ID, 2)
+	page2, err := repo.ListAggregate("inbox", &last.Date, last.ID, 2, message.Filter{})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

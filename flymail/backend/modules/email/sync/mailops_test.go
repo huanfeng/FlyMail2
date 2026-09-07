@@ -130,7 +130,7 @@ func TestBatchDeleteGroupsByFolder(t *testing.T) {
 	if sess.movedTo != "Trash" || len(sess.movedUIDs) != 2 {
 		t.Errorf("应一次移动 2 封到 Trash，movedTo=%q movedUIDs=%v", sess.movedTo, sess.movedUIDs)
 	}
-	if n, _ := mrepo.CountByFolder(inboxID); n != 0 {
+	if n, _ := mrepo.CountByFolder(inboxID, message.Filter{}); n != 0 {
 		t.Errorf("源文件夹本地行应清空，剩 %d", n)
 	}
 }

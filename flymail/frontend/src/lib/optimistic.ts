@@ -5,10 +5,11 @@
 // 前端这里对应地做「先改缓存 + 失败回滚」，让点击即时生效。
 //
 // 缓存形状有三种（见 queries.ts）：
-//   1. MessageListItem[]                       —— useMessages
-//   2. { pages: MessageListItem[][] }          —— useInfiniteMessages（文件夹列表）
-//   3. { pages: { messages: MessageListItem[] }[] } —— 聚合 / 搜索
-// mapListCache 把三种统一成「对一段列表做映射」。
+//   1. MessageListItem[]                       —— useMessages（非无限加载版）
+//   2. { pages: MessageListItem[][] }          —— 历史形状，现无生产者，保留兜底
+//   3. { pages: { messages: MessageListItem[] }[] } —— 文件夹 / 聚合 / 搜索三条无限加载链路
+// mapListCache 把三种统一成「对一段列表做映射」，按数据形状分派而非 query key，
+// 因此 query key 增减片段（如加入筛选标识）不影响这里。
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { AggregateView } from '@/lib/queries'

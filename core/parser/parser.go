@@ -31,6 +31,9 @@ func ParseBody(r io.Reader, email *types.ParsedEmail, fallbackHeaders bool) erro
 	if fallbackHeaders {
 		fillFromHeaders(mr, email)
 	}
+	// 线程头不在 ENVELOPE 里（ENVELOPE 只有 In-Reply-To，没有 References），整封抓取时一律从头里取，
+	// 不受 fallbackHeaders 控制。
+	fillThreadHeaders(mr, email)
 
 	// 展示路径：不读取内容到 Content（captureContent=false），只取元数据与大小。
 	text, html, atts := walkParts(mr, false)
@@ -154,6 +157,54 @@ func readAttachment(body io.Reader, filename, ct, cid string, inline, capture bo
 		a.Size, _ = io.Copy(io.Discard, body)
 	}
 	return a
+}
+
+// fillThreadHeaders 从 In-Reply-To / References 头填线程字段（已有值时不覆盖——
+// 元数据抓取阶段可能已经通过 HEADER.FIELDS 拿到过）。
+func fillThreadHeaders(mr *mail.Reader, email *types.ParsedEmail) {
+	if email.InReplyTo == "" {
+		if ids := MessageIDs(mr.Header.Get("In-Reply-To")); len(ids) > 0 {
+			email.InReplyTo = ids[0]
+		}
+	}
+	if email.References == "" {
+		email.References = strings.Join(MessageIDs(mr.Header.Get("References")), " ")
+	}
+}
+
+// MessageIDs 从 In-Reply-To / References 这类头的原始值里提取 Message-ID 列表（去掉尖括号，保持顺序）。
+// 规范写法是 <a@x> <b@y>，但实际邮件里见过：没有尖括号的裸 id、逗号分隔、id 之间夹着注释文本
+// （旧版 Outlook 会在 In-Reply-To 里写一段人类可读的引用）。策略：有尖括号就只认尖括号里的；
+// 完全没有尖括号才按空白切分，且只保留含 @ 的片段。
+func MessageIDs(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	if strings.Contains(raw, "<") {
+		for {
+			start := strings.IndexByte(raw, '<')
+			if start < 0 {
+				break
+			}
+			end := strings.IndexByte(raw[start:], '>')
+			if end < 0 {
+				break
+			}
+			if id := strings.TrimSpace(raw[start+1 : start+end]); id != "" {
+				out = append(out, id)
+			}
+			raw = raw[start+end+1:]
+		}
+		return out
+	}
+	for _, f := range strings.FieldsFunc(raw, func(r rune) bool { return r == ' ' || r == '\t' || r == '\r' || r == '\n' || r == ',' }) {
+		if strings.Contains(f, "@") {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // fillFromHeaders populates ParsedEmail envelope fields from message headers

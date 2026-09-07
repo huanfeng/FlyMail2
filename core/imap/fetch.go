@@ -1,8 +1,11 @@
 package imap
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
+	"net/textproto"
 	"strings"
 
 	imapv2 "github.com/emersion/go-imap/v2"
@@ -144,6 +147,14 @@ func (s *Session) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
 	return raw, nil
 }
 
+// threadHeaderSection 是元数据抓取时附带的头字段区段：ENVELOPE 里没有 References，
+// 会话归并离不开它。PEEK 避免把邮件标成已读。
+var threadHeaderSection = &imapv2.FetchItemBodySection{
+	Specifier:    imapv2.PartSpecifierHeader,
+	HeaderFields: []string{"References", "In-Reply-To"},
+	Peek:         true,
+}
+
 func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
 	var bodySection *imapv2.FetchItemBodySection
 	if opts.FetchBody {
@@ -159,6 +170,9 @@ func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.Par
 	}
 	if bodySection != nil {
 		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{bodySection}
+	} else {
+		// 整封抓取时头已在 BODY[] 里，由 parser 填；只抓元数据时才单独要这两个头
+		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{threadHeaderSection}
 	}
 
 	fetchCmd := s.Client.Fetch(numSet, fetchOpts)
@@ -214,6 +228,9 @@ func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.Fetc
 	if env := buf.Envelope; env != nil {
 		email.Subject = parser.DecodeMIMEHeader(env.Subject)
 		email.MessageID = strings.Trim(env.MessageID, "<>")
+		if len(env.InReplyTo) > 0 {
+			email.InReplyTo = strings.Trim(env.InReplyTo[0], "<>")
+		}
 		email.From = ConvertIMAPAddresses(env.From)
 		email.To = ConvertIMAPAddresses(env.To)
 		email.CC = ConvertIMAPAddresses(env.Cc)
@@ -231,9 +248,31 @@ func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.Fetc
 		if body != nil {
 			parser.ParseBody(bytes.NewReader(body), email, fallbackHeaders)
 		}
+	} else if hdr := buf.FindBodySection(threadHeaderSection); len(hdr) > 0 {
+		fillThreadHeadersFromSection(hdr, email)
 	}
 
 	return email
+}
+
+// fillThreadHeadersFromSection 解析 HEADER.FIELDS 区段（就是几行 RFC 5322 头 + 空行），
+// 填 In-Reply-To / References。两个字段都是「已有值不覆盖」（ENVELOPE 先给的 In-Reply-To 优先）。
+func fillThreadHeadersFromSection(section []byte, email *types.ParsedEmail) {
+	// 有的服务器返回的区段不以空行结尾，补一个让 ReadMIMEHeader 正常收尾。
+	// 用 MultiReader 拼接而不是 append：section 是 go-imap 的缓冲区，cap > len 时 append 会写进它的内存。
+	r := textproto.NewReader(bufio.NewReader(io.MultiReader(bytes.NewReader(section), strings.NewReader("\r\n\r\n"))))
+	h, err := r.ReadMIMEHeader()
+	if err != nil && len(h) == 0 {
+		return
+	}
+	if email.InReplyTo == "" {
+		if ids := parser.MessageIDs(h.Get("In-Reply-To")); len(ids) > 0 {
+			email.InReplyTo = ids[0]
+		}
+	}
+	if email.References == "" {
+		email.References = strings.Join(parser.MessageIDs(h.Get("References")), " ")
+	}
 }
 
 // ConvertIMAPAddresses converts go-imap/v2 addresses to core types.Address.

@@ -234,6 +234,52 @@ export interface MessageListItem {
   snippet: string
 }
 
+/**
+ * 会话行（M10 线程视图的列表条目）。
+ *
+ * 口径见 docs/flymail/m10-threads.md：封数/未读/星标/附件/参与者按**账户内整条会话**统计
+ * （跨文件夹去重），而主题/摘要/日期/latest_* 取的是**当前范围内**最新的那一封——
+ * 于是「收件箱 3 封 + 已发送 2 封」显示 5 封，与展开手风琴看到的条数一致。
+ */
+export interface ThreadListItem {
+  /** `{account_id}:{root message-id}`，按账户隔离；含 : @ <> 等字符，进 URL 必须编码 */
+  thread_id: string
+  account_id: number
+  /** 整条会话的封数（去重） */
+  count: number
+  /** 整条会话的未读封数 */
+  unread: number
+  /** 任一成员被标星 */
+  flagged: boolean
+  /** 任一成员带附件 */
+  has_attachment: boolean
+  /** 范围内最新一封的主题 */
+  subject: string
+  /** 范围内最新一封的摘要 */
+  snippet: string
+  /** 范围内最新一封的日期（RFC3339） */
+  date: string
+  /** 范围内最新一封的邮件 id（手风琴默认展开这一封） */
+  latest_id: number
+  latest_folder_id: number
+  /** 按首次出现顺序去重（按邮箱）的参与者，后端最多给 8 个 */
+  participants: Address[]
+}
+
+/** 会话列表翻页游标（不透明，由后端回传，前端原样传回） */
+export interface ThreadCursor {
+  before_date: string
+  before_thread: string
+}
+
+/** 三条会话列表链路（文件夹 / 聚合 / 搜索）共用的分页形状 */
+export interface ThreadPage {
+  threads: ThreadListItem[]
+  next_cursor: ThreadCursor | null
+  /** 会话总数，后端只在第一页给出（翻页时结果不变，重复分组纯属浪费） */
+  total?: number
+}
+
 export interface Attachment {
   filename: string
   content_type: string
@@ -243,6 +289,8 @@ export interface Attachment {
 }
 
 export interface MessageDetail extends MessageListItem {
+  /** 所属会话 id；会话视图下由通知跳转等入口据此定位到哪条会话 */
+  thread_id?: string
   cc?: Address[]
   text_body: string
   html_body: string

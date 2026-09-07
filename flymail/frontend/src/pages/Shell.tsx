@@ -10,6 +10,7 @@ import { NotificationsPage } from '@/components/notifications/NotificationsPage'
 import { MailList } from '@/components/mail/MailList'
 import { DraftsList } from '@/components/mail/DraftsList'
 import { Reader } from '@/components/mail/Reader'
+import { ThreadReader } from '@/components/mail/ThreadReader'
 import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
 import { ShortcutsCheatsheet } from '@/components/mail/ShortcutsCheatsheet'
@@ -34,6 +35,13 @@ import {
   useBatchMove,
   useBatchRead,
   useBatchFlag,
+  useInfiniteThreads,
+  useInfiniteAggregateThreads,
+  useInfiniteSearchThreads,
+  useThreadBatchRead,
+  useThreadBatchFlag,
+  useThreadBatchDelete,
+  useThreadBatchMove,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
@@ -43,7 +51,10 @@ import {
   setListStyle,
   getAlwaysShowSelect,
   setAlwaysShowSelect,
+  getConversationView,
+  setConversationView,
 } from '@/lib/list-prefs'
+import { commonAccountId, selectedThreads } from '@/lib/thread-format'
 import type { ListStyle } from '@/lib/list-prefs'
 import { EMPTY_FILTER, filterKey, isFilterActive, toggleFilter } from '@/lib/list-filters'
 import type { FilterKey, ListFilter } from '@/lib/list-filters'
@@ -51,7 +62,7 @@ import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
 import { createAutoReadGate } from '@/lib/list-guards'
 import type { LayoutMode } from '@/lib/layout-mode'
 import api from '@/lib/api'
-import type { Account, Draft, Folder, MessageDetail, Notification } from '@/lib/types'
+import type { Account, Draft, Folder, MessageDetail, Notification, ThreadListItem } from '@/lib/types'
 
 /** 校验 URL 中的 agg 参数是否为合法聚合视图 */
 function parseAgg(v: string | null): AggregateView | null {
@@ -71,6 +82,8 @@ export function ShellPage() {
   const accountId = params.get('account') ? Number(params.get('account')) : null
   const folderId = params.get('folder') ? Number(params.get('folder')) : null
   const messageId = params.get('message') ? Number(params.get('message')) : null
+  // 会话视图下第三栏由 thread 参数驱动（thread_id 是字符串，不能复用 message）
+  const threadId = params.get('thread')
   // 聚合视图（跨所有账户）：inbox / unread / starred；非聚合时为 null
   const agg = parseAgg(params.get('agg'))
 
@@ -88,6 +101,16 @@ export function ShellPage() {
     setAlwaysShowSelectState(on)
   }
 
+  // 会话视图偏好（会话折叠 vs 单封列表）；关闭后一切回到既有单封行为
+  const [conversationView, setConversationViewState] = useState<boolean>(() => getConversationView())
+  function handleChangeConversationView(on: boolean) {
+    setConversationView(on)
+    setConversationViewState(on)
+    // 两种模式的第三栏参数不通用：切换时把当前选中项清掉，
+    // 否则会留下一个另一套视图根本解释不了的 message/thread 参数。
+    setParam((p) => { p.delete('message'); p.delete('thread') })
+  }
+
   // 布局模式偏好（三栏 / 双栏浮动阅读）
   const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => getLayoutMode())
   function handleChangeLayoutMode(mode: LayoutMode) {
@@ -97,6 +120,11 @@ export function ShellPage() {
 
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
+  // 本人邮箱集合：会话行头像要避开自己（自己发起的讨论不该显示自己的首字母）
+  const selfAddrs = useMemo(
+    () => new Set(accounts.map((a) => a.email.trim().toLowerCase()).filter(Boolean)),
+    [accounts],
+  )
 
   // ── 搜索（跨账户，后端）：输入防抖 300ms 再发请求 ──────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
@@ -118,50 +146,67 @@ export function ShellPage() {
     setFilter((f) => toggleFilter(f, key))
   }
 
-  // 三选一数据源：搜索 > 聚合 > 单文件夹（互斥，未选中的禁用以免多余请求）
-  const folderInfinite = useInfiniteMessages(searching || agg ? null : folderId, filter)
-  const aggInfinite = useInfiniteAggregate(searching ? null : agg, filter)
-  const searchInfinite = useInfiniteSearch(debouncedQuery, filter)
+  // 三选一数据源：搜索 > 聚合 > 单文件夹（互斥，未选中的禁用以免多余请求）。
+  // 会话/单封各一套三条链路，另一套由 conversationView 整体禁掉——
+  // 两套同时在跑意味着每次切文件夹发两份请求，其中一份的结果永远不会被渲染。
+  const folderInfinite = useInfiniteMessages(conversationView || searching || agg ? null : folderId, filter)
+  const aggInfinite = useInfiniteAggregate(conversationView || searching ? null : agg, filter)
+  const searchInfinite = useInfiniteSearch(conversationView ? '' : debouncedQuery, filter)
+  const folderThreads = useInfiniteThreads(!conversationView || searching || agg ? null : folderId, filter)
+  const aggThreads = useInfiniteAggregateThreads(!conversationView || searching ? null : agg, filter)
+  const searchThreads = useInfiniteSearchThreads(conversationView ? debouncedQuery : '', filter)
   // 聚合入口徽标计数
   const { data: aggCounts = { inbox: 0, unread: 0, starred: 0, inboxTotal: 0 } } = useAggregateCounts()
 
-  // 当前生效的数据源元信息
-  const messages = searching
-    ? (searchInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
-    : agg
-      ? (aggInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
-      : (folderInfinite.data?.pages.flatMap((p) => p.messages) ?? [])
-  const messagesLoading = searching
-    ? searchInfinite.isLoading
-    : agg
-      ? aggInfinite.isLoading
-      : folderInfinite.isLoading
-  const hasNextPage = (searching
-    ? searchInfinite.hasNextPage
-    : agg
-      ? aggInfinite.hasNextPage
-      : folderInfinite.hasNextPage) ?? false
-  const isFetchingNextPage = searching
-    ? searchInfinite.isFetchingNextPage
-    : agg
-      ? aggInfinite.isFetchingNextPage
-      : folderInfinite.isFetchingNextPage
+  // 当前生效的数据源（搜索 > 聚合 > 文件夹）。两套的分页形状不同，各取各的。
+  const msgSource = searching ? searchInfinite : agg ? aggInfinite : folderInfinite
+  const threadSource = searching ? searchThreads : agg ? aggThreads : folderThreads
+
+  // 两个列表都用 useMemo 固定引用：flatMap 每渲染都产出新数组，
+  // 直接进 useMemo/useEffect 的依赖数组等于「每渲染必重算」。
+  const msgPages = msgSource.data?.pages
+  const messages = useMemo(
+    () => (conversationView ? [] : (msgPages?.flatMap((p) => p.messages) ?? [])),
+    [conversationView, msgPages],
+  )
+  // null = 单封模式；MailList 据此决定渲染哪种行
+  const threadPages = threadSource.data?.pages
+  const threads: ThreadListItem[] | null = useMemo(
+    () => (conversationView ? (threadPages?.flatMap((p) => p.threads) ?? []) : null),
+    [conversationView, threadPages],
+  )
+  // 会话列表的裸数组：j/k 导航与「上一条/下一条」都要按它的顺序走，
+  // 声明位置必须早于快捷键 hook。
+  const threadList = threads ?? []
+  const messagesLoading = conversationView ? threadSource.isLoading : msgSource.isLoading
+  const hasNextPage = (conversationView ? threadSource.hasNextPage : msgSource.hasNextPage) ?? false
+  const isFetchingNextPage = conversationView
+    ? threadSource.isFetchingNextPage
+    : msgSource.isFetchingNextPage
   function loadMore() {
-    if (searching) void searchInfinite.fetchNextPage()
-    else if (agg) void aggInfinite.fetchNextPage()
-    else void folderInfinite.fetchNextPage()
+    if (conversationView) void threadSource.fetchNextPage()
+    else void msgSource.fetchNextPage()
   }
 
-  // 数据源标识：搜索/聚合/文件夹 + 列表样式 + 筛选（驱动 MailList 滚动重置与选择清空）。
+  // 数据源标识：视图形态 + 搜索/聚合/文件夹 + 列表样式 + 筛选
+  //（驱动 MailList 滚动重置与选择清空）。
   // 筛选进 key：换了筛选就是另一份结果集，停在原滚动位置会落在一片空白里，
   // 选中项也可能已被筛掉，留着会让批量操作打到看不见的邮件上。
-  const sourceKey = `${searching ? 'search' : (agg ?? folderId)}-${listStyle}-${filterKey(filter)}`
+  // 会话/单封同理：两种模式的选中项类型都不一样，切换后必须清空。
+  const sourceKey = `${conversationView ? 'th' : 'ms'}-${searching ? 'search' : (agg ?? folderId)}-${listStyle}-${filterKey(filter)}`
 
   // ── 批量选择 ──────────────────────────────────────────────────────────────
+  //
+  // 两种模式各持一套集合，而不是合成 `Set<number | string>`：
+  // 选中项要回头去列表里找对应条目（求共同账户就是这么做的），而数字与字符串
+  // 在 TS 里比较合法、运行时永不相等——合成一套会得到一个编译期看不出的空结果。
+  // 两套集合互斥使用，sourceKey 变化时一并清空。
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
-  // 切换数据源/样式时清空选择，避免跨上下文误操作
+  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(() => new Set())
+  // 切换数据源/样式/视图形态时清空选择，避免跨上下文误操作
   useEffect(() => {
     setSelectedIds(new Set())
+    setSelectedThreadIds(new Set())
   }, [sourceKey])
 
   function toggleSelect(id: number) {
@@ -172,15 +217,26 @@ export function ShellPage() {
       return next
     })
   }
+  function toggleSelectThread(id: string) {
+    setSelectedThreadIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   function selectAllVisible() {
-    setSelectedIds(new Set(messages.map((m) => m.id)))
+    if (conversationView) setSelectedThreadIds(new Set((threads ?? []).map((th) => th.thread_id)))
+    else setSelectedIds(new Set(messages.map((m) => m.id)))
   }
   function clearSelection() {
     setSelectedIds(new Set())
+    setSelectedThreadIds(new Set())
   }
 
-  // 已选邮件的共同账户（跨账户为 null）；批量移动目标取该账户的文件夹
+  // 已选条目的共同账户（跨账户为 null）；批量移动目标取该账户的文件夹
   const selectionAccountId = useMemo(() => {
+    if (conversationView) return commonAccountId(selectedThreads(threads ?? [], selectedThreadIds))
     let acc: number | null = null
     for (const id of selectedIds) {
       const m = messages.find((x) => x.id === id)
@@ -189,14 +245,17 @@ export function ShellPage() {
       else if (acc !== m.account_id) return null
     }
     return acc
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, messages])
+  }, [conversationView, selectedIds, selectedThreadIds, messages, threads])
   const { data: moveTargets = [] } = useFolders(selectionAccountId)
 
   const batchDelete = useBatchDelete()
   const batchMove = useBatchMove()
   const batchRead = useBatchRead()
   const batchFlag = useBatchFlag()
+  const threadRead = useThreadBatchRead()
+  const threadFlag = useThreadBatchFlag()
+  const threadDelete = useThreadBatchDelete()
+  const threadMove = useThreadBatchMove()
   const deleteOne = useDeleteMessage()
   const moveOne = useMoveMessage()
   const { toast } = useToast()
@@ -217,26 +276,98 @@ export function ShellPage() {
     })
   }
 
+  /**
+   * 会话级删除/移动的作用域。
+   *
+   * 文件夹视图带上当前文件夹：只动这个文件夹里的成员，否则「在收件箱里删掉一条会话」
+   * 会把已发送里自己的回复一并删掉。聚合/搜索视图不带，由后端排除 sent / drafts。
+   */
+  const threadScope = !searching && !agg && folderId != null ? folderId : undefined
+
   function onBatchDelete() {
+    if (conversationView) {
+      const ids = [...selectedThreadIds]
+      if (ids.length === 0) return
+      if (!window.confirm(t('list.thread.batchDeleteConfirm', { count: ids.length }))) return
+      threadDelete.mutate(
+        { threadIds: ids, inFolderId: threadScope },
+        { onSuccess: clearSelection },
+      )
+      return
+    }
     const ids = [...selectedIds]
     if (ids.length === 0) return
     if (!window.confirm(t('list.batchDeleteConfirm', { count: ids.length }))) return
     batchDelete.mutate(ids, { onSuccess: clearSelection })
   }
   function onBatchRead(read: boolean) {
+    if (conversationView) {
+      const ids = [...selectedThreadIds]
+      if (ids.length === 0) return
+      threadRead.mutate({ threadIds: ids, read }, { onSuccess: clearSelection })
+      return
+    }
     const ids = [...selectedIds]
     if (ids.length === 0) return
     batchRead.mutate({ ids, read }, { onSuccess: clearSelection })
   }
   function onBatchFlag(flagged: boolean) {
+    if (conversationView) {
+      const ids = [...selectedThreadIds]
+      if (ids.length === 0) return
+      threadFlag.mutate({ threadIds: ids, flagged }, { onSuccess: clearSelection })
+      return
+    }
     const ids = [...selectedIds]
     if (ids.length === 0) return
     batchFlag.mutate({ ids, flagged }, { onSuccess: clearSelection })
   }
   function onBatchMove(targetFolderId: number) {
+    if (conversationView) {
+      const ids = [...selectedThreadIds]
+      if (ids.length === 0) return
+      threadMove.mutate(
+        { threadIds: ids, folderId: targetFolderId, inFolderId: threadScope },
+        { onSuccess: clearSelection },
+      )
+      return
+    }
     const ids = [...selectedIds]
     if (ids.length === 0) return
     batchMove.mutate({ ids, folderId: targetFolderId }, { onSuccess: clearSelection })
+  }
+
+  // ── 单条会话的行内操作（列表 hover 按钮与右键菜单）────────────────────────
+  function onDeleteThread(item: ThreadListItem) {
+    if (!window.confirm(t('list.thread.deleteConfirm'))) return
+    threadDelete.mutate(
+      { threadIds: [item.thread_id], inFolderId: threadScope },
+      {
+        onSuccess: () => {
+          if (item.thread_id === threadId) setParam((p) => p.delete('thread'))
+          setSelectedThreadIds((prev) => {
+            if (!prev.has(item.thread_id)) return prev
+            const next = new Set(prev)
+            next.delete(item.thread_id)
+            return next
+          })
+          toast(t('list.deletedToast'))
+        },
+      },
+    )
+  }
+  function onToggleFlagThread(item: ThreadListItem, flagged: boolean) {
+    threadFlag.mutate({ threadIds: [item.thread_id], flagged })
+  }
+  function onMarkReadThread(item: ThreadListItem, read: boolean) {
+    threadRead.mutate({ threadIds: [item.thread_id], read })
+  }
+  function onMoveThread(item: ThreadListItem, targetFolderId: number) {
+    threadMove.mutate({
+      threadIds: [item.thread_id],
+      folderId: targetFolderId,
+      inFolderId: threadScope,
+    })
   }
 
   const markRead = useMarkRead()
@@ -290,8 +421,12 @@ export function ShellPage() {
   const [composeInitial, setComposeInitial] = useState<ComposeInitial | undefined>(undefined)
   const [composeDraftId, setComposeDraftId] = useState<number | null>(null)
 
-  // 快捷键 r 回复时需要当前邮件的完整数据；Reader 已请求过，此处只复用缓存
-  const { data: activeMessageDetail } = useMessageDetail(messageId)
+  // 会话模式下「当前这一封」由 ThreadReader 上报（手风琴里最近点开的那封）
+  const [threadActiveMessageId, setThreadActiveMessageId] = useState<number | null>(null)
+  // 快捷键 r 回复时需要当前邮件的完整数据；Reader / 手风琴已请求过，此处只复用缓存
+  const { data: activeMessageDetail } = useMessageDetail(
+    conversationView ? threadActiveMessageId : messageId,
+  )
 
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
     const next = new URLSearchParams(params)
@@ -315,6 +450,8 @@ export function ShellPage() {
     if (syncStatus?.phase === 'done') {
       void qc.invalidateQueries({ queryKey: ['folders'] })
       void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+      void qc.invalidateQueries({ queryKey: ['thread-messages'] })
       void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,6 +472,7 @@ export function ShellPage() {
       p.set('account', String(id))
       p.delete('folder')
       p.delete('message')
+      p.delete('thread')
       p.delete('agg')
     })
   }
@@ -348,6 +486,7 @@ export function ShellPage() {
     setParam((p) => {
       p.set('folder', String(id))
       p.delete('message')
+      p.delete('thread')
       p.delete('agg')
     })
   }
@@ -363,6 +502,7 @@ export function ShellPage() {
       p.set('agg', v)
       p.delete('folder')
       p.delete('message')
+      p.delete('thread')
     })
   }
 
@@ -373,6 +513,13 @@ export function ShellPage() {
     // 视图归属应当跟随这个意图，而不是让用户先手动退出通知。
     setNotifOpen(false)
     setParam((p) => p.set('message', String(id)))
+  }
+
+  // 会话模式下第三栏由 thread_id 驱动；latest_id / account_id 从当前列表行取，
+  // 因此这里只记 id，展开哪一封由 ThreadReader 依据列表行给出的 latestId 决定。
+  function selectThread(id: string) {
+    setNotifOpen(false)
+    setParam((p) => p.set('thread', id))
   }
 
   // 点击通知跳转：单封新邮件（带 message_id）→ 精准打开该邮件；
@@ -388,8 +535,17 @@ export function ShellPage() {
         setParam((p) => {
           p.set('account', String(data.account_id))
           p.set('folder', String(data.folder_id))
-          p.set('message', String(data.id))
           p.delete('agg')
+          // 会话视图的第三栏只认 thread 参数：只写 message 的话点通知会跳到一片空白。
+          // 详情 DTO 带 thread_id，据此定位到那条会话；这封是新到的未读，
+          // 手风琴的默认展开规则（最新一封 + 全部未读）保证它是打开的。
+          if (conversationView && data.thread_id) {
+            p.set('thread', data.thread_id)
+            p.delete('message')
+          } else {
+            p.set('message', String(data.id))
+            p.delete('thread')
+          }
         })
         return
       } catch {
@@ -408,6 +564,7 @@ export function ShellPage() {
         if (inbox) p.set('folder', String(inbox.id))
         else p.delete('folder')
         p.delete('message')
+        p.delete('thread')
         p.delete('agg')
       })
     } catch {
@@ -448,9 +605,13 @@ export function ShellPage() {
     onCompose,
     // 仅当有选中邮件且其详情已缓存时才允许快捷键回复
     onReply: activeMessageDetail != null ? () => onReply(activeMessageDetail) : null,
-    messages,
-    activeMessageId: messageId,
-    selectMessage,
+    // j/k 在会话模式下按会话走，在单封模式下按邮件走——同一套导航逻辑，两种 id
+    navIds: conversationView ? threadList.map((th) => th.thread_id) : messages.map((m) => m.id),
+    activeNavId: conversationView ? threadId : messageId,
+    onNavigate: (id) => {
+      if (conversationView) selectThread(String(id))
+      else selectMessage(Number(id))
+    },
     onCloseCompose: () => setComposeOpen(false),
     composeOpen,
     // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
@@ -493,12 +654,24 @@ export function ShellPage() {
   const nextMessageId =
     activeIndex >= 0 && activeIndex < messages.length - 1 ? messages[activeIndex + 1].id : null
 
-  // 移动端单栏：有选中邮件或处于通知视图时显示阅读面板，否则显示列表面板
-  // 通知已改为浮层，不再参与移动端的主面板切换——只看有没有选中邮件
-  const mobilePane: 'list' | 'reader' = messageId != null ? 'reader' : 'list'
+  // 会话模式下「上一封/下一封」按会话切换，与 j/k 同一套顺序
+  const activeThreadIndex =
+    threadId == null ? -1 : threadList.findIndex((th) => th.thread_id === threadId)
+  const prevThreadId = activeThreadIndex > 0 ? threadList[activeThreadIndex - 1].thread_id : null
+  const nextThreadId =
+    activeThreadIndex >= 0 && activeThreadIndex < threadList.length - 1
+      ? threadList[activeThreadIndex + 1].thread_id
+      : null
+  // 当前会话行：ThreadReader 需要它的 latest_id（默认展开哪一封）与 account_id
+  const activeThread = activeThreadIndex >= 0 ? threadList[activeThreadIndex] : null
+
+  // 移动端单栏：有选中邮件/会话或处于通知视图时显示阅读面板，否则显示列表面板
+  // 通知已改为浮层，不再参与移动端的主面板切换——只看有没有选中条目
+  const mobilePane: 'list' | 'reader' =
+    (conversationView ? threadId != null : messageId != null) ? 'reader' : 'list'
   function onMobileBack() {
     setNotifOpen(false)
-    setParam((p) => p.delete('message'))
+    setParam((p) => { p.delete('message'); p.delete('thread') })
   }
 
   // 列表标题/副标题：搜索 > 聚合 > 文件夹（文件夹由 MailList 内部据 folder 计算）
@@ -511,6 +684,16 @@ export function ShellPage() {
   // 配着一屏 5 条的场面——那 320 是全量计数，与眼前这份筛过的列表不是一回事。
   const filtering = isFilterActive(filter)
   const listSubtitle = (() => {
+    // 会话模式下条目是会话不是邮件，「共 320 封」配着 87 行会话读起来是错的。
+    // 三条链路首页都会带 total（会话数没法从 folders 表现成拿），统一用它。
+    if (conversationView) {
+      const total = listTotalOf(threadPages) ?? threadList.length
+      // 搜索态说「共 N 个会话」会被读成文件夹里一共这么多，实际是命中数
+      if (searching) return t('list.thread.searchCount', { count: total })
+      return filtering
+        ? t('list.thread.filteredCount', { count: total })
+        : t('list.thread.totalCount', { count: total })
+    }
     if (searching) {
       // 命中总数由后端给出（已含筛选）；尚未返回时（首页在途）退回已加载条数
       const total = listTotalOf(searchInfinite.data?.pages) ?? messages.length
@@ -580,6 +763,16 @@ export function ShellPage() {
               titleOverride={listTitle}
               subtitleOverride={listSubtitle}
               messages={messages}
+              threads={threads}
+              activeThreadId={threadId}
+              onSelectThread={(item) => selectThread(item.thread_id)}
+              onToggleFlagThread={onToggleFlagThread}
+              onDeleteThread={onDeleteThread}
+              onMarkReadThread={onMarkReadThread}
+              onMoveThread={onMoveThread}
+              selectedThreadIds={selectedThreadIds}
+              onToggleSelectThread={toggleSelectThread}
+              selfAddrs={selfAddrs}
               loading={messagesLoading}
               activeMessageId={messageId}
               onSelectMessage={selectMessage}
@@ -614,15 +807,31 @@ export function ShellPage() {
         reader={
           // 第三栏专属于阅读区。通知已改为浮层，不再与之争抢——
           // 那正是「开着通知点邮件没反应」的成因。
-          <Reader
-            messageId={messageId}
-            onReply={onReply}
-            onForward={onForward}
-            onClose={() => setParam((p) => p.delete('message'))}
-            onPrev={prevMessageId != null ? () => selectMessage(prevMessageId) : null}
-            onNext={nextMessageId != null ? () => selectMessage(nextMessageId) : null}
-            onArchived={() => toast(t('reader.archivedToast'))}
-          />
+          conversationView ? (
+            <ThreadReader
+              threadId={threadId}
+              latestId={activeThread?.latest_id ?? null}
+              accountId={activeThread?.account_id ?? accountId}
+              inFolderId={threadScope}
+              onReply={onReply}
+              onForward={onForward}
+              onClose={() => setParam((p) => p.delete('thread'))}
+              onPrev={prevThreadId != null ? () => selectThread(prevThreadId) : null}
+              onNext={nextThreadId != null ? () => selectThread(nextThreadId) : null}
+              onArchived={() => toast(t('reader.archivedToast'))}
+              onActiveMessageChange={setThreadActiveMessageId}
+            />
+          ) : (
+            <Reader
+              messageId={messageId}
+              onReply={onReply}
+              onForward={onForward}
+              onClose={() => setParam((p) => p.delete('message'))}
+              onPrev={prevMessageId != null ? () => selectMessage(prevMessageId) : null}
+              onNext={nextMessageId != null ? () => selectMessage(nextMessageId) : null}
+              onArchived={() => toast(t('reader.archivedToast'))}
+            />
+          )
         }
       />
       <AccountDialog
@@ -649,6 +858,8 @@ export function ShellPage() {
         <SettingsDialog
           listStyle={listStyle}
           onChangeListStyle={handleChangeListStyle}
+          conversationView={conversationView}
+          onChangeConversationView={handleChangeConversationView}
           alwaysShowSelect={alwaysShowSelect}
           onChangeAlwaysShowSelect={handleChangeAlwaysShowSelect}
           layoutMode={layoutMode}

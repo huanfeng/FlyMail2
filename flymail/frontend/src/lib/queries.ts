@@ -3,16 +3,22 @@ import api from '@/lib/api'
 import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
 import type { ListFilter } from '@/lib/list-filters'
 import {
+  applyThreadUnreadDelta,
   applyUnreadDelta,
   beginOptimistic,
   bumpAggregateCount,
   findCachedMessages,
+  findCachedThreads,
   patchMessageDetail,
   patchMessages,
+  patchThreads,
+  patchThreadsEach,
   removeMessages,
+  removeThreads,
   restoreMail,
 } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, SendRequest, SyncStatus } from '@/lib/types'
+import type { ThreadPatch } from '@/lib/optimistic'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -212,6 +218,7 @@ export function useReindexSearch() {
     mutationFn: async () => { await api.post('/search/reindex') },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages', 'search'] })
+      qc.invalidateQueries({ queryKey: ['threads', 'search'] })
     },
   })
 }
@@ -234,6 +241,8 @@ export function useRemoteSearch() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] })
+      qc.invalidateQueries({ queryKey: ['threads'] })
+      qc.invalidateQueries({ queryKey: ['thread-messages'] })
     },
   })
 }
@@ -293,9 +302,16 @@ export function useMoveMessage() {
   })
 }
 
-/** 批量操作统一的缓存失效（邮件列表/文件夹/聚合计数/账户未读）。 */
+/**
+ * 批量操作统一的缓存失效（邮件列表/会话列表/文件夹/聚合计数/账户未读）。
+ *
+ * 单封操作也要失效 ['threads']：会话行上的未读数、星标、封数都是成员的汇总，
+ * 在手风琴里把一封标已读之后，左边那条会话仍然显示加粗才是最刺眼的不一致。
+ */
 function invalidateMailCaches(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['messages'] })
+  void qc.invalidateQueries({ queryKey: ['thread-messages'] })
+  void qc.invalidateQueries({ queryKey: ['threads'] })
   void qc.invalidateQueries({ queryKey: ['folders'] })
   void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
   void qc.invalidateQueries({ queryKey: ['account-unread'] })
@@ -383,6 +399,232 @@ export function useBatchFlag() {
     },
     onError: (_e, _v, snap) => restoreMail(qc, snap),
     onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+// ── 会话线程（M10）────────────────────────────────────────────────────────────
+//
+// 三条会话列表链路与单封版一一对应，参数完全相同，只有分页游标从 before_id/before_uid
+// 换成 (before_date, before_thread)。query key 一律以 'threads' 打头，
+// 于是「刷新邮件」的地方只要多写一句 invalidate(['threads']) 就全覆盖了。
+
+/** 会话列表的分页游标写入查询串（三条链路共用） */
+function applyThreadCursor(params: URLSearchParams, cursor: ThreadCursor | null): void {
+  if (!cursor) return
+  params.set('before_date', cursor.before_date)
+  params.set('before_thread', cursor.before_thread)
+}
+
+/** 统一收口响应形状，缺字段时给出安全默认值 */
+function normalizeThreadPage(data: Partial<ThreadPage>): ThreadPage {
+  return {
+    threads: data.threads ?? [],
+    next_cursor: data.next_cursor ?? null,
+    total: data.total,
+  }
+}
+
+/** 单文件夹的会话列表（无限加载）。 */
+export function useInfiniteThreads(folderId: number | null, filter: ListFilter = EMPTY_FILTER) {
+  return useInfiniteQuery({
+    queryKey: ['threads', folderId, filterKey(filter)],
+    enabled: folderId != null,
+    initialPageParam: null as ThreadCursor | null,
+    queryFn: async ({ pageParam }): Promise<ThreadPage> => {
+      const params = new URLSearchParams({ limit: '50' })
+      applyThreadCursor(params, pageParam)
+      applyFilterParams(params, filter)
+      const { data } = await api.get<ThreadPage>(`/folders/${folderId}/threads?${params.toString()}`)
+      return normalizeThreadPage(data)
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/** 跨账户聚合视图的会话列表（无限加载）。 */
+export function useInfiniteAggregateThreads(
+  view: AggregateView | null,
+  filter: ListFilter = EMPTY_FILTER,
+) {
+  return useInfiniteQuery({
+    queryKey: ['threads', 'aggregate', view, filterKey(filter)],
+    enabled: view != null,
+    initialPageParam: null as ThreadCursor | null,
+    queryFn: async ({ pageParam }): Promise<ThreadPage> => {
+      const params = new URLSearchParams({ view: view as string, limit: '50' })
+      applyThreadCursor(params, pageParam)
+      applyFilterParams(params, filter)
+      const { data } = await api.get<ThreadPage>(`/aggregate/threads?${params.toString()}`)
+      return normalizeThreadPage(data)
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/** 跨账户全文搜索的会话列表（无限加载）。q 为空时禁用。 */
+export function useInfiniteSearchThreads(q: string, filter: ListFilter = EMPTY_FILTER) {
+  const query = q.trim()
+  return useInfiniteQuery({
+    queryKey: ['threads', 'search', query, filterKey(filter)],
+    enabled: query.length > 0,
+    initialPageParam: null as ThreadCursor | null,
+    queryFn: async ({ pageParam }): Promise<ThreadPage> => {
+      const params = new URLSearchParams({ q: query, limit: '50' })
+      applyThreadCursor(params, pageParam)
+      applyFilterParams(params, filter)
+      const { data } = await api.get<ThreadPage>(`/search/threads?${params.toString()}`)
+      return normalizeThreadPage(data)
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/**
+ * 一条会话的全部成员（日期升序，账户内跨文件夹、已去重）。
+ *
+ * thread_id 形如 `3:<CAF=abc@mail.gmail.com>`，带 `:`／`@`／`<>`——
+ * 不编码会被当成查询串分隔符，服务端拿到的是被截断的 id。
+ */
+export function useThreadMessages(threadId: string | null) {
+  return useQuery({
+    // 独立前缀而不是 ['threads', 'messages', ...]：会话行列表与成员列表的失效时机
+    // 完全不同。挂在 ['threads'] 下面，任何一次单封操作的 invalidate/cancelQueries
+    // 都会顺手把正在读的这条会话的成员列表也重取一遍、甚至掐掉在途请求。
+    queryKey: ['thread-messages', threadId],
+    enabled: threadId != null && threadId.length > 0,
+    // 与 useMessageDetail 同理：切换会话时留住上一条，免得手风琴整块闪一下
+    placeholderData: keepPreviousData,
+    queryFn: async (): Promise<MessageListItem[]> => {
+      const { data } = await api.get<{ messages: MessageListItem[] }>(
+        `/threads/messages?thread_id=${encodeURIComponent(threadId as string)}`,
+      )
+      return data.messages ?? []
+    },
+  })
+}
+
+/**
+ * 会话级删除/移动的作用范围。
+ *
+ * 文件夹视图传当前 folderId：只动这个文件夹里的成员，否则「在收件箱里删掉一条会话」
+ * 会把已发送里的自己的回复一并删掉。聚合/搜索视图不传，由后端排除 sent/drafts。
+ */
+export interface ThreadScope {
+  inFolderId?: number
+}
+
+/** 会话级标记已读/未读。 */
+export function useThreadBatchRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ threadIds, read }: { threadIds: string[]; read: boolean }) => {
+      await api.post('/threads/batch/read', { thread_ids: threadIds, read })
+    },
+    onMutate: async ({ threadIds, read }) => {
+      const snap = await beginOptimistic(qc)
+      const ids = new Set(threadIds)
+      // 标为已读：未读数清零，各级角标按会话的未读封数扣回去。
+      // 标为未读：无从得知整条里本来有几封已读，unread 只能先按封数顶格估；
+      // 角标不动，等 onSettled 的 invalidate 拿服务端的真实值覆盖。
+      if (read) {
+        applyThreadUnreadDelta(qc, findCachedThreads(qc, ids), -1)
+        patchThreads(qc, ids, { unread: 0 })
+      } else {
+        const patches = new Map<string, ThreadPatch>()
+        for (const th of findCachedThreads(qc, ids)) patches.set(th.thread_id, { unread: th.count })
+        patchThreadsEach(qc, patches)
+      }
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 会话级加/取消星标（作用于全部成员）。 */
+export function useThreadBatchFlag() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ threadIds, flagged }: { threadIds: string[]; flagged: boolean }) => {
+      await api.post('/threads/batch/flag', { thread_ids: threadIds, flagged })
+    },
+    onMutate: async ({ threadIds, flagged }) => {
+      const snap = await beginOptimistic(qc)
+      patchThreads(qc, new Set(threadIds), { flagged })
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 会话级删除（移到回收站；已在回收站则永久删除，由后端判定）。 */
+export function useThreadBatchDelete() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ threadIds, inFolderId }: { threadIds: string[] } & ThreadScope) => {
+      await api.post('/threads/batch/delete', {
+        thread_ids: threadIds,
+        ...(inFolderId != null ? { in_folder_id: inFolderId } : {}),
+      })
+    },
+    onMutate: async ({ threadIds }) => {
+      const snap = await beginOptimistic(qc)
+      // ⚠ 只把行从列表里拿掉，不动未读角标：带 in_folder_id 时后端只删这个文件夹里的
+      // 成员，而会话的 unread 是**整条**（跨文件夹）的计数，照它扣会把别处仍然未读的
+      // 那些也一起扣掉。角标交给 onSettled 的 invalidate 从服务端取真值。
+      removeThreads(qc, new Set(threadIds))
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/** 会话级移动到同账户的目标文件夹。 */
+export function useThreadBatchMove() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      threadIds,
+      folderId,
+      inFolderId,
+    }: { threadIds: string[]; folderId: number } & ThreadScope) => {
+      await api.post('/threads/batch/move', {
+        thread_ids: threadIds,
+        folder_id: folderId,
+        ...(inFolderId != null ? { in_folder_id: inFolderId } : {}),
+      })
+    },
+    onMutate: async ({ threadIds }) => {
+      const snap = await beginOptimistic(qc)
+      // 与删除同理：作用范围可能只是整条会话的一部分，未读角标不做乐观估算
+      removeThreads(qc, new Set(threadIds))
+      return snap
+    },
+    onError: (_e, _v, snap) => restoreMail(qc, snap),
+    onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/**
+ * 整库重建会话归属。
+ *
+ * 与「重建搜索索引」同类的兜底：老库里的行没有 In-Reply-To/References 头，
+ * 只能靠这一趟按主题兜底重放规则把它们并起来。
+ */
+export function useRebuildThreads() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (): Promise<number> => {
+      const { data } = await api.post<{ ok: boolean; threads: number }>('/threads/rebuild')
+      return data.threads ?? 0
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['threads'] })
+      // 重建会打散/合并会话，正在读的那条的成员列表也不再可信
+      void qc.invalidateQueries({ queryKey: ['thread-messages'] })
+    },
   })
 }
 
@@ -786,6 +1028,7 @@ export function useSend() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['folders'] })
       void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['threads'] })
     },
   })
 }
@@ -840,6 +1083,7 @@ export function useSendDraft() {
       void qc.invalidateQueries({ queryKey: ['drafts', accountId] })
       void qc.invalidateQueries({ queryKey: ['folders'] })
       void qc.invalidateQueries({ queryKey: ['messages'] })
+      void qc.invalidateQueries({ queryKey: ['threads'] })
     },
   })
 }

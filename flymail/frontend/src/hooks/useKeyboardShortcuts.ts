@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import type { MessageListItem } from '@/lib/types'
 import { KEY } from '@/lib/shortcuts'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -18,12 +17,17 @@ interface KeyboardShortcutsOptions {
   onCompose: () => void
   /** 回复当前打开的邮件 */
   onReply: (() => void) | null
-  /** 当前邮件列表（用于 j/k 上下导航） */
-  messages: MessageListItem[]
-  /** 当前选中的邮件 id */
-  activeMessageId: number | null
-  /** 选中邮件回调（用于 j/k 导航） */
-  selectMessage: (id: number) => void
+  /**
+   * j/k 导航的条目 id 序列，顺序与列表一致。
+   *
+   * 用 id 序列而不是邮件数组：会话视图下一「条」是 thread_id 字符串，
+   * 单封视图下是数字 id，导航逻辑对两者完全相同，没必要为此写两套。
+   */
+  navIds: (number | string)[]
+  /** 当前选中的条目 id（无选中为 null） */
+  activeNavId: number | string | null
+  /** 选中条目回调（用于 j/k 导航） */
+  onNavigate: (id: number | string) => void
   /** 关闭 Compose 对话框 */
   onCloseCompose: () => void
   /** Compose 是否打开中（打开时屏蔽单键，但 Esc 仍生效） */
@@ -60,7 +64,7 @@ function isInInputField(target: EventTarget | null): boolean {
  * - c / n   : 撰写新邮件
  * - /       : 聚焦列表搜索框
  * - r       : 回复当前邮件（仅有选中邮件时生效）
- * - j / k   : 列表下一封 / 上一封
+ * - j / k   : 列表下一条 / 上一条（会话视图下按会话切换）
  * - ?       : 切换快捷键速查浮层
  * - Esc     : 关闭速查浮层 / 关闭 Compose / 取消选中
  *
@@ -70,9 +74,9 @@ function isInInputField(target: EventTarget | null): boolean {
 export function useKeyboardShortcuts({
   onCompose,
   onReply,
-  messages,
-  activeMessageId,
-  selectMessage,
+  navIds,
+  activeNavId,
+  onNavigate,
   onCloseCompose,
   composeOpen,
   onEscape,
@@ -143,26 +147,26 @@ export function useKeyboardShortcuts({
           break
         }
 
-        // j：列表下一封
+        // j：列表下一条
         case KEY.next: {
           e.preventDefault()
-          if (messages.length === 0) break
-          const idx = messages.findIndex((m) => m.id === activeMessageId)
-          // 未选中时选第一封；已选中则移到下一封（不超出末尾）
-          const nextIdx = idx === -1 ? 0 : Math.min(messages.length - 1, idx + 1)
-          const next = messages[nextIdx]
-          if (next != null) selectMessage(next.id)
+          if (navIds.length === 0) break
+          const idx = navIds.indexOf(activeNavId as number | string)
+          // 未选中时选第一条；已选中则移到下一条（不超出末尾）
+          const nextIdx = idx === -1 ? 0 : Math.min(navIds.length - 1, idx + 1)
+          const next = navIds[nextIdx]
+          if (next != null) onNavigate(next)
           break
         }
 
-        // k：列表上一封
+        // k：列表上一条
         case KEY.prev: {
           e.preventDefault()
-          if (messages.length === 0) break
-          const idx = messages.findIndex((m) => m.id === activeMessageId)
+          if (navIds.length === 0) break
+          const idx = navIds.indexOf(activeNavId as number | string)
           if (idx <= 0) break
-          const prev = messages[idx - 1]
-          if (prev != null) selectMessage(prev.id)
+          const prev = navIds[idx - 1]
+          if (prev != null) onNavigate(prev)
           break
         }
 
@@ -178,9 +182,9 @@ export function useKeyboardShortcuts({
   }, [
     onCompose,
     onReply,
-    messages,
-    activeMessageId,
-    selectMessage,
+    navIds,
+    activeNavId,
+    onNavigate,
     onCloseCompose,
     composeOpen,
     onEscape,

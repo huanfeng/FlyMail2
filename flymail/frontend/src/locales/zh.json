@@ -93,6 +93,21 @@
       "justNow": "刚刚",
       "minutesAgo": "{{n}}分",
       "yesterday": "昨天"
+    },
+    "thread": {
+      "separator": "、",
+      "andOthers": "还有 {{count}} 人",
+      "totalCount": "共 {{count}} 个会话",
+      "filteredCount": "筛选出 {{count}} 个会话",
+      "searchCount": "命中 {{count}} 个会话",
+      "delete": "删除会话",
+      "deleteConfirm": "确定删除这条会话吗？其中的邮件会被移到回收站。",
+      "batchDeleteConfirm": "确定删除选中的 {{count}} 条会话吗？其中的邮件会被移到回收站。",
+      "readAll": "整条标为已读",
+      "unreadAll": "整条标为未读",
+      "starAll": "整条加星标",
+      "unstarAll": "整条取消星标",
+      "moveAll": "整条移动到"
     }
   },
   "sync": {
@@ -137,7 +152,23 @@
     "scKbReply": "回复",
     "scKbStar": "加星",
     "scKbSearch": "搜索",
-    "sendTo": "发往"
+    "sendTo": "发往",
+    "quote": {
+      "show": "显示引用内容",
+      "hide": "隐藏引用内容"
+    },
+    "thread": {
+      "count": "共 {{count}} 封",
+      "missing": "会话不存在或已被移除",
+      "missingHint": "它可能已被整条删除，或在重建会话归属后并入了别的会话",
+      "deleteOne": "删除这一封",
+      "deleteConfirm": "确定删除整条会话吗？其中的邮件会被移到回收站。",
+      "readAll": "整条标为已读",
+      "unreadAll": "整条标为未读",
+      "starAll": "整条加星标",
+      "unstarAll": "整条取消星标",
+      "moveAll": "整条移动到"
+    }
   },
   "account": {
     "add": "添加账户", "edit": "编辑账户", "delete": "删除账户",
@@ -427,7 +458,15 @@
       "reindexAction": "重建",
       "reindexing": "重建中…",
       "reindexDone": "搜索索引已重建",
-      "reindexFailed": "重建失败，请稍后重试"
+      "reindexFailed": "重建失败，请稍后重试",
+      "conversationView": "会话视图",
+      "conversationViewHint": "把同一条讨论的往返邮件折叠成一行，展开后按时间正序显示；关闭后回到单封列表",
+      "rebuildThreads": "重建会话归属",
+      "rebuildThreadsHint": "老邮件没有回复头信息时用它按主题重新归并会话；邮件多时需要一些时间",
+      "rebuildThreadsAction": "重建",
+      "rebuildingThreads": "重建中…",
+      "rebuildThreadsDone": "已重建 {{count}} 条会话",
+      "rebuildThreadsFailed": "重建失败，请稍后重试"
     },
     "account": {
       "add": "添加账户",

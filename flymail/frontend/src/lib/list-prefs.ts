@@ -27,3 +27,17 @@ export function getAlwaysShowSelect(): boolean {
 export function setAlwaysShowSelect(on: boolean): void {
   localStorage.setItem(ALWAYS_SELECT_KEY, String(on))
 }
+
+// ── 会话视图（M10）─────────────────────────────────────────────────────────
+// 默认开启：一条 10 封的讨论在列表里占 10 行是旧邮箱的做法，会话折叠才是现在的预期。
+// 判据写成「只有显式存过 'false' 才关」，未存过的老用户升级上来直接进会话视图；
+// 关掉后一切回到单封列表，没有任何能力依赖会话视图独有。
+const CONVERSATION_KEY = 'flymail_conversation_view'
+
+export function getConversationView(): boolean {
+  return localStorage.getItem(CONVERSATION_KEY) !== 'false'
+}
+
+export function setConversationView(on: boolean): void {
+  localStorage.setItem(CONVERSATION_KEY, String(on))
+}

@@ -93,6 +93,21 @@
       "justNow": "now",
       "minutesAgo": "{{n}}m",
       "yesterday": "Yesterday"
+    },
+    "thread": {
+      "separator": ", ",
+      "andOthers": "and {{count}} more",
+      "totalCount": "{{count}} conversations",
+      "filteredCount": "{{count}} conversations matched",
+      "searchCount": "{{count}} conversations found",
+      "delete": "Delete conversation",
+      "deleteConfirm": "Delete this conversation? Its messages will be moved to Trash.",
+      "batchDeleteConfirm": "Delete the {{count}} selected conversations? Their messages will be moved to Trash.",
+      "readAll": "Mark whole conversation read",
+      "unreadAll": "Mark whole conversation unread",
+      "starAll": "Star whole conversation",
+      "unstarAll": "Unstar whole conversation",
+      "moveAll": "Move whole conversation to"
     }
   },
   "sync": {
@@ -137,7 +152,23 @@
     "scKbReply": "Reply",
     "scKbStar": "Star",
     "scKbSearch": "Search",
-    "sendTo": "to"
+    "sendTo": "to",
+    "quote": {
+      "show": "Show quoted text",
+      "hide": "Hide quoted text"
+    },
+    "thread": {
+      "count": "{{count}} messages",
+      "missing": "Conversation not found",
+      "missingHint": "It may have been deleted, or merged into another conversation when conversations were rebuilt",
+      "deleteOne": "Delete this message",
+      "deleteConfirm": "Delete the whole conversation? Its messages will be moved to Trash.",
+      "readAll": "Mark whole conversation read",
+      "unreadAll": "Mark whole conversation unread",
+      "starAll": "Star whole conversation",
+      "unstarAll": "Unstar whole conversation",
+      "moveAll": "Move whole conversation to"
+    }
   },
   "account": {
     "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",
@@ -427,7 +458,15 @@
       "reindexAction": "Rebuild",
       "reindexing": "Rebuilding…",
       "reindexDone": "Search index rebuilt",
-      "reindexFailed": "Rebuild failed, please try again later"
+      "reindexFailed": "Rebuild failed, please try again later",
+      "conversationView": "Conversation view",
+      "conversationViewHint": "Group a discussion into one row and expand it in time order; turn off for a flat message list",
+      "rebuildThreads": "Rebuild conversations",
+      "rebuildThreadsHint": "Regroup older mail by subject when reply headers are missing; takes a while on large mailboxes",
+      "rebuildThreadsAction": "Rebuild",
+      "rebuildingThreads": "Rebuilding…",
+      "rebuildThreadsDone": "{{count}} conversations rebuilt",
+      "rebuildThreadsFailed": "Rebuild failed, please try again later"
     },
     "account": {
       "add": "Add Account",

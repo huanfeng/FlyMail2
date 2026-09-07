@@ -32,6 +32,9 @@ func (f Filter) Active() bool {
 //
 // 列名一律带 messages. 前缀：聚合链路 JOIN 了 folders、搜索链路 JOIN 了 message_bodies，
 // 裸列名在这些查询里有歧义（SQLite 会直接报 ambiguous column name）。
+//
+// seen / flagged 走部分索引 idx_msg_unread / idx_msg_flagged（见 model.go）：SQLite 会按绑定后的参数值
+// 重新规划，`seen = ?` 绑 0 时同样选中部分索引（真实库 EXPLAIN QUERY PLAN 验证过），不必拼字面量。
 func (f Filter) apply(q *gorm.DB) *gorm.DB {
 	if f.Seen != nil {
 		q = q.Where("messages.seen = ?", *f.Seen)

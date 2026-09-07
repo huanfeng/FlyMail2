@@ -15,7 +15,8 @@ import {
 } from '@/lib/layout-prefs'
 import type { LayoutWidths } from '@/lib/layout-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
-import type { Folder, MessageListItem } from '@/lib/types'
+import { formatParticipants, pickAvatarParticipant } from '@/lib/thread-format'
+import type { Folder, MessageListItem, ThreadListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
 import { highlightText } from '@/components/ui/Highlight'
 import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
@@ -29,14 +30,35 @@ import { searchShortcutHint } from '@/lib/platform'
 // 类型定义
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 虚拟化行模型：分组标题 或 邮件条目 */
+/** 虚拟化行模型：分组标题 / 单封邮件 / 会话（两种条目互斥，由 threads 是否为 null 决定） */
 type RowItem =
   | { type: 'header'; label: string }
   | { type: 'item'; msg: MessageListItem }
+  | { type: 'thread'; item: ThreadListItem }
 
 interface Props {
   folder: Folder | null
   messages: MessageListItem[]
+  /**
+   * 会话模式的数据源：非 null 时列表渲染会话行，messages 被忽略。
+   *
+   * 为什么不把两种条目塞进同一个数组：会话行的选择集合是 thread_id 字符串，
+   * 单封是数字 id，混成 `Set<number | string>` 之后 `messages.find(m => m.id === id)`
+   * 这类比较会在类型检查通过的前提下永远为假（数字与字符串永不相等），
+   * 而选中项求共同账户正是这么写的。两套集合各自成立，编译期就挡住串用。
+   */
+  threads: ThreadListItem[] | null
+  activeThreadId: string | null
+  onSelectThread: (item: ThreadListItem) => void
+  onToggleFlagThread: (item: ThreadListItem, flagged: boolean) => void
+  onDeleteThread: (item: ThreadListItem) => void
+  onMarkReadThread: (item: ThreadListItem, read: boolean) => void
+  onMoveThread: (item: ThreadListItem, folderId: number) => void
+  /** 已选会话 id 集合（会话模式专用，与 selectedIds 同一时刻只有一个在用）*/
+  selectedThreadIds: Set<string>
+  onToggleSelectThread: (id: string) => void
+  /** 本人邮箱集合（已小写），用于会话行头像避开自己 */
+  selfAddrs: Set<string>
   loading: boolean
   activeMessageId: number | null
   onSelectMessage: (id: number) => void
@@ -412,12 +434,199 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 会话行（会话模式）：与单封行同一套 class，只把「发件人」换成参与者、多一枚封数徽标
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ThreadRowProps {
+  item: ThreadListItem
+  active: boolean
+  lang: string
+  selected: boolean
+  listStyle: ListStyle
+  /** 搜索命中词（非搜索态为空数组，高亮函数会原样返回字符串） */
+  terms: string[]
+  /** 本人邮箱集合（已小写），用于头像避开自己 */
+  selfAddrs: Set<string>
+  onSelect: () => void
+  onToggleSelect: () => void
+  onToggleFlag: (e: React.MouseEvent) => void
+  onDelete: () => void
+}
+
+/**
+ * 参与者展示串。
+ *
+ * 只有一个人时就显示这一个人（不写「等 1 人」）；超过 3 人时前 3 人 + 「等 N 人」。
+ * 分隔符走 i18n：中文用顿号，英文用逗号。
+ */
+function participantsText(
+  item: ThreadListItem,
+  sep: string,
+  formatOthers: (n: number) => string,
+): string {
+  const { names, extra } = formatParticipants(item.participants, 3)
+  const head = names.join(sep)
+  if (extra <= 0) return head
+  return head + sep + formatOthers(extra)
+}
+
+function ThreadRow({
+  item,
+  active,
+  lang,
+  selected,
+  listStyle,
+  terms,
+  selfAddrs,
+  onSelect,
+  onToggleSelect,
+  onToggleFlag,
+  onDelete,
+}: ThreadRowProps) {
+  const { t } = useTranslation()
+  const isUnread = item.unread > 0
+  const avatarOf = pickAvatarParticipant(item.participants, selfAddrs)
+  const people = participantsText(
+    item,
+    t('list.thread.separator'),
+    (n) => t('list.thread.andOthers', { count: n }),
+  )
+  const compact = listStyle === 'compact'
+
+  // 封数徽标只在多于一封时出现：单封会话挂个「1」纯属噪音
+  const countBadge = item.count > 1 ? <span className="mi-thread-count">{item.count}</span> : null
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-current={active ? 'true' : undefined}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect() }
+      }}
+      className={
+        'mail-item' +
+        (compact ? ' mail-item-row' : '') +
+        (isUnread ? ' unread' : '') +
+        (active ? ' selected' : '') +
+        (selected ? ' batch-selected' : '')
+      }
+    >
+      <span className="mi-unread-dot" />
+      <SelectBox checked={selected} onToggle={onToggleSelect} />
+
+      <span className="mi-avatar-wrap">
+        <div className="avatar-sq" style={{ background: 'var(--accent)' }}>
+          {initials(avatarOf?.name ?? '', avatarOf?.email ?? '')}
+        </div>
+      </span>
+
+      {compact ? (
+        <>
+          {/* 参与者列（对应单封行的发件人列）*/}
+          <div className="mi-top">
+            <span className="mi-sender">{highlightText(people, terms)}</span>
+            {countBadge}
+          </div>
+
+          <div className="mi-subject-preview">
+            <span className="mi-subject">{item.subject ? highlightText(item.subject, terms) : '—'}</span>
+            {item.snippet && <span className="mi-preview">{highlightText(item.snippet, terms)}</span>}
+          </div>
+
+          {item.has_attachment ? (
+            <div className="mi-tags">
+              <span className="mi-tag mi-attach"><Icon name="attach" size={10} /></span>
+            </div>
+          ) : (
+            <span />
+          )}
+
+          <span className="mi-time-col">{relTime(item.date, lang)}</span>
+
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button
+              type="button"
+              className="mi-del icon-btn"
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              aria-label={t('list.thread.delete')}
+              title={t('list.thread.delete')}
+              style={{ position: 'static' }}
+            >
+              <Icon name="trash" size={14} />
+            </button>
+            <button
+              type="button"
+              className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
+              onClick={onToggleFlag}
+              aria-label={item.flagged ? 'Unstar' : 'Star'}
+              style={{ position: 'static', opacity: item.flagged ? 1 : undefined }}
+            >
+              <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
+            </button>
+          </span>
+        </>
+      ) : (
+        <>
+          <div style={{ minWidth: 0 }}>
+            <div className="mi-top">
+              <span className="mi-sender">{highlightText(people, terms)}</span>
+              {countBadge}
+              {item.has_attachment && (
+                <span className="mi-tags">
+                  <span className="mi-tag mi-attach"><Icon name="attach" size={10} /></span>
+                </span>
+              )}
+              <span className="mi-time">{relTime(item.date, lang)}</span>
+            </div>
+            <div className="mi-subject">
+              {item.subject ? highlightText(item.subject, terms) : '—'}
+            </div>
+            {item.snippet && <div className="mi-preview">{highlightText(item.snippet, terms)}</div>}
+          </div>
+
+          <button
+            type="button"
+            className="mi-del icon-btn"
+            onClick={(e) => { e.stopPropagation(); onDelete() }}
+            aria-label={t('list.thread.delete')}
+            title={t('list.thread.delete')}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+          <button
+            type="button"
+            className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
+            onClick={onToggleFlag}
+            aria-label={item.flagged ? 'Unstar' : 'Star'}
+            style={{ position: 'absolute', right: 14, top: 14, opacity: item.flagged ? 1 : undefined }}
+          >
+            <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 主组件
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function MailList({
   folder,
   messages,
+  threads,
+  activeThreadId,
+  onSelectThread,
+  onToggleFlagThread,
+  onDeleteThread,
+  onMarkReadThread,
+  onMoveThread,
+  selectedThreadIds,
+  onToggleSelectThread,
+  selfAddrs,
   loading,
   activeMessageId,
   onSelectMessage,
@@ -582,20 +791,28 @@ export function MailList({
     el.addEventListener('pointercancel', onUp)
   }
 
-  // 搜索与筛选都由后端完成，messages 即为最终结果集，此处不再做任何前端过滤。
+  // 会话模式：threads 非 null 即以会话为条目，两种模式共用下面的分组/虚拟化/翻页逻辑。
+  const threadMode = threads != null
+  // 搜索与筛选都由后端完成，messages/threads 即为最终结果集，此处不再做任何前端过滤。
   const filtered = messages
+  // 条目数（翻页守卫与空态判据都看它，不看分组后的行数）
+  const itemCount = threadMode ? threads.length : messages.length
 
   // ── 构造虚拟化行模型 ──────────────────────────────────────────────────────
   // 两种列表样式都按日期分组：低密度的卡片模式更需要分组标题来制造阅读节奏，
   // 否则一屏五六张卡片糊成一片，反而比紧凑模式更难扫读。
   const rows: RowItem[] = (() => {
-    const groups = groupByDate(filtered, (m) => m.date, undefined, groupLabel)
     const result: RowItem[] = []
-    for (const group of groups) {
-      result.push({ type: 'header', label: group.label })
-      for (const msg of group.items) {
-        result.push({ type: 'item', msg })
+    if (threadMode) {
+      for (const group of groupByDate(threads, (th) => th.date, undefined, groupLabel)) {
+        result.push({ type: 'header', label: group.label })
+        for (const item of group.items) result.push({ type: 'thread', item })
       }
+      return result
+    }
+    for (const group of groupByDate(filtered, (m) => m.date, undefined, groupLabel)) {
+      result.push({ type: 'header', label: group.label })
+      for (const msg of group.items) result.push({ type: 'item', msg })
     }
     return result
   })()
@@ -612,6 +829,7 @@ export function MailList({
       const row = rows[index]
       if (!row) return 52
       if (row.type === 'header') return 28
+      // 会话行与单封行共用同一套 class 与内部结构，高度自然相同
       return listStyle === 'compact' ? 44 : 105
     },
     [rows, listStyle],
@@ -655,19 +873,21 @@ export function MailList({
     const go = shouldLoadMore({
       lastIndex,
       rowCount: rows.length,
-      messageCount: messages.length,
+      messageCount: itemCount,
       lastLoadedCount: loadedLenRef.current,
       hasNextPage,
       isFetchingNextPage,
     })
     if (!go) return
-    loadedLenRef.current = messages.length
+    loadedLenRef.current = itemCount
     onLoadMoreRef.current()
-  }, [lastIndex, rows.length, messages.length, hasNextPage, isFetchingNextPage])
+  }, [lastIndex, rows.length, itemCount, hasNextPage, isFetchingNextPage])
 
   // ── 批量选择派生状态 ──────────────────────────────────────────────────────
-  const selectedCount = selectedIds.size
-  const allVisibleSelected = filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))
+  const selectedCount = threadMode ? selectedThreadIds.size : selectedIds.size
+  const allVisibleSelected = threadMode
+    ? threads.length > 0 && threads.every((th) => selectedThreadIds.has(th.thread_id))
+    : filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))
   // 选择态 = 偏好设为常显、手动开了选择模式，或已有选中项
   const selecting = alwaysShowSelect || selectMode || selectedCount > 0
 
@@ -922,7 +1142,7 @@ export function MailList({
         {loading && <SkeletonList />}
 
         {/* 空态：无搜索/过滤结果 */}
-        {!loading && filtered.length === 0 && (
+        {!loading && itemCount === 0 && (
           <div
             style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}
           >
@@ -964,6 +1184,51 @@ export function MailList({
               // 右键菜单项（仅邮件行）：已读/星标/移动/删除。
               // 「移动到」目标 = 当前账户文件夹中与该邮件同账户的其他可选文件夹
               // （聚合视图里其他账户的邮件不展示移动项）。
+              // 会话行的右键菜单打在整条会话上，走 thread batch 接口
+              const threadMenuItems: CtxMenuItem[] = row.type === 'thread'
+                ? (() => {
+                    const th = row.item
+                    const targets = folders.filter(
+                      (f) => f.account_id === th.account_id && f.selectable,
+                    )
+                    const items: CtxMenuItem[] = [
+                      {
+                        key: 'read',
+                        label: th.unread > 0 ? t('list.thread.readAll') : t('list.thread.unreadAll'),
+                        icon: 'mail',
+                        onSelect: () => onMarkReadThread(th, th.unread > 0),
+                      },
+                      {
+                        key: 'flag',
+                        label: th.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll'),
+                        icon: th.flagged ? 'star-fill' : 'star',
+                        onSelect: () => onToggleFlagThread(th, !th.flagged),
+                      },
+                    ]
+                    if (targets.length > 0) {
+                      items.push({
+                        key: 'move',
+                        label: t('list.thread.moveAll'),
+                        icon: 'folder',
+                        children: targets.map((f) => ({
+                          key: `mv-${f.id}`,
+                          label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                          onSelect: () => onMoveThread(th, f.id),
+                        })),
+                      })
+                    }
+                    items.push({ key: 'sep', separator: true })
+                    items.push({
+                      key: 'del',
+                      label: t('list.thread.delete'),
+                      icon: 'trash',
+                      destructive: true,
+                      onSelect: () => onDeleteThread(th),
+                    })
+                    return items
+                  })()
+                : []
+
               const menuItems: CtxMenuItem[] = row.type === 'item'
                 ? (() => {
                     const msg = row.msg
@@ -1039,6 +1304,23 @@ export function MailList({
                     >
                       {row.label}
                     </div>
+                  ) : row.type === 'thread' ? (
+                    <ThreadRow
+                      item={row.item}
+                      active={row.item.thread_id === activeThreadId}
+                      lang={lang}
+                      listStyle={listStyle}
+                      selected={selectedThreadIds.has(row.item.thread_id)}
+                      terms={highlightTerms}
+                      selfAddrs={selfAddrs}
+                      onSelect={() => onSelectThread(row.item)}
+                      onToggleSelect={() => onToggleSelectThread(row.item.thread_id)}
+                      onToggleFlag={(e) => {
+                        e.stopPropagation()
+                        onToggleFlagThread(row.item, !row.item.flagged)
+                      }}
+                      onDelete={() => onDeleteThread(row.item)}
+                    />
                   ) : listStyle === 'compact' ? (
                     <CompactRow
                       msg={row.msg}
@@ -1073,18 +1355,20 @@ export function MailList({
                 </div>
               )
 
-              // 邮件行包一层右键菜单；分组标题行原样返回
-              return row.type === 'item' ? (
-                <CtxMenu key={vItem.key} items={menuItems} trigger={positioned} />
-              ) : (
-                positioned
-              )
+              // 邮件行 / 会话行都包一层右键菜单；分组标题行原样返回
+              if (row.type === 'item') {
+                return <CtxMenu key={vItem.key} items={menuItems} trigger={positioned} />
+              }
+              if (row.type === 'thread') {
+                return <CtxMenu key={vItem.key} items={threadMenuItems} trigger={positioned} />
+              }
+              return positioned
             })}
           </div>
         )}
 
         {/* 底部加载状态 */}
-        {!loading && messages.length > 0 && (
+        {!loading && itemCount > 0 && (
           <div
             style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-3)' }}
           >
@@ -1098,7 +1382,7 @@ export function MailList({
 
         {/* 服务端兜底搜索：只在翻到底之后出现——还有下一页时，
             用户该做的是继续加载本地结果，不是花 90 秒去连 IMAP。 */}
-        {!loading && searching && messages.length > 0 && !hasNextPage && !isFetchingNextPage && (
+        {!loading && searching && itemCount > 0 && !hasNextPage && !isFetchingNextPage && (
           <div className="remote-search-foot">
             <RemoteSearchButton q={query} />
           </div>

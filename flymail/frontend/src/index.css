@@ -1024,6 +1024,101 @@ mark.hl {
 .attach-card .ac-name { font-size: 13px; color: var(--ink); }
 .attach-card .ac-meta { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
 
+/* ── 远程图片拦截提示条（正文顶部）───────────────────────────────────────
+   原来是一堆内联样式，抽成类是因为会话手风琴里每个展开项都要用一份。 */
+.remote-img-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; margin-bottom: 12px;
+  border-radius: 8px; background: var(--accent-wash);
+  border: 1px solid var(--rule);
+  font-size: 12.5px; color: var(--ink-2);
+}
+
+/* ── 引用折叠开关 ────────────────────────────────────────────────────────
+   做成一颗低调的小胶囊而不是普通链接：它出现在正文与附件之间，
+   太抢眼会被误当成正文的一部分，太隐形又找不到。 */
+.quote-toggle {
+  margin-top: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px dashed var(--rule-strong);
+  background: transparent; color: var(--ink-3);
+  font-size: 12px; cursor: pointer;
+}
+.quote-toggle:hover { background: var(--bg-hover); color: var(--ink-2); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   会话手风琴（M10）
+   ════════════════════════════════════════════════════════════════════════ */
+.thread-accordion { display: flex; flex-direction: column; }
+
+/* 每一封是一张卡片：折叠时只有一行头，展开后长出正文。
+   用边框而不是分隔线区分——展开态的边界必须一眼可见，
+   否则十封连在一起看不出「这段正文属于哪一封」。 */
+.thread-item {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.thread-item.expanded { background: var(--bg); }
+/* 最近点击的那一封：回复/转发打在它身上，用整圈强调色边框标出来
+   （不是左侧色条——列表行的 .selected::before 才是那种做法，
+   卡片式的手风琴项用整圈边框更像「这一张被选中」）*/
+.thread-item.active { border-color: var(--accent); }
+
+.thread-item .ti-head {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px; align-items: center;
+  padding: 10px 14px; cursor: pointer;
+}
+.thread-item .ti-head:hover { background: var(--bg-hover); }
+.thread-item .ti-head .avatar-sq {
+  width: 32px; height: 32px; font-size: 12px; border-radius: 8px;
+}
+.thread-item .ti-main { min-width: 0; }
+.thread-item .ti-from {
+  font-size: 13.5px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 未读封数用加粗表达，与列表行保持同一套视觉语言 */
+.thread-item.unread .ti-from { font-weight: 600; color: var(--ink); }
+.thread-item .ti-addr {
+  margin-left: 6px; font-family: var(--font-mono); font-size: 11.5px;
+  font-weight: 400; color: var(--ink-3);
+}
+.thread-item .ti-to,
+.thread-item .ti-snippet {
+  margin-top: 2px; font-size: 12px; color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.thread-item .ti-side {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--ink-3); flex: 0 0 auto;
+}
+/* 文件夹标签：跨文件夹的会话里，「这封在已发送」是理解顺序的关键信息 */
+.thread-item .ti-folder {
+  padding: 1px 7px; border-radius: 4px;
+  background: var(--bg-alt); border: 1px solid var(--rule);
+  font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
+}
+.thread-item .ti-time {
+  font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap;
+}
+
+/* 展开项的单封工具栏：整条会话的操作在顶部，这里只管「这一封」 */
+.thread-item .ti-tools {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 14px 4px; justify-content: flex-end;
+}
+.thread-item .ti-tools .icon-btn.starred { color: #e0b04a; }
+.thread-item .ti-loading {
+  padding: 16px; font-size: 12.5px; color: var(--ink-3);
+}
+/* 正文在卡片内需要自己的左右留白（.thread-body 本身不带 padding）*/
+.thread-item .thread-body { padding: 0 14px 14px; }
+
 /* .reply-box / .reply-actions 已移除：底部回复框占着正文空间，
    而回复/转发在顶部工具栏已有入口。 */
 .pill-btn {

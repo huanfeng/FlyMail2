@@ -203,10 +203,8 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 			if ferr != nil {
 				return nil, nil, ferr
 			}
-			for _, e := range emails {
-				if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
-					return nil, nil, err
-				}
+			if err := s.upsertBatch(accountID, folderID, emails); err != nil {
+				return nil, nil, err
 			}
 		} else {
 			currentTotal := int(sel.NumMessages)
@@ -251,6 +249,26 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 	}, nm, nil
 }
 
+// upsertBatch 把一批抓回来的邮件 upsert 入库，再整批做线程归属。
+// 归属放在 upsert 之后而不是拼进 Upsert 语句：要先有主键与既有 thread_id 才能决定是沿用、合并还是新开。
+func (s *Service) upsertBatch(accountID, folderID uint, emails []*types.ParsedEmail) error {
+	if len(emails) == 0 {
+		return nil
+	}
+	uids := make([]uint32, 0, len(emails))
+	for _, e := range emails {
+		if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
+			return err
+		}
+		uids = append(uids, e.UID)
+	}
+	rows, err := s.repo.LoadByFolderUIDs(folderID, uids)
+	if err != nil {
+		return err
+	}
+	return s.repo.AssignThreads(rows)
+}
+
 // fetchSeqRangeBatched 把序号区间 [from,end] 切成 fetchBatchSize 的子区间逐批抓取并 upsert。
 func (s *Service) fetchSeqRangeBatched(accountID, folderID uint, from, end uint32, c IMAPFetcher) error {
 	for start := from; start <= end; {
@@ -262,10 +280,8 @@ func (s *Service) fetchSeqRangeBatched(accountID, folderID uint, from, end uint3
 		if err != nil {
 			return err
 		}
-		for _, e := range emails {
-			if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
-				return err
-			}
+		if err := s.upsertBatch(accountID, folderID, emails); err != nil {
+			return err
 		}
 		if batchEnd == end {
 			break
@@ -286,10 +302,8 @@ func (s *Service) fetchRangeBatched(accountID, folderID uint, from, end imapv2.U
 		if err != nil {
 			return err
 		}
-		for _, e := range emails {
-			if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
-				return err
-			}
+		if err := s.upsertBatch(accountID, folderID, emails); err != nil {
+			return err
 		}
 		if batchEnd == end {
 			break
@@ -473,6 +487,9 @@ func (s *Service) StoreFetched(accountID, folderID uint, e *types.ParsedEmail, w
 	if err != nil {
 		return nil, err
 	}
+	if err := s.repo.AssignThreads([]Message{*m}); err != nil {
+		return nil, err
+	}
 	if withBody {
 		if err := s.StoreParsedBody(m.ID, e); err != nil {
 			return nil, err
@@ -481,8 +498,80 @@ func (s *Service) StoreFetched(accountID, folderID uint, e *types.ParsedEmail, w
 	return m, nil
 }
 
+// ── 会话线程 ─────────────────────────────────────────────────────────────────
+
+// ListFolderThreads 单文件夹会话列表。
+func (s *Service) ListFolderThreads(folderID uint, f Filter, beforeDate *time.Time, beforeThread string, limit int) (*ThreadPage, error) {
+	return s.repo.FolderThreads(folderID, f, beforeDate, beforeThread, limit)
+}
+
+// ListAggregateThreads 聚合视图会话列表（view: inbox / unread / starred）。
+func (s *Service) ListAggregateThreads(view string, f Filter, beforeDate *time.Time, beforeThread string, limit int) (*ThreadPage, error) {
+	return s.repo.AggregateThreads(view, f, beforeDate, beforeThread, limit)
+}
+
+// ListSearchThreads 搜索结果按会话折叠。空查询返回空页，与 ListSearch 口径一致。
+func (s *Service) ListSearchThreads(q string, f Filter, beforeDate *time.Time, beforeThread string, limit int) (*ThreadPage, error) {
+	parsed := fts.Parse(q)
+	if parsed.Empty() {
+		return &ThreadPage{Threads: []ThreadListItem{}}, nil
+	}
+	return s.repo.SearchThreads(parsed, f, beforeDate, beforeThread, limit)
+}
+
+// ThreadMessages 返回一条会话的成员列表项（日期升序，跨文件夹去重，最多 limit 封）。
+func (s *Service) ThreadMessages(threadID string, limit int) ([]MessageListItem, error) {
+	rows, err := s.repo.ThreadMessages(threadID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageListItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, toListItem(&rows[i]))
+	}
+	return out, nil
+}
+
+// ThreadMembers 返回若干会话的全部成员行（含副本），供会话级操作解析 id。
+func (s *Service) ThreadMembers(threadIDs []string) ([]Message, error) {
+	return s.repo.ThreadMembers(threadIDs)
+}
+
+// RebuildThreads 整库重建线程归属（运维入口）。
+func (s *Service) RebuildThreads() (int, error) {
+	return RebuildThreads(s.repo.db)
+}
+
 // StoreParsedBody 落正文+附件，回填 snippet/has_attachment/body_synced。
+//
+// 顺带补线程头：元数据同步靠 HEADER.FIELDS 拿 In-Reply-To/References，但有的服务器（GreenMail 实测）
+// 对这个区段一律回空，ENVELOPE 也不带 In-Reply-To。整封正文里头总是全的，若行上还没有线程头而
+// 这里解析出来了，就回填并重新归属——这类服务器上的会话会在正文预取/打开邮件后归并。
 func (s *Service) StoreParsedBody(messageID uint, e *types.ParsedEmail) error {
+	if e.InReplyTo != "" || e.References != "" {
+		m, err := s.repo.GetByID(messageID)
+		if err != nil {
+			return err
+		}
+		// 两列各自独立判断：ENVELOPE 给了 In-Reply-To 但 HEADER.FIELDS 回空的服务器，行上只有 in_reply_to；
+		// 要求两列都空才补的话 References 永远补不上，「父邮件不在本地、祖父在」的回复就归不进去。
+		irt, refs := m.InReplyTo, m.References
+		if irt == "" {
+			irt = e.InReplyTo
+		}
+		if refs == "" {
+			refs = e.References
+		}
+		if irt != m.InReplyTo || refs != m.References {
+			if err := s.repo.SetThreadHeaders(m.ID, irt, refs); err != nil {
+				return err
+			}
+			m.InReplyTo, m.References = irt, refs
+			if err := s.repo.AssignThreads([]Message{*m}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := s.bodyRepo.Upsert(&MessageBody{MessageID: messageID, TextBody: e.TextBody, HTMLBody: e.HTMLBody}); err != nil {
 		return err
 	}
@@ -517,6 +606,7 @@ func (s *Service) Detail(messageID uint) (*MessageDetail, error) {
 		MessageID:       m.MessageID,
 		InReplyTo:       m.InReplyTo,
 		References:      m.References,
+		ThreadID:        m.ThreadID,
 	}
 	if b, _ := s.bodyRepo.GetByMessageID(messageID); b != nil {
 		d.TextBody = b.TextBody
@@ -575,15 +665,17 @@ func makeSnippet(text, html string) string {
 
 func toMessage(accountID, folderID uint, e *types.ParsedEmail) *Message {
 	m := &Message{
-		AccountID: accountID,
-		FolderID:  folderID,
-		UID:       e.UID,
-		MessageID: e.MessageID,
-		Subject:   e.Subject,
-		Date:      e.Date,
-		Size:      e.Size,
-		Seen:      e.IsRead,
-		Flagged:   e.IsStarred,
+		AccountID:  accountID,
+		FolderID:   folderID,
+		UID:        e.UID,
+		MessageID:  e.MessageID,
+		InReplyTo:  e.InReplyTo,
+		References: e.References,
+		Subject:    e.Subject,
+		Date:       e.Date,
+		Size:       e.Size,
+		Seen:       e.IsRead,
+		Flagged:    e.IsStarred,
 	}
 	if len(e.From) > 0 {
 		m.FromName = e.From[0].Name

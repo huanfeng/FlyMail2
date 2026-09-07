@@ -47,6 +47,12 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.POST("/batch/flag", h.batchFlag)
 	// 服务端搜索兜底：与 message 模块的 GET /search/messages 同前缀，但要走 runner 连接，所以挂在这里
 	rg.POST("/search/remote", h.remoteSearch)
+
+	// 会话级操作（M10）：按 thread_id 解析成员后复用批量操作
+	rg.POST("/threads/batch/delete", h.threadDelete)
+	rg.POST("/threads/batch/move", h.threadMove)
+	rg.POST("/threads/batch/read", h.threadRead)
+	rg.POST("/threads/batch/flag", h.threadFlag)
 }
 
 // remoteSearch 用 IMAP SEARCH 在服务器上找本地没有的命中并补抓入库。
@@ -65,6 +71,75 @@ func (h *handler) remoteSearch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+func (h *handler) threadDelete(c *gin.Context) {
+	var body struct {
+		ThreadIDs  []string `json:"thread_ids"`
+		InFolderID uint     `json:"in_folder_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.ThreadIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.ThreadDelete(body.ThreadIDs, body.InFolderID); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) threadMove(c *gin.Context) {
+	var body struct {
+		ThreadIDs  []string `json:"thread_ids"`
+		FolderID   uint     `json:"folder_id"`
+		InFolderID uint     `json:"in_folder_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.ThreadIDs) == 0 || body.FolderID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.ThreadMove(body.ThreadIDs, body.FolderID, body.InFolderID); err != nil {
+		if errors.Is(err, ErrCrossAccountMove) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot move across accounts"})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) threadRead(c *gin.Context) {
+	var body struct {
+		ThreadIDs []string `json:"thread_ids"`
+		Read      bool     `json:"read"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.ThreadIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.ThreadSetRead(body.ThreadIDs, body.Read); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *handler) threadFlag(c *gin.Context) {
+	var body struct {
+		ThreadIDs []string `json:"thread_ids"`
+		Flagged   bool     `json:"flagged"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.ThreadIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.svc.ThreadSetFlagged(body.ThreadIDs, body.Flagged); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (h *handler) batchDelete(c *gin.Context) {

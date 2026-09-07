@@ -28,6 +28,7 @@ import {
   useMe,
   useUpdateProfile,
   useReindexSearch,
+  useRebuildThreads,
 } from '@/lib/queries'
 import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
@@ -65,6 +66,9 @@ interface SettingsDialogProps {
   /** 当前列表样式（Shell 管理），使改动立即对邮件列表生效 */
   listStyle: ListStyle
   onChangeListStyle: (style: ListStyle) => void
+  /** 会话视图开关（Shell 管理，改动立即生效） */
+  conversationView: boolean
+  onChangeConversationView: (on: boolean) => void
   /** 行内选择框是否常显（Shell 管理，改动立即生效） */
   alwaysShowSelect: boolean
   onChangeAlwaysShowSelect: (on: boolean) => void
@@ -674,12 +678,18 @@ function AccountsSection() {
 // 子组件：邮件同步分区（同步深度 + 轮询间隔）
 // ════════════════════════════════════════════════════════════
 
-function MailSection() {
+interface MailSectionProps {
+  conversationView: boolean
+  onChangeConversationView: (on: boolean) => void
+}
+
+function MailSection({ conversationView, onChangeConversationView }: MailSectionProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
   const reindex = useReindexSearch()
+  const rebuildThreads = useRebuildThreads()
 
   const [syncDepth, setSyncDepth] = React.useState<number>(settings?.sync_depth ?? 1000)
   const [pollInterval, setPollInterval] = React.useState<number>(settings?.sync_poll_interval ?? 180)
@@ -862,6 +872,17 @@ function MailSection() {
         )}
       </div>
 
+      {/* 会话视图：纯前端偏好，改完立即生效，不需要点「保存」——
+          因此放在保存按钮之下、用分隔线与同步偏好隔开，避免被误当成要保存的一项。 */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+        <Row
+          label={t('settings.mail.conversationView')}
+          help={t('settings.mail.conversationViewHint')}
+        >
+          <Toggle on={conversationView} onChange={onChangeConversationView} />
+        </Row>
+      </div>
+
       {/* 重建搜索索引：全文索引与邮件表失配时的兜底，与上面的同步偏好无关，
           因此单独用一条分隔线隔开，避免被误当成「保存」的一部分。 */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
@@ -878,6 +899,26 @@ function MailSection() {
             disabled={reindex.isPending}
           >
             {reindex.isPending ? t('settings.mail.reindexing') : t('settings.mail.reindexAction')}
+          </button>
+        </Row>
+
+        {/* 重建会话归属：老库里的邮件没有 In-Reply-To/References 头，
+            只有跑一趟按主题兜底的重放才能把它们并成会话。 */}
+        <Row label={t('settings.mail.rebuildThreads')} help={t('settings.mail.rebuildThreadsHint')}>
+          <button
+            type="button"
+            className="pill-btn"
+            onClick={() => {
+              rebuildThreads.mutate(undefined, {
+                onSuccess: (n) => toast(t('settings.mail.rebuildThreadsDone', { count: n })),
+                onError: () => toast(t('settings.mail.rebuildThreadsFailed')),
+              })
+            }}
+            disabled={rebuildThreads.isPending}
+          >
+            {rebuildThreads.isPending
+              ? t('settings.mail.rebuildingThreads')
+              : t('settings.mail.rebuildThreadsAction')}
           </button>
         </Row>
       </div>
@@ -1126,6 +1167,8 @@ function SecuritySection() {
 export function SettingsDialog({
   listStyle,
   onChangeListStyle,
+  conversationView,
+  onChangeConversationView,
   alwaysShowSelect,
   onChangeAlwaysShowSelect,
   layoutMode,
@@ -1214,7 +1257,12 @@ export function SettingsDialog({
             )}
             {section === 'general' && <GeneralSection />}
             {section === 'accounts' && <AccountsSection />}
-            {section === 'mail' && <MailSection />}
+            {section === 'mail' && (
+              <MailSection
+                conversationView={conversationView}
+                onChangeConversationView={onChangeConversationView}
+              />
+            )}
             {section === 'notify' && <NotifyChannelsSection />}
             {section === 'monitoring' && <MonitoringSection />}
             {section === 'security' && <SecuritySection />}

@@ -14,6 +14,11 @@ export function useRealtimeSync(): void {
       if (ev.type === 'new_mail') {
         void qc.invalidateQueries({ queryKey: ['folders'] })
         void qc.invalidateQueries({ queryKey: ['messages'] })
+        // 会话视图下列表数据来自 ['threads']：新邮件既可能新开一条会话，
+        // 也可能只是让某条已有会话的封数/未读数变化，两种都要重取。
+        void qc.invalidateQueries({ queryKey: ['threads'] })
+        // 新邮件可能正落在用户此刻展开的那条会话里
+        void qc.invalidateQueries({ queryKey: ['thread-messages'] })
         void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
         void qc.invalidateQueries({ queryKey: ['account-unread'] })
         // 新邮件会产生站内通知，刷新铃铛角标与通知列表

@@ -35,6 +35,8 @@ type MessageDetail struct {
 	MessageID   string          `json:"message_id"`
 	InReplyTo   string          `json:"in_reply_to"`
 	References  string          `json:"references"`
+	// ThreadID 让前端在会话视图下按单封 id（通知跳转、深链）定位到所属会话
+	ThreadID string `json:"thread_id"`
 }
 
 // Contact 是收件人自动补全的候选项（来自历史往来地址）。

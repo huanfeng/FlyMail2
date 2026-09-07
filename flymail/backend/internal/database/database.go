@@ -36,5 +36,18 @@ func Migrate(db *gorm.DB) error {
 		return err
 	}
 	// 触发器引用 messages / message_bodies，必须在 AutoMigrate 之后
-	return message.EnsureFTS(db)
+	if err := message.EnsureFTS(db); err != nil {
+		return err
+	}
+	// 老库升级：还没归属线程的邮件整库重建一次
+	if err := message.EnsureThreads(db); err != nil {
+		return err
+	}
+	// 刷新规划器统计：没有 sqlite_stat1 时，会话列表的 JOIN folders 会选成先扫 messages
+	// 再探 folders（12.8k 封上 40ms，有统计后 5ms）。analysis_limit 让每个索引最多采样 1000 行，
+	// 开销不随库线性增长（SQLite 推荐的有界 ANALYZE 用法）；只在启动时跑一次。
+	if err := db.Exec("PRAGMA analysis_limit = 1000").Error; err != nil {
+		return err
+	}
+	return db.Exec("ANALYZE").Error
 }

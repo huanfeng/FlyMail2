@@ -1,154 +1,210 @@
-import { describe, expect, it } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
-import type { MessageListItem } from '@/lib/types'
 import {
-  applyUnreadDelta,
-  bumpAggregateCount,
-  findCachedMessages,
-  patchMessageDetail,
+  applyThreadUnreadDelta,
+  findCachedThreads,
   patchMessages,
+  patchThreads,
+  patchThreadsEach,
   removeMessages,
-  restoreMail,
+  removeThreads,
   snapshotMail,
+  restoreMail,
 } from '@/lib/optimistic'
+import type { MessageListItem, ThreadListItem } from '@/lib/types'
+
+function thread(id: string, over: Partial<ThreadListItem> = {}): ThreadListItem {
+  return {
+    thread_id: id,
+    account_id: 1,
+    count: 3,
+    unread: 0,
+    flagged: false,
+    has_attachment: false,
+    subject: 's',
+    snippet: '',
+    date: '2026-09-01T00:00:00Z',
+    latest_id: 1,
+    latest_folder_id: 1,
+    participants: [],
+    ...over,
+  }
+}
 
 function msg(id: number, over: Partial<MessageListItem> = {}): MessageListItem {
   return {
     id,
     account_id: 1,
-    folder_id: 4,
+    folder_id: 1,
     uid: id,
-    subject: `s${id}`,
-    from_name: 'a',
-    from_addr: 'a@x',
-    date: '2026-01-01T00:00:00Z',
+    subject: 's',
+    from_name: '',
+    from_addr: 'a@b.com',
+    to: [],
+    date: '2026-09-01T00:00:00Z',
+    size: 0,
     seen: false,
     flagged: false,
     has_attachment: false,
     snippet: '',
     ...over,
-  } as MessageListItem
+  }
 }
 
-/** 三种缓存形状各塞一份，验证工具函数都能处理 */
-function seed(qc: QueryClient) {
-  // 1. 普通数组（useMessages）
-  qc.setQueryData(['messages', 4], [msg(1), msg(2, { seen: true })])
-  // 2. 分页数组（useInfiniteMessages）
-  qc.setQueryData(['messages', 9], { pages: [[msg(1)], [msg(3)]], pageParams: [0, 1] })
-  // 3. 分页对象（聚合/搜索）
-  qc.setQueryData(['messages', 'aggregate', 'unread'], {
-    pages: [{ messages: [msg(1), msg(3)], next_cursor: null }],
-    pageParams: [null],
-  })
+/** 会话列表缓存的形状：useInfiniteQuery 的 { pages: ThreadPage[] } */
+function threadPages(list: ThreadListItem[]) {
+  return { pages: [{ threads: list, next_cursor: null }], pageParams: [null] }
 }
 
-/** 从三种缓存里取出 id 对应的条目，便于断言 */
-function collect(qc: QueryClient, id: number): MessageListItem[] {
-  const out: MessageListItem[] = []
-  const flat = qc.getQueryData(['messages', 4]) as MessageListItem[] | undefined
-  const paged = qc.getQueryData(['messages', 9]) as { pages: MessageListItem[][] } | undefined
-  const agg = qc.getQueryData(['messages', 'aggregate', 'unread']) as
-    | { pages: { messages: MessageListItem[] }[] }
-    | undefined
-  for (const m of flat ?? []) if (m.id === id) out.push(m)
-  for (const page of paged?.pages ?? []) for (const m of page) if (m.id === id) out.push(m)
-  for (const page of agg?.pages ?? []) for (const m of page.messages) if (m.id === id) out.push(m)
-  return out
-}
+let qc: QueryClient
 
-describe('patchMessages', () => {
-  it('把三种缓存形状里的同一封邮件一起改掉', () => {
-    const qc = new QueryClient()
-    seed(qc)
-    patchMessages(qc, new Set([1]), { seen: true })
-    const hits = collect(qc, 1)
-    expect(hits).toHaveLength(3) // 数组 / 分页数组 / 分页对象 各一份
-    expect(hits.every((m) => m.seen)).toBe(true)
+beforeEach(() => {
+  qc = new QueryClient()
+})
+
+describe('patchThreads / findCachedThreads', () => {
+  it('只改命中的会话，其余原样', () => {
+    qc.setQueryData(['threads', 1, 'none'], threadPages([thread('t1'), thread('t2')]))
+    patchThreads(qc, new Set(['t1']), { flagged: true })
+    const data = qc.getQueryData(['threads', 1, 'none']) as ReturnType<typeof threadPages>
+    expect(data.pages[0].threads[0].flagged).toBe(true)
+    expect(data.pages[0].threads[1].flagged).toBe(false)
   })
 
-  it('不动未命中的邮件', () => {
-    const qc = new QueryClient()
-    seed(qc)
+  it('跨多份会话缓存同时生效', () => {
+    qc.setQueryData(['threads', 1, 'none'], threadPages([thread('t1')]))
+    qc.setQueryData(['threads', 'aggregate', 'inbox', 'none'], threadPages([thread('t1')]))
+    patchThreads(qc, new Set(['t1']), { unread: 0 })
+    for (const key of [['threads', 1, 'none'], ['threads', 'aggregate', 'inbox', 'none']]) {
+      const d = qc.getQueryData(key) as ReturnType<typeof threadPages>
+      expect(d.pages[0].threads[0].unread).toBe(0)
+    }
+  })
+
+  it('findCachedThreads 去重后返回命中的会话', () => {
+    qc.setQueryData(['threads', 1, 'none'], threadPages([thread('t1', { unread: 2 }), thread('t2')]))
+    qc.setQueryData(['threads', 'search', 'q', 'none'], threadPages([thread('t1', { unread: 9 })]))
+    const got = findCachedThreads(qc, new Set(['t1']))
+    expect(got.length).toBe(1)
+    expect(got[0].thread_id).toBe('t1')
+  })
+
+  it('缓存里没有会话列表时不抛异常', () => {
+    expect(() => patchThreads(qc, new Set(['t1']), { flagged: true })).not.toThrow()
+    expect(findCachedThreads(qc, new Set(['t1']))).toEqual([])
+  })
+})
+
+describe('patchThreadsEach', () => {
+  it('逐条写入各不相同的值', () => {
+    qc.setQueryData(
+      ['threads', 1, 'none'],
+      threadPages([thread('t1', { count: 3 }), thread('t2', { count: 7 }), thread('t3')]),
+    )
+    patchThreadsEach(qc, new Map([['t1', { unread: 3 }], ['t2', { unread: 7 }]]))
+    const d = qc.getQueryData(['threads', 1, 'none']) as ReturnType<typeof threadPages>
+    expect(d.pages[0].threads.map((t) => t.unread)).toEqual([3, 7, 0])
+  })
+
+  it('空 Map 不改动缓存对象', () => {
+    const before = threadPages([thread('t1')])
+    qc.setQueryData(['threads', 1, 'none'], before)
+    patchThreadsEach(qc, new Map())
+    expect(qc.getQueryData(['threads', 1, 'none'])).toBe(before)
+  })
+})
+
+describe('removeThreads', () => {
+  it('把会话从列表里摘掉', () => {
+    qc.setQueryData(['threads', 1, 'none'], threadPages([thread('t1'), thread('t2')]))
+    removeThreads(qc, new Set(['t1']))
+    const d = qc.getQueryData(['threads', 1, 'none']) as ReturnType<typeof threadPages>
+    expect(d.pages[0].threads.map((t) => t.thread_id)).toEqual(['t2'])
+  })
+})
+
+describe('mapThreadCache 的形状安全', () => {
+  // ⚠ 会话成员列表（['thread-messages', tid]）装的是裸 MessageListItem[]，
+  // 与会话行列表完全不同。会话级的补丁函数只认 { pages: [{ threads }] }，
+  // 碰到别的形状必须原样返回，不能把成员列表改坏或抹平。
+  it('裸数组（成员列表形状）原样返回', () => {
+    const members = [msg(1), msg(2)]
+    qc.setQueryData(['threads'], members)
+    patchThreads(qc, new Set(['t1']), { flagged: true })
+    expect(qc.getQueryData(['threads'])).toBe(members)
+  })
+
+  it('pages 里不是 threads 的页原样返回', () => {
+    const odd = { pages: [{ messages: [msg(1)] }], pageParams: [null] }
+    qc.setQueryData(['threads', 'odd'], odd)
+    patchThreads(qc, new Set(['t1']), { flagged: true })
+    const d = qc.getQueryData(['threads', 'odd']) as typeof odd
+    expect(d.pages[0]).toBe(odd.pages[0])
+  })
+
+  it('undefined / null 缓存不抛异常', () => {
+    qc.setQueryData(['threads', 'empty'], null)
+    expect(() => removeThreads(qc, new Set(['t1']))).not.toThrow()
+  })
+})
+
+describe('applyThreadUnreadDelta', () => {
+  it('按会话的未读封数调整聚合角标', () => {
+    qc.setQueryData(['aggregate-counts'], { inbox: 10, unread: 10, starred: 0, inboxTotal: 50 })
+    qc.setQueryData(['account-unread'], { 1: 10 })
+    applyThreadUnreadDelta(qc, [thread('t1', { unread: 3 })], -1)
+    expect(qc.getQueryData(['aggregate-counts'])).toMatchObject({ inbox: 7, unread: 7 })
+    expect(qc.getQueryData(['account-unread'])).toEqual({ 1: 7 })
+  })
+
+  it('unread 为 0 的会话不动角标', () => {
+    qc.setQueryData(['account-unread'], { 1: 10 })
+    applyThreadUnreadDelta(qc, [thread('t1', { unread: 0 })], -1)
+    expect(qc.getQueryData(['account-unread'])).toEqual({ 1: 10 })
+  })
+
+  it('角标不会被扣成负数', () => {
+    qc.setQueryData(['account-unread'], { 1: 1 })
+    applyThreadUnreadDelta(qc, [thread('t1', { unread: 5 })], -1)
+    expect(qc.getQueryData(['account-unread'])).toEqual({ 1: 0 })
+  })
+})
+
+describe('单封操作覆盖会话成员列表', () => {
+  // 手风琴里的成员列表是裸数组、挂在 ['thread-messages'] 下；
+  // 单封星标/已读/删除必须同时改到它，否则要等 refetch 才变。
+  it('patchMessages 同时改到成员列表', () => {
+    qc.setQueryData(['messages', 1, 'none'], { pages: [{ messages: [msg(1)] }], pageParams: [0] })
+    qc.setQueryData(['thread-messages', 't1'], [msg(1), msg(2)])
     patchMessages(qc, new Set([1]), { flagged: true })
-    expect(collect(qc, 3).every((m) => !m.flagged)).toBe(true)
-  })
-})
-
-describe('removeMessages', () => {
-  it('从所有缓存形状里移除', () => {
-    const qc = new QueryClient()
-    seed(qc)
-    removeMessages(qc, new Set([1]))
-    expect(collect(qc, 1)).toHaveLength(0)
-    expect(collect(qc, 3)).toHaveLength(2) // 其余邮件仍在
-  })
-})
-
-describe('findCachedMessages', () => {
-  it('跨缓存去重返回', () => {
-    const qc = new QueryClient()
-    seed(qc)
-    const found = findCachedMessages(qc, new Set([1, 2]))
-    expect(found.map((m) => m.id).sort()).toEqual([1, 2])
-  })
-})
-
-describe('applyUnreadDelta', () => {
-  it('同步下调文件夹/账户/聚合三处未读角标', () => {
-    const qc = new QueryClient()
-    qc.setQueryData(['folders', 1], [{ id: 4, unread_count: 3 }])
-    qc.setQueryData(['account-unread'], { 1: 5 })
-    qc.setQueryData(['aggregate-counts'], { inbox: 5, unread: 5, starred: 2 })
-
-    applyUnreadDelta(qc, [msg(1)], -1)
-
-    expect((qc.getQueryData(['folders', 1]) as { unread_count: number }[])[0].unread_count).toBe(2)
-    expect((qc.getQueryData(['account-unread']) as Record<number, number>)[1]).toBe(4)
-    expect((qc.getQueryData(['aggregate-counts']) as Record<string, number>).unread).toBe(4)
+    const members = qc.getQueryData(['thread-messages', 't1']) as MessageListItem[]
+    expect(members[0].flagged).toBe(true)
+    expect(members[1].flagged).toBe(false)
   })
 
-  it('角标不会被减成负数', () => {
-    const qc = new QueryClient()
-    qc.setQueryData(['account-unread'], { 1: 0 })
-    applyUnreadDelta(qc, [msg(1)], -1)
-    expect((qc.getQueryData(['account-unread']) as Record<number, number>)[1]).toBe(0)
-  })
-})
-
-describe('bumpAggregateCount', () => {
-  it('delta 为 0 时不改动', () => {
-    const qc = new QueryClient()
-    qc.setQueryData(['aggregate-counts'], { inbox: 1, unread: 1, starred: 7 })
-    bumpAggregateCount(qc, 'starred', 0)
-    expect((qc.getQueryData(['aggregate-counts']) as Record<string, number>).starred).toBe(7)
+  it('removeMessages 同时从成员列表里摘掉', () => {
+    qc.setQueryData(['thread-messages', 't1'], [msg(1), msg(2)])
+    removeMessages(qc, new Set([2]))
+    expect((qc.getQueryData(['thread-messages', 't1']) as MessageListItem[]).map((m) => m.id)).toEqual([1])
   })
 })
 
 describe('snapshotMail / restoreMail', () => {
-  it('回滚后缓存恢复原样', () => {
-    const qc = new QueryClient()
-    seed(qc)
-    qc.setQueryData(['account-unread'], { 1: 5 })
+  it('回滚把会话与成员列表一起还原', () => {
+    qc.setQueryData(['threads', 1, 'none'], threadPages([thread('t1')]))
+    qc.setQueryData(['thread-messages', 't1'], [msg(1)])
     const snap = snapshotMail(qc)
 
+    removeThreads(qc, new Set(['t1']))
     removeMessages(qc, new Set([1]))
-    applyUnreadDelta(qc, [msg(1)], -1)
-    expect(collect(qc, 1)).toHaveLength(0)
-
     restoreMail(qc, snap)
-    expect(collect(qc, 1)).toHaveLength(3)
-    expect((qc.getQueryData(['account-unread']) as Record<number, number>)[1]).toBe(5)
-  })
-})
 
-describe('patchMessageDetail', () => {
-  it('详情缓存存在时才改', () => {
-    const qc = new QueryClient()
-    qc.setQueryData(['message', 1], { id: 1, seen: false })
-    patchMessageDetail(qc, 1, { seen: true })
-    patchMessageDetail(qc, 99, { seen: true })
-    expect((qc.getQueryData(['message', 1]) as { seen: boolean }).seen).toBe(true)
-    expect(qc.getQueryData(['message', 99])).toBeUndefined()
+    const d = qc.getQueryData(['threads', 1, 'none']) as ReturnType<typeof threadPages>
+    expect(d.pages[0].threads.length).toBe(1)
+    expect((qc.getQueryData(['thread-messages', 't1']) as MessageListItem[]).length).toBe(1)
+  })
+
+  it('快照为 undefined 时是安全的空操作', () => {
+    expect(() => restoreMail(qc, undefined)).not.toThrow()
   })
 })

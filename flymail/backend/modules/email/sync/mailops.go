@@ -209,6 +209,86 @@ func (s *Service) BatchSetFlagged(ids []uint, flagged bool) error {
 	}, false)
 }
 
+// ── 会话级操作 ──────────────────────────────────────────────────────────────
+// 把 thread_id 解析成成员 message id 后全部复用上面的 Batch*：本地即时生效、回写队列合并。
+//
+// 已读 / 星标作用于会话全部成员（含 Gmail 副本行，各文件夹的本地未读数才对得上）。
+// 删除 / 移动的范围要收窄：文件夹视图（inFolderID > 0）只动该文件夹里的成员；
+// 聚合 / 搜索视图排除 sent / drafts——IMAP MOVE 会把自己的回复从「已发送」挪走，
+// Gmail 的「移动会话」也不会动 Sent 副本。
+
+// threadMemberIDs 解析会话成员 id。inFolderID > 0 时只取该文件夹内的；否则排除 sent / drafts。
+func (s *Service) threadMemberIDs(threadIDs []string, inFolderID uint, narrow bool) ([]uint, error) {
+	members, err := s.messages.ThreadMembers(threadIDs)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uint, 0, len(members))
+	folderType := map[uint]string{}
+	for i := range members {
+		m := &members[i]
+		if !narrow {
+			ids = append(ids, m.ID)
+			continue
+		}
+		if inFolderID > 0 {
+			if m.FolderID == inFolderID {
+				ids = append(ids, m.ID)
+			}
+			continue
+		}
+		ft, ok := folderType[m.FolderID]
+		if !ok {
+			f, ferr := s.folders.GetByID(m.FolderID)
+			if ferr != nil {
+				return nil, ferr
+			}
+			ft = f.Type
+			folderType[m.FolderID] = ft
+		}
+		if ft != "sent" && ft != "drafts" {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
+// ThreadDelete 删除会话：文件夹视图只删该文件夹内成员，否则删除 sent/drafts 之外的全部成员。
+func (s *Service) ThreadDelete(threadIDs []string, inFolderID uint) error {
+	ids, err := s.threadMemberIDs(threadIDs, inFolderID, true)
+	if err != nil {
+		return err
+	}
+	return s.BatchDelete(ids)
+}
+
+// ThreadMove 移动会话到目标文件夹，成员范围同 ThreadDelete。
+func (s *Service) ThreadMove(threadIDs []string, targetFolderID, inFolderID uint) error {
+	ids, err := s.threadMemberIDs(threadIDs, inFolderID, true)
+	if err != nil {
+		return err
+	}
+	return s.BatchMove(ids, targetFolderID)
+}
+
+// ThreadSetRead 整条会话标已读 / 未读。
+func (s *Service) ThreadSetRead(threadIDs []string, read bool) error {
+	ids, err := s.threadMemberIDs(threadIDs, 0, false)
+	if err != nil {
+		return err
+	}
+	return s.BatchSetRead(ids, read)
+}
+
+// ThreadSetFlagged 整条会话加 / 去星标。
+func (s *Service) ThreadSetFlagged(threadIDs []string, flagged bool) error {
+	ids, err := s.threadMemberIDs(threadIDs, 0, false)
+	if err != nil {
+		return err
+	}
+	return s.BatchSetFlagged(ids, flagged)
+}
+
 // batchSetFlag 是「批量改标志位」的共同骨架：分组 → 每组一条 UPDATE 改本地 → 每组合并入队。
 // refreshUnread 为 true 时同时重算文件夹未读数（已读类操作需要，星标不需要）。
 func (s *Service) batchSetFlag(ids []uint, op string, applyLocal func([]uint) error, refreshUnread bool) error {

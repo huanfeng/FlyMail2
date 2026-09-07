@@ -13,7 +13,7 @@
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { AggregateView } from '@/lib/queries'
-import type { Folder, MessageListItem } from '@/lib/types'
+import type { Folder, MessageListItem, ThreadListItem } from '@/lib/types'
 
 /** 可乐观修改的邮件字段 */
 export type MessagePatch = Partial<Pick<MessageListItem, 'seen' | 'flagged'>>
@@ -21,10 +21,21 @@ export type MessagePatch = Partial<Pick<MessageListItem, 'seen' | 'flagged'>>
 /** 快照条目：[queryKey, 原数据]，回滚时原样写回 */
 export type MailSnapshot = [QueryKey, unknown][]
 
+/**
+ * 单封邮件列表的两个缓存前缀。
+ *
+ * ['messages'] 是文件夹/聚合/搜索三条链路；['thread-messages'] 是会话手风琴的成员列表。
+ * 后者装的同样是 MessageListItem，因此单封操作（星标/已读/删除）必须同时改这两处——
+ * 只改前者的话，在手风琴里点一下星标要等 refetch 回来才变。
+ */
+const MESSAGE_LIST_KEYS: QueryKey[] = [['messages'], ['thread-messages']]
+
 /** 受邮件操作影响的所有缓存前缀（快照/回滚统一走这一份清单） */
 const MAIL_QUERY_KEYS: QueryKey[] = [
   ['messages'],
+  ['thread-messages'],
   ['message'],
+  ['threads'],
   ['folders'],
   ['aggregate-counts'],
   ['account-unread'],
@@ -55,31 +66,37 @@ function mapListCache(
 /** 收集当前所有列表缓存里命中 ids 的邮件（去重，用于计算未读/星标增量）。 */
 export function findCachedMessages(qc: QueryClient, ids: Set<number>): MessageListItem[] {
   const found = new Map<number, MessageListItem>()
-  for (const [, data] of qc.getQueriesData({ queryKey: ['messages'] })) {
-    mapListCache(data, (list) => {
-      for (const m of list) {
-        if (ids.has(m.id) && !found.has(m.id)) found.set(m.id, m)
-      }
-      return list
-    })
+  for (const key of MESSAGE_LIST_KEYS) {
+    for (const [, data] of qc.getQueriesData({ queryKey: key })) {
+      mapListCache(data, (list) => {
+        for (const m of list) {
+          if (ids.has(m.id) && !found.has(m.id)) found.set(m.id, m)
+        }
+        return list
+      })
+    }
   }
   return [...found.values()]
 }
 
 /** 就地修改列表缓存中命中 ids 的邮件字段。 */
 export function patchMessages(qc: QueryClient, ids: Set<number>, patch: MessagePatch): void {
-  qc.setQueriesData({ queryKey: ['messages'] }, (old: unknown) =>
-    mapListCache(old, (list) =>
-      list.map((m) => (ids.has(m.id) ? { ...m, ...patch } : m)),
-    ),
-  )
+  for (const key of MESSAGE_LIST_KEYS) {
+    qc.setQueriesData({ queryKey: key }, (old: unknown) =>
+      mapListCache(old, (list) =>
+        list.map((m) => (ids.has(m.id) ? { ...m, ...patch } : m)),
+      ),
+    )
+  }
 }
 
 /** 从所有列表缓存中移除若干邮件（删除/移动后本地立即消失）。 */
 export function removeMessages(qc: QueryClient, ids: Set<number>): void {
-  qc.setQueriesData({ queryKey: ['messages'] }, (old: unknown) =>
-    mapListCache(old, (list) => list.filter((m) => !ids.has(m.id))),
-  )
+  for (const key of MESSAGE_LIST_KEYS) {
+    qc.setQueriesData({ queryKey: key }, (old: unknown) =>
+      mapListCache(old, (list) => list.filter((m) => !ids.has(m.id))),
+    )
+  }
 }
 
 /** 同步修改单封邮件详情缓存（阅读器正在显示这封时立即反映）。 */
@@ -160,5 +177,103 @@ export function restoreMail(qc: QueryClient, snap: MailSnapshot | undefined): vo
  */
 export async function beginOptimistic(qc: QueryClient): Promise<MailSnapshot> {
   await qc.cancelQueries({ queryKey: ['messages'] })
+  await qc.cancelQueries({ queryKey: ['thread-messages'] })
+  await qc.cancelQueries({ queryKey: ['threads'] })
   return snapshotMail(qc)
+}
+
+// ── 会话列表缓存（M10）────────────────────────────────────────────────────────
+//
+// 会话级操作只对 ['threads'] 会话行缓存做乐观更新，不去连带改单封列表：
+// 前端手里只有 thread_id，成员 id 要再发一次请求才知道，为了让列表少闪一下
+// 去多打一趟接口不划算。单封列表由 onSettled 的 invalidate 补齐，
+// 而会话行本身（未读加粗、星标、整行消失）是用户此刻真正在看的东西。
+
+/** 会话列表缓存形状：useInfiniteQuery 的 { pages: ThreadPage[] } */
+function mapThreadCache(
+  old: unknown,
+  fn: (list: ThreadListItem[]) => ThreadListItem[],
+): unknown {
+  if (!old) return old
+  const paged = old as { pages?: unknown[] }
+  if (!Array.isArray(paged.pages)) return old
+  return {
+    ...paged,
+    pages: paged.pages.map((page) => {
+      const wrapped = page as { threads?: ThreadListItem[] }
+      if (!Array.isArray(wrapped.threads)) return page
+      return { ...wrapped, threads: fn(wrapped.threads) }
+    }),
+  }
+}
+
+/** 可乐观修改的会话字段 */
+export type ThreadPatch = Partial<Pick<ThreadListItem, 'unread' | 'flagged'>>
+
+/** 就地修改会话列表缓存里命中 ids 的会话字段 */
+export function patchThreads(qc: QueryClient, ids: Set<string>, patch: ThreadPatch): void {
+  qc.setQueriesData({ queryKey: ['threads'] }, (old: unknown) =>
+    mapThreadCache(old, (list) =>
+      list.map((th) => (ids.has(th.thread_id) ? { ...th, ...patch } : th)),
+    ),
+  )
+}
+
+/**
+ * 按 thread_id 写入各不相同的补丁，整份缓存只遍历一次。
+ *
+ * 「整条标为未读」要把每条会话的 unread 顶到它自己的 count，逐条调 patchThreads
+ * 等于把所有会话列表缓存扫 N 遍（N = 选中条数），一次批量操作就能扫上几十遍。
+ */
+export function patchThreadsEach(qc: QueryClient, patches: Map<string, ThreadPatch>): void {
+  if (patches.size === 0) return
+  qc.setQueriesData({ queryKey: ['threads'] }, (old: unknown) =>
+    mapThreadCache(old, (list) =>
+      list.map((th) => {
+        const patch = patches.get(th.thread_id)
+        return patch ? { ...th, ...patch } : th
+      }),
+    ),
+  )
+}
+
+/** 从会话列表缓存中移除若干会话（会话级删除/移动后本地立即消失） */
+export function removeThreads(qc: QueryClient, ids: Set<string>): void {
+  qc.setQueriesData({ queryKey: ['threads'] }, (old: unknown) =>
+    mapThreadCache(old, (list) => list.filter((th) => !ids.has(th.thread_id))),
+  )
+}
+
+/** 收集当前会话列表缓存里命中 ids 的会话（去重，用于计算未读增量） */
+export function findCachedThreads(qc: QueryClient, ids: Set<string>): ThreadListItem[] {
+  const found = new Map<string, ThreadListItem>()
+  for (const [, data] of qc.getQueriesData({ queryKey: ['threads'] })) {
+    mapThreadCache(data, (list) => {
+      for (const th of list) {
+        if (ids.has(th.thread_id) && !found.has(th.thread_id)) found.set(th.thread_id, th)
+      }
+      return list
+    })
+  }
+  return [...found.values()]
+}
+
+/**
+ * 按会话的未读封数调整各级未读角标。
+ * delta 为每封未读邮件带来的增量：整条标为已读传 -1，标为未读时无从得知
+ * 「本来有几封已读」，因此只有已读方向会调用这里（见 queries.ts 的说明）。
+ */
+export function applyThreadUnreadDelta(
+  qc: QueryClient,
+  threads: ThreadListItem[],
+  delta: number,
+): void {
+  for (const th of threads) {
+    if (th.unread <= 0) continue
+    const n = th.unread * delta
+    bumpAccountUnread(qc, th.account_id, n)
+    bumpAggregateCount(qc, 'unread', n)
+    bumpAggregateCount(qc, 'inbox', n)
+    // 文件夹角标按会话拆不开（成员跨文件夹），交给 onSettled 的 invalidate 补
+  }
 }

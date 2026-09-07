@@ -389,6 +389,34 @@ func (r *Repository) UnseenAfterID(folderID uint, afterID uint, limit int) ([]Me
 	return rows, err
 }
 
+// ListAfterID 返回文件夹内主键大于 afterID 的全部邮件（升序，最多 limit 封）——规则引擎的输入：
+// UnseenAfterID 只给未读且截断到 3 封，PendingBodiesAfterID 只给缺正文的，都不能当规则输入。
+func (r *Repository) ListAfterID(folderID uint, afterID uint, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	var rows []Message
+	err := r.db.Where("folder_id = ? AND id > ?", folderID, afterID).
+		Order("id ASC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// ListRecentInbox 返回各账户（accountID = 0）或指定账户收件箱里最近的 limit 封，规则试运行用。
+func (r *Repository) ListRecentInbox(accountID uint, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	q := r.db.Model(&Message{}).
+		Joins("JOIN folders ON folders.id = messages.folder_id").
+		Where("folders.type = ?", "inbox")
+	if accountID > 0 {
+		q = q.Where("messages.account_id = ?", accountID)
+	}
+	var rows []Message
+	err := q.Select("messages.*").Order("messages.date DESC").Order("messages.id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
 // CountUnseenAfterID 返回文件夹内主键大于 afterID 的未读邮件总数。
 func (r *Repository) CountUnseenAfterID(folderID uint, afterID uint) (int64, error) {
 	var n int64
@@ -401,6 +429,23 @@ func (r *Repository) UnreadCountByFolder(folderID uint) (int64, error) {
 	var n int64
 	err := r.db.Model(&Message{}).Where("folder_id = ? AND seen = ?", folderID, false).Count(&n).Error
 	return n, err
+}
+
+// GetByIDs 按主键批量取行（分块防绑定变量上限），不存在的 id 直接缺席；结果按 id 升序。
+func (r *Repository) GetByIDs(ids []uint) ([]Message, error) {
+	var out []Message
+	for start := 0; start < len(ids); start += uidChunk {
+		end := start + uidChunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var rows []Message
+		if err := r.db.Where("id IN ?", ids[start:end]).Order("id ASC").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
 }
 
 func (r *Repository) GetByID(id uint) (*Message, error) {

@@ -19,6 +19,7 @@ import (
 	"flymail/modules/email/draft"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
+	"flymail/modules/email/rule"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/system/monitoring"
@@ -139,6 +140,24 @@ func New(cfg *config.Config) (*App, error) {
 	manager.EnableWriteback(db)
 	syncSvc.SetManager(manager)
 
+	// 规则引擎 + 黑名单：动作经 syncSvc 的批量操作（本地先改 + 回写队列），命中通知经 emit；
+	// Manager 在每轮收件箱增量同步后调用它。
+	ruleSvc := rule.NewService(rule.NewRepository(db), folderSvc, messageSvc)
+	ruleSvc.SetActor(syncSvc)
+	ruleSvc.SetEmitter(emit)
+	ruleSvc.SetSelfAddresses(func() []string {
+		list, err := accountSvc.List()
+		if err != nil {
+			return nil
+		}
+		out := make([]string, 0, len(list))
+		for _, a := range list {
+			out = append(out, a.Email)
+		}
+		return out
+	})
+	manager.SetRuleRunner(ruleSvc)
+
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())
 	eventsHandler := sse.NewHandler(hub, func(token string) error {
@@ -157,6 +176,7 @@ func New(cfg *config.Config) (*App, error) {
 		Draft:      draftSvc,
 		Notify:     notifySvc,
 		Monitoring: monitoringSvc,
+		Rule:       ruleSvc,
 		Events:     eventsHandler,
 		VerifyToken: func(token string) error {
 			_, err := authSvc.VerifyAccessToken(token)

@@ -118,8 +118,10 @@ func TestIncrementalSyncKnownUIDNext(t *testing.T) {
 	if nm.Count != 5 {
 		t.Errorf("nm.Count = %d, 期望 5", nm.Count)
 	}
-	if !nm.Baseline {
-		t.Errorf("本地原本为空应判定为基线导入（不触发新邮件提醒）")
+	// 文件夹已有 UIDNEXT 锚点（同步过），即使本地为空，新到的也是真正的新邮件——
+	// 空收件箱的第一批来信要提醒、也要跑规则，不能当基线导入
+	if nm.Baseline {
+		t.Errorf("已同步过的文件夹不应判定为基线导入")
 	}
 	if cnt, _ := repo.CountByFolder(1, message.Filter{}); cnt != 5 {
 		t.Errorf("本地邮件数 = %d, 期望 5", cnt)

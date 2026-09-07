@@ -45,6 +45,9 @@ type Contact struct {
 	Email string `json:"email"`
 }
 
+// ToListItem 供其它模块（规则试运行）把存储行转成列表项。
+func ToListItem(m *Message) MessageListItem { return toListItem(m) }
+
 func toListItem(m *Message) MessageListItem {
 	var to []types.Address
 	if m.ToJSON != "" {

@@ -37,6 +37,8 @@ export type IconName =
   | 'logout'
   | 'help'
   | 'cloud'
+  | 'filter'
+  | 'shield'
 
 interface IconProps {
   name: IconName
@@ -229,6 +231,23 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
           {/* 问号：上弧 + 竖笔 + 独立的点（点用极短线段画，stroke-linecap=round 会渲染成圆点）*/}
           <path d="M6.4 6.3a1.7 1.7 0 013.2.8c0 1.1-1.6 1.2-1.6 2.4"/>
           <path d="M8 11.7v.01"/>
+        </svg>
+      )
+
+    case 'filter':
+      return (
+        <svg {...p}>
+          {/* 漏斗：上宽下窄 + 一根手柄 */}
+          <path d="M2.5 3.5h11l-4.1 4.9v4.3l-2.8 1.4V8.4z"/>
+        </svg>
+      )
+
+    case 'shield':
+      return (
+        <svg {...p}>
+          <path d="M8 2l4.5 1.7v3.5c0 3-1.8 5.2-4.5 6.3-2.7-1.1-4.5-3.3-4.5-6.3V3.7z"/>
+          {/* 斜杠表示「屏蔽」，与普通的安全盾牌区分开 */}
+          <path d="M6 6l4 4"/>
         </svg>
       )
 

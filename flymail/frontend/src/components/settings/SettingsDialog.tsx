@@ -10,6 +10,8 @@ import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
+import { RulesSection } from '@/components/settings/RulesSection'
+import { BlocklistSection } from '@/components/settings/BlocklistSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
@@ -59,7 +61,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'rules' | 'blocklist' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -1185,6 +1187,8 @@ export function SettingsDialog({
     { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
+    { id: 'rules',      labelKey: 'settings.navRules',            icon: 'filter' },
+    { id: 'blocklist',  labelKey: 'settings.navBlocklist',        icon: 'shield' },
     { id: 'notify',     labelKey: 'settings.navNotify',           icon: 'bell' },
     { id: 'monitoring', labelKey: 'settings.navMonitoring',       icon: 'circle-dot' },
     { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'tag' },
@@ -1263,6 +1267,8 @@ export function SettingsDialog({
                 onChangeConversationView={onChangeConversationView}
               />
             )}
+            {section === 'rules' && <RulesSection />}
+            {section === 'blocklist' && <BlocklistSection />}
             {section === 'notify' && <NotifyChannelsSection />}
             {section === 'monitoring' && <MonitoringSection />}
             {section === 'security' && <SecuritySection />}

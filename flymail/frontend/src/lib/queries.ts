@@ -1,4 +1,5 @@
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 import api from '@/lib/api'
 import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
 import type { ListFilter } from '@/lib/list-filters'
@@ -18,7 +19,13 @@ import {
   restoreMail,
 } from '@/lib/optimistic'
 import type { ThreadPatch } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage } from '@/lib/types'
+
+/** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
+async function fetchFolders(accountId: number): Promise<Folder[]> {
+  const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${accountId}/folders`)
+  return data.folders ?? []
+}
 
 export function useAccounts() {
   return useQuery({
@@ -38,10 +45,8 @@ export function useFolders(accountId: number | null) {
     // 轮询兜底：桌面端（Wails）SSE 经 WebView2 自定义协议可能失效/缓冲，
     // 新账户初始同步逐步发现文件夹时也没有 SSE 事件，定时刷新保证列表自更新。
     refetchInterval: 30_000,
-    queryFn: async (): Promise<Folder[]> => {
-      const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${accountId}/folders`)
-      return data.folders ?? []
-    },
+    // enabled 已保证 accountId 非空
+    queryFn: (): Promise<Folder[]> => fetchFolders(Number(accountId)),
   })
 }
 
@@ -1085,5 +1090,177 @@ export function useSendDraft() {
       void qc.invalidateQueries({ queryKey: ['messages'] })
       void qc.invalidateQueries({ queryKey: ['threads'] })
     },
+  })
+}
+
+// ── M11 规则引擎 ──────────────────────────────────────────────────────────────
+
+/**
+ * 若干账户的文件夹并集（规则编辑框的「移动到」目标）。
+ *
+ * 复用 ['folders', accountId] 这个 query key：与侧栏用的是同一份缓存，
+ * 打开编辑框时多半直接命中，不会为了一个下拉框把所有账户的文件夹再拉一遍。
+ */
+export function useFoldersOfAccounts(accountIds: number[]) {
+  return useQueries({
+    queries: accountIds.map((id) => ({
+      queryKey: ['folders', id],
+      queryFn: (): Promise<Folder[]> => fetchFolders(id),
+    })),
+    combine: (results) => ({
+      folders: results.flatMap((r) => r.data ?? []),
+      isLoading: results.some((r) => r.isLoading),
+    }),
+  })
+}
+
+export function useRules() {
+  return useQuery({
+    queryKey: ['rules'],
+    queryFn: async (): Promise<Rule[]> => {
+      const { data } = await api.get<{ rules: Rule[] }>('/rules')
+      return data.rules ?? []
+    },
+  })
+}
+
+export function useCreateRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: RuleInput): Promise<Rule> => {
+      const { data } = await api.post<Rule>('/rules', input)
+      return data
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['rules'] }) },
+  })
+}
+
+export function useUpdateRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: number; input: RuleInput }): Promise<Rule> => {
+      const { data } = await api.put<Rule>(`/rules/${id}`, input)
+      return data
+    },
+    // onSettled 而非 onSuccess：失败时列表里的启用开关可能已经翻过去了，
+    // 不重新拉一次就会停在一个服务端并不认可的状态上
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['rules'] }) },
+  })
+}
+
+export function useDeleteRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.delete(`/rules/${id}`) },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['rules'] }) },
+  })
+}
+
+/**
+ * 按传入的 id 顺序重写 priority（上下箭头调序）。
+ *
+ * 乐观更新：点一下箭头要等一轮往返才动，连点几下会看到行来回跳。
+ * 先在缓存里按新顺序排好，失败再整段回滚。
+ */
+export function useReorderRules() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: number[]) => { await api.post('/rules/reorder', { ids }) },
+    onMutate: async (ids: number[]) => {
+      await qc.cancelQueries({ queryKey: ['rules'] })
+      const previous = qc.getQueryData<Rule[]>(['rules'])
+      if (previous) {
+        const byId = new Map(previous.map((r) => [r.id, r]))
+        // 只取 ids 里认得的规则；期间被别处删掉的 id 直接跳过，不会塞进 undefined
+        const next = ids.map((id) => byId.get(id)).filter((r): r is Rule => r !== undefined)
+        if (next.length === previous.length) qc.setQueryData(['rules'], next)
+      }
+      return { previous }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['rules'], ctx.previous)
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['rules'] }) },
+  })
+}
+
+/** 试运行：只读求值，不失效任何缓存（后端保证无副作用） */
+export function useTestRule() {
+  return useMutation({
+    mutationFn: async ({ rule, limit }: { rule: RuleInput; limit?: number }): Promise<RuleTestResult> => {
+      const { data } = await api.post<RuleTestResult>('/rules/test', { rule, limit })
+      return {
+        matched: data.matched ?? [],
+        scanned: data.scanned ?? 0,
+        without_body: data.without_body ?? 0,
+        truncated: data.truncated ?? false,
+      }
+    },
+  })
+}
+
+/** 执行日志。enabled 让它只在折叠区展开时才拉取。 */
+export function useRuleRuns(enabled: boolean) {
+  return useQuery({
+    queryKey: ['rule-runs'],
+    enabled,
+    // 日志是诊断信息，展开的那一刻就该是最新的；缓存命中会让人以为规则没跑
+    refetchOnMount: 'always',
+    staleTime: 0,
+    queryFn: async (): Promise<RuleRun[]> => {
+      const { data } = await api.get<{ runs: RuleRun[] }>('/rules/runs?limit=50')
+      return data.runs ?? []
+    },
+  })
+}
+
+// ── 黑名单 ────────────────────────────────────────────────────────────────────
+
+export function useBlocklist() {
+  return useQuery({
+    queryKey: ['blocklist'],
+    queryFn: async (): Promise<BlockEntry[]> => {
+      const { data } = await api.get<{ entries: BlockEntry[] }>('/blocklist')
+      return data.entries ?? []
+    },
+  })
+}
+
+/** 添加黑名单的结果：existed 表示后端返回 409（该 pattern 已在名单里） */
+export interface AddBlockResult {
+  entry: BlockEntry | null
+  existed: boolean
+}
+
+/**
+ * 添加黑名单。
+ *
+ * 409（已存在）在这里被吃掉转成 `existed: true` 而不是抛出：右键「屏蔽此发件人」重复点两次
+ * 对用户而言就是「已经屏蔽了」，走 onError 分支会让每个调用点都得自己拆 axios 错误。
+ * 400（pattern 非法）仍然照常抛出。
+ */
+export function useAddBlock() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { pattern: string; note?: string }): Promise<AddBlockResult> => {
+      try {
+        const { data } = await api.post<BlockEntry>('/blocklist', input)
+        return { entry: data, existed: false }
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 409) return { entry: null, existed: true }
+        throw err
+      }
+    },
+    // 只失效黑名单本身：黑名单作用于此后新收的邮件，已入库的一封都不动，
+    // 顺手失效邮件列表只会让整个列表白重拉一遍
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['blocklist'] }) },
+  })
+}
+
+export function useDeleteBlock() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.delete(`/blocklist/${id}`) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['blocklist'] }) },
   })
 }

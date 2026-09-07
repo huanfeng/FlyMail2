@@ -9,12 +9,13 @@ const (
 	EventMailNew       EventType = "mail_new"       // 新邮件到达
 	EventSyncFailed    EventType = "sync_failed"    // 同步失败
 	EventAccountStatus EventType = "account_status" // 账户状态变化
+	EventMailRule      EventType = "mail_rule"      // 规则命中（规则动作「触发通知」）
 )
 
 // ValidEvent 校验事件类型是否受支持。
 func ValidEvent(t string) bool {
 	switch EventType(t) {
-	case EventMailNew, EventSyncFailed, EventAccountStatus:
+	case EventMailNew, EventSyncFailed, EventAccountStatus, EventMailRule:
 		return true
 	}
 	return false

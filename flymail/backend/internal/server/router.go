@@ -11,6 +11,7 @@ import (
 	"flymail/modules/email/draft"
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
+	"flymail/modules/email/rule"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/system/monitoring"
@@ -34,6 +35,7 @@ type Deps struct {
 	Draft      *draft.Service
 	Notify     *notify.Service
 	Monitoring *monitoring.Service
+	Rule       *rule.Service
 	Events     http.HandlerFunc
 	// VerifyToken 校验 access token（供 SSE/附件等无法走 Bearer 中间件的端点自鉴权）。
 	VerifyToken func(token string) error
@@ -98,6 +100,9 @@ func New(deps Deps) http.Handler {
 		}
 		if deps.Monitoring != nil {
 			monitoring.RegisterRoutes(protected, deps.Monitoring)
+		}
+		if deps.Rule != nil {
+			rule.RegisterRoutes(protected, deps.Rule)
 		}
 	}
 

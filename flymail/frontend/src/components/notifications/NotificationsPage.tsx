@@ -29,13 +29,15 @@ interface NotificationsPageProps {
   onOpen?: (n: Notification) => void
 }
 
-type Tab = 'all' | 'unread' | 'mail_new' | 'sync_failed' | 'account_status'
+type Tab = 'all' | 'unread' | 'mail_new' | 'mail_rule' | 'sync_failed' | 'account_status'
 
 // 事件类型 → 图标 + kind 配色类
 const TYPE_META: Record<string, { icon: IconName; kind: string }> = {
   mail_new: { icon: 'inbox', kind: 'kind-mail' },
   sync_failed: { icon: 'circle-dot', kind: 'kind-cal' },
   account_status: { icon: 'tag', kind: 'kind-acct' },
+  // 规则命中（M11）：与「新邮件」区分开，用漏斗图标
+  mail_rule: { icon: 'filter', kind: 'kind-mail' },
 }
 
 export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
@@ -104,6 +106,7 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
     { id: 'all', labelKey: 'notif.tabAll' },
     { id: 'unread', labelKey: 'notif.tabUnread' },
     { id: 'mail_new', labelKey: 'notif.tabMail' },
+    { id: 'mail_rule', labelKey: 'notif.tabRule' },
     { id: 'sync_failed', labelKey: 'notif.tabSync' },
     { id: 'account_status', labelKey: 'notif.tabAccount' },
   ]

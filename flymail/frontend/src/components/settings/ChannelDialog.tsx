@@ -10,11 +10,12 @@ import { Label } from '@/components/ui/label'
 import { useCreateNotifyChannel, useUpdateNotifyChannel } from '@/lib/queries'
 import type { NotifyChannel } from '@/lib/types'
 
-const EVENT_TYPES = ['mail_new', 'sync_failed', 'account_status'] as const
+const EVENT_TYPES = ['mail_new', 'mail_rule', 'sync_failed', 'account_status'] as const
 const EVENT_LABEL: Record<string, string> = {
   mail_new: 'notif.tabMail',
   sync_failed: 'notif.tabSync',
   account_status: 'notif.tabAccount',
+  mail_rule: 'notif.tabRule',
 }
 
 export interface ChannelDialogProps {

@@ -92,17 +92,16 @@ func (s *Service) refreshFolderCounts(folderID uint) {
 // （服务器侧一次 SELECT + 一次 MOVE/STORE）。全程不建连接，接口即时返回。
 // 不存在的邮件 id 静默跳过。
 
-// loadGrouped 把邮件 id 按 账户ID→文件夹ID 分组（跳过已不存在的）。
+// loadGrouped 把邮件 id 按 账户ID→文件夹ID 分组（已不存在的自然缺席）。
+// 一次 IN 查询而不是逐 id 取：规则引擎的批量远大于界面手动多选。
 func (s *Service) loadGrouped(ids []uint) (map[uint]map[uint][]*message.Message, error) {
 	groups := map[uint]map[uint][]*message.Message{}
-	for _, id := range ids {
-		m, err := s.messages.GetByID(id)
-		if err != nil {
-			if errors.Is(err, message.ErrMessageNotFound) {
-				continue
-			}
-			return nil, err
-		}
+	rows, err := s.messages.GetByIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		m := &rows[i]
 		if groups[m.AccountID] == nil {
 			groups[m.AccountID] = map[uint][]*message.Message{}
 		}

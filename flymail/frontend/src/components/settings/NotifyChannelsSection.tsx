@@ -19,6 +19,7 @@ const EVENT_LABEL: Record<string, string> = {
   mail_new: 'notif.tabMail',
   sync_failed: 'notif.tabSync',
   account_status: 'notif.tabAccount',
+  mail_rule: 'notif.tabRule',
 }
 
 export function NotifyChannelsSection() {

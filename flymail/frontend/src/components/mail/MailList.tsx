@@ -23,6 +23,10 @@ import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
 import { RemoteSearchButton } from '@/components/mail/RemoteSearchButton'
 import { extractHighlightTerms } from '@/lib/search-terms'
 import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
+import { useToast } from '@/components/ui/Toast'
+import { apiErrorMessage } from '@/lib/api'
+import { useAddBlock } from '@/lib/queries'
+import { isValidBlockPattern, normalizeBlockPattern } from '@/lib/rules'
 import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 import { searchShortcutHint } from '@/lib/platform'
 
@@ -668,6 +672,36 @@ export function MailList({
   // 搜索为受控值：由 Shell 管理并驱动后端跨账户搜索（searchValue/onSearchChange）。
   const query = searchValue
 
+  // 「屏蔽此发件人」自带 mutation 与 toast：邮件行与会话行两处右键菜单都要用，
+  // 提到 Shell 只是给一个本就臃肿的组件再加两个 prop。
+  const { toast } = useToast()
+  const { mutate: addBlock } = useAddBlock()
+  const blockSender = useCallback((raw: string) => {
+    const pattern = normalizeBlockPattern(raw)
+    if (!isValidBlockPattern(pattern)) {
+      toast(t('ctx.blockSenderInvalid'))
+      return
+    }
+    addBlock({ pattern }, {
+      // existed = 后端 409：对用户而言「已经屏蔽过」与「刚屏蔽成功」是同一件事
+      onSuccess: (res) => toast(t(res.existed ? 'ctx.blockSenderExists' : 'ctx.blockSenderOk', { addr: pattern })),
+      // 后端还会拒绝本地账户自己的邮箱（400），它的中文文案比通用提示准确
+      onError: (e) => toast(apiErrorMessage(e, t('ctx.blockSenderFailed'))),
+    })
+  }, [addBlock, t, toast])
+
+  /**
+   * 能不能屏蔽这个地址：非空、格式合法、且不是本地账户自己的邮箱。
+   *
+   * 「已发送」文件夹里每一封的发件人都是自己，会话行同理——不挡住，用户点一下就把自己拉黑，
+   * 之后所有自发自收的邮件都进垃圾箱。后端也会 400，但不该让这个菜单项出现在那里。
+   */
+  const blockableAddr = useCallback((raw: string | undefined): string | null => {
+    const pattern = normalizeBlockPattern(raw ?? '')
+    if (!isValidBlockPattern(pattern) || selfAddrs.has(pattern)) return null
+    return pattern
+  }, [selfAddrs])
+
   // 命中高亮词：用未防抖的 searchValue（Shell 防抖的是请求，高亮跟着输入走更跟手）。
   // 非搜索态 query 为空 → 空数组 → highlightText 原样返回字符串，不产生额外节点。
   const highlightTerms = useMemo(() => extractHighlightTerms(query), [query])
@@ -1217,6 +1251,18 @@ export function MailList({
                         })),
                       })
                     }
+                    // 屏蔽对象取第一个不是本人的参与者（与会话行头像同一口径）：
+                    // participants[0] 在自己发起的会话里永远是自己，直接用会把自己拉黑。
+                    // 会话行没有携带「最新一封的发件人」，这是现有数据里最接近对方的那个人。
+                    const threadSender = blockableAddr(pickAvatarParticipant(th.participants, selfAddrs)?.email)
+                    if (threadSender) {
+                      items.push({
+                        key: 'block',
+                        label: t('ctx.blockSender', { addr: threadSender }),
+                        icon: 'shield',
+                        onSelect: () => blockSender(threadSender),
+                      })
+                    }
                     items.push({ key: 'sep', separator: true })
                     items.push({
                       key: 'del',
@@ -1259,6 +1305,15 @@ export function MailList({
                           label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
                           onSelect: () => onMoveMessage(msg.id, f.id),
                         })),
+                      })
+                    }
+                    const msgSender = blockableAddr(msg.from_addr)
+                    if (msgSender) {
+                      items.push({
+                        key: 'block',
+                        label: t('ctx.blockSender', { addr: msgSender }),
+                        icon: 'shield',
+                        onSelect: () => blockSender(msgSender),
                       })
                     }
                     items.push({ key: 'sep', separator: true })

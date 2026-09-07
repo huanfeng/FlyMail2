@@ -21,6 +21,7 @@ workspace 内模块以本地源码互相解析依赖。
   - [路线图](docs/flymail/roadmap.md)（M9–M16，持续更新）
   - [M9 检索重构](docs/flymail/m9-search.md)（FTS5 索引、搜索语法、服务端兜底的设计与取舍）
   - [M10 会话线程](docs/flymail/m10-threads.md)（线程归属算法、会话列表查询与索引、会话级操作范围）
+  - [M11 规则引擎 + 黑名单](docs/flymail/m11-rules.md)（执行时序、幂等与动作合并、条件语义、接口）
 - `docs/superpowers/`：早期设计文档与实现计划（M1–M8），已停止更新，仅作历史参考
 - 各子项目自带 `README.md` / `docs/`；历史 AI 分析笔记归档在各自 `docs/archive/`
 - FlyMail 开发环境（后台进程托管、日志、启停）：`flymail/dev.ps1`

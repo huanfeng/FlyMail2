@@ -1804,6 +1804,25 @@ mark.hl {
   font-size: 12.5px; color: var(--ink-3); margin-top: 2px;
 }
 
+/* 设置页里的紧凑列表行（规则执行日志、黑名单条目、投递日志）。
+   这些行的骨架完全一样，各写一遍内联样式只会让它们慢慢漂移成三种间距。 */
+.settings-list-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; font-size: 12.5px;
+  border-bottom: 1px solid var(--rule);
+}
+/* 占满剩余宽度并单行省略：主题、备注这类长度不可控的列 */
+.settings-list-row .slr-grow {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 不参与压缩：时间、状态这类必须完整显示的列 */
+.settings-list-row .slr-fixed { flex-shrink: 0; }
+.settings-list-row .slr-mono { font-family: var(--font-mono); }
+.settings-list-row .slr-dim { color: var(--ink-3); }
+/* 设置页里的空状态提示（「暂无 xxx」） */
+.settings-empty { color: var(--ink-3); font-size: 13px; padding: 10px 0; }
+
 /* 主题大卡片网格（设置页内） */
 .theme-grid-large {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

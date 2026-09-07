@@ -86,6 +86,20 @@ api.interceptors.response.use(
   },
 )
 
+/**
+ * 从失败的请求里取出后端的 `{ error }` 文案，取不到则回退到调用方给的通用文案。
+ *
+ * 后端的校验错误是写给人看的中文（「正则 "(" 无法编译: ...」「账户里没有文件夹 "x"」），
+ * 比任何前端能编出来的通用提示都准确——把它原样展示，用户才知道该改哪里。
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { error?: unknown } | undefined
+    if (typeof data?.error === 'string' && data.error.trim().length > 0) return data.error
+  }
+  return fallback
+}
+
 /** 登录：调用后端 /auth/login，成功后保存 token。 */
 export async function login(username: string, password: string): Promise<LoginResponse> {
   const res = await api.post<LoginResponse>('/auth/login', { username, password })

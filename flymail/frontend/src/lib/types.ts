@@ -56,7 +56,7 @@ export interface Contact {
 }
 
 /** 站内通知事件类型 */
-export type NotifyEventType = 'mail_new' | 'sync_failed' | 'account_status'
+export type NotifyEventType = 'mail_new' | 'sync_failed' | 'account_status' | 'mail_rule'
 
 /** 站内通知记录 */
 export interface Notification {
@@ -361,4 +361,92 @@ export interface RemoteSearchResult {
   folders: number
   /** 失败账户的错误信息；部分账户失败不影响整体成功 */
   errors?: string[]
+}
+
+// ── M11 规则引擎 + 黑名单 ─────────────────────────────────────────────────────
+
+/** 条件字段。has_attachment 是布尔字段，只配 equals + 'true'/'false' */
+export type RuleField =
+  | 'from'
+  | 'to'
+  | 'cc'
+  | 'subject'
+  | 'body'
+  | 'attachment_name'
+  | 'has_attachment'
+
+/** 条件运算符。regex 交给 Go RE2 执行，前端保存前用 new RegExp 先粗筛一遍语法 */
+export type RuleOp =
+  | 'contains'
+  | 'not_contains'
+  | 'equals'
+  | 'regex'
+  | 'starts_with'
+  | 'ends_with'
+
+/** 动作类型。move 之外的类型 value 恒为空串（后端按类型忽略） */
+export type RuleActionType = 'move' | 'mark_read' | 'star' | 'delete' | 'notify'
+
+export interface RuleCondition {
+  field: RuleField
+  op: RuleOp
+  value: string
+}
+
+export interface RuleAction {
+  type: RuleActionType
+  /** move 时为目标文件夹的 display_name（跨账户按名字解析），其余类型为空串 */
+  value: string
+}
+
+/** 规则创建/更新入参（id / priority / 时间戳由后端维护） */
+export interface RuleInput {
+  name: string
+  enabled: boolean
+  /** 0 = 对全部账户生效 */
+  account_id: number
+  /** all = 所有条件都要满足，any = 任一满足 */
+  match: 'all' | 'any'
+  conditions: RuleCondition[]
+  actions: RuleAction[]
+  /** 命中后不再看后续规则 */
+  stop_processing: boolean
+}
+
+export interface Rule extends RuleInput {
+  id: number
+  /** 执行顺序，升序；前端通过 /rules/reorder 重排而非直接改这个值 */
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
+/** 试运行结果：只读求值，不产生任何副作用 */
+export interface RuleTestResult {
+  matched: MessageListItem[]
+  /** 参与求值的邮件数 */
+  scanned: number
+  /** 其中正文尚未同步的封数——正文/附件名条件对这些邮件按「不命中」处理 */
+  without_body: number
+  /** 命中数超过后端固定的 50 条回传上限，matched 只是前 50 条 */
+  truncated: boolean
+}
+
+/** 规则执行日志（诊断用）。rule_id = 0 表示黑名单命中 */
+export interface RuleRun {
+  id: number
+  account_id: number
+  message_key: string
+  rule_id: number
+  rule_name: string
+  action: string
+  created_at: string
+}
+
+/** 黑名单条目：完整地址或域名，后端已归一化为小写 */
+export interface BlockEntry {
+  id: number
+  pattern: string
+  note: string
+  created_at: string
 }

@@ -48,6 +48,7 @@ type Manager struct {
 	dial         func(types.IMAPConfig) (Session, error)
 	pollInterval func() time.Duration
 	emit         EmitFunc
+	rules        RuleRunner // 规则引擎（可能为 nil），见 syncFolder
 
 	maxConcurrent func() int
 	maxIdle       func() int
@@ -94,6 +95,79 @@ func (m *Manager) SetDial(d func(types.IMAPConfig) (Session, error)) { m.dial = 
 
 // SetEmitter 注入通知回调（新邮件等事件）。
 func (m *Manager) SetEmitter(fn EmitFunc) { m.emit = fn }
+
+// RuleRunner 是规则引擎对同步侧暴露的唯一入口，由 rule.Service 满足。
+// 定义在 sync 而不是直接依赖 rule：rule 需要 sync.Service 的批量操作（经接口注入），
+// 两边都用接口才不会成环。
+type RuleRunner interface {
+	// Apply 对本轮新到收件箱的邮件执行黑名单与规则；返回是否改动过任何邮件。
+	Apply(accountID uint, f *folder.Folder, msgs []message.Message) (bool, error)
+	// Handled 返回这批邮件里已被规则/黑名单处理过的 id，供非收件箱文件夹抑制重复提醒。
+	Handled(accountID uint, msgs []message.Message) map[uint]bool
+}
+
+// ruleBatchCap 是送进规则引擎的分页大小：本轮新邮件按 id 游标分页跑完，不截断——
+// 截断会让第 N+1 封起因锚点前移而永远不再进引擎。
+const ruleBatchCap = 500
+
+// runRules 把本轮新邮件分页交给规则引擎，返回是否改动过任何邮件。
+func (m *Manager) runRules(accountID uint, f *folder.Folder, afterID uint) (bool, error) {
+	changed := false
+	for {
+		rows, err := m.messages.ListAfterID(f.ID, afterID, ruleBatchCap)
+		if err != nil {
+			return changed, err
+		}
+		if len(rows) == 0 {
+			return changed, nil
+		}
+		c, err := m.rules.Apply(accountID, f, rows)
+		changed = changed || c
+		if err != nil {
+			return changed, err
+		}
+		if len(rows) < ruleBatchCap {
+			return changed, nil
+		}
+		afterID = rows[len(rows)-1].ID
+	}
+}
+
+// suppressHandled 在非收件箱文件夹里把「已被规则处理过」的邮件从本轮未读集合中剔除：
+// Gmail 一封邮件在 INBOX 与各标签文件夹各一行，INBOX 那份被规则移走/标读后，
+// 标签文件夹同步时同一封仍是新未读，不剔除就会照常发一条「新邮件」。
+func (m *Manager) suppressHandled(accountID uint, f *folder.Folder, nm *message.NewMail) {
+	if m.rules == nil || nm.UnseenTotal == 0 {
+		return
+	}
+	rows, err := m.messages.ListAfterID(f.ID, nm.AfterID, ruleBatchCap)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	handled := m.rules.Handled(accountID, rows)
+	if len(handled) == 0 {
+		return
+	}
+	drop := 0
+	for i := range rows {
+		if handled[rows[i].ID] && !rows[i].Seen {
+			drop++
+		}
+	}
+	kept := nm.Unseen[:0]
+	for _, u := range nm.Unseen {
+		if !handled[u.ID] {
+			kept = append(kept, u)
+		}
+	}
+	nm.Unseen = kept
+	if nm.UnseenTotal -= drop; nm.UnseenTotal < 0 {
+		nm.UnseenTotal = 0
+	}
+}
+
+// SetRuleRunner 注入规则引擎。
+func (m *Manager) SetRuleRunner(r RuleRunner) { m.rules = r }
 
 // SetPollIntervalProvider 注入轮询间隔（秒，<minPollInterval 取下限）。
 func (m *Manager) SetPollIntervalProvider(fn func() int) {
@@ -443,6 +517,31 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 			zap.Uint("account_id", accountID), zap.String("folder", f.Path), zap.Error(err))
 		return err
 	}
+	// 新收到的邮件顺手把正文也抓下来，点开即读不必现拉。
+	m.prefetchNewBodies(accountID, f, nm, sess)
+	// 规则引擎：正文预取之后（正文条件才有数据）、通知之前（被移走/屏蔽的不该再提醒）。
+	// 只对收件箱的非基线新邮件跑：Gmail 一封邮件在各标签文件夹各一行，逐文件夹跑会重复动作；
+	// 基线导入把整个文件夹当新邮件，对历史邮件执行动作不是用户想要的。
+	if m.rules != nil && !nm.Baseline && nm.Count > 0 {
+		if f.Type == "inbox" {
+			changed, err := m.runRules(accountID, f, nm.AfterID)
+			if err != nil {
+				logger.Warn("sync-manager: 规则执行失败", zap.Uint("account_id", accountID), zap.String("folder", f.Path), zap.Error(err))
+			}
+			if changed {
+				// 移动 / 删除 / 标已读改过行，重算计数与未读集合再往下走
+				if total, err := m.messages.CountByFolder(f.ID, message.Filter{}); err == nil {
+					state.Total = int(total)
+				}
+				if unread, err := m.messages.UnreadCountByFolder(f.ID); err == nil {
+					state.Unread = int(unread)
+				}
+				m.messages.RefreshNewMail(f.ID, nm)
+			}
+		} else if f.Type == "custom" {
+			m.suppressHandled(accountID, f, nm)
+		}
+	}
 	if err := m.folders.UpdateSyncState(f.ID, state.UIDValidity, state.UIDNext, state.Total, state.Unread, time.Now()); err != nil {
 		logger.Warn("sync-manager: 回写同步状态失败",
 			zap.Uint("account_id", accountID), zap.String("folder", f.Path), zap.Error(err))
@@ -452,10 +551,9 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 		zap.Uint("account_id", accountID), zap.String("folder", f.Path),
 		zap.Int("local", state.Total), zap.Int("unread", state.Unread),
 		zap.Uint32("uid_next", uint32(state.UIDNext)), zap.Int("new", nm.Count))
-	// 新收到的邮件顺手把正文也抓下来，点开即读不必现拉。
-	m.prefetchNewBodies(accountID, f, nm, sess)
 	if nm.Count > 0 {
-		// SSE 始终发布（含基线导入）：前端据此刷新列表/未读数。
+		// SSE 始终发布（含基线导入）：前端据此刷新列表/未读数。NewCount 是入库行数，不扣除
+		// 随后被规则移走/屏蔽的——它只是「有变化、去重新拉」的提示，前端拉回来的列表与计数已是执行后状态。
 		if m.pub != nil {
 			payload, _ := json.Marshal(Event{
 				Type:      "new_mail",

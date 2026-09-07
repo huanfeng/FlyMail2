@@ -111,10 +111,11 @@ func (s *Service) SyncFolderMessages(accountID, folderID uint, folderPath string
 	total, _ := s.repo.CountByFolder(folderID, Filter{})
 	unread, _ := s.repo.UnreadCountByFolder(folderID)
 	// UIDNEXT 未知时，用本地已存的最大 UID + 1 作为锚点（供后续增量同步）。
+	// 本地为空时也落 1：uid_next 非 0 是「这个文件夹同步过」的标记，基线判定靠它；
+	// 留 0 的话空收件箱之后到的第一批邮件会被当成基线导入（不提醒、不跑规则）。
 	if uidNext == 0 {
-		if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
-			uidNext = maxUID + 1
-		}
+		maxUID, _ := s.repo.MaxUID(folderID)
+		uidNext = maxUID + 1
 	}
 	return &FolderState{
 		UIDValidity: uidValidity,
@@ -226,8 +227,10 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 	if newCount < 0 {
 		newCount = 0
 	}
-	// 基线判定：本地原本为空的首次导入不算「新邮件」（旧账户历史邮件不该提醒）。
-	nm := &NewMail{Count: newCount, Baseline: beforeCount == 0, AfterID: beforeMaxID}
+	// 基线判定：该文件夹从未同步过（本地为空且没有 UIDNEXT 锚点）的首次导入不算「新邮件」——
+	// 旧账户的历史邮件不该提醒，也不该被规则引擎处置。只看「本地为空」不够：一个同步时还是空的
+	// 收件箱，之后到的第一批邮件也会被当成基线，既不提醒也不跑规则。
+	nm := &NewMail{Count: newCount, Baseline: beforeCount == 0 && prevUIDNext == 0, AfterID: beforeMaxID}
 	if !nm.Baseline && newCount > 0 {
 		if n, err := s.repo.CountUnseenAfterID(folderID, beforeMaxID); err == nil {
 			nm.UnseenTotal = int(n)
@@ -237,9 +240,9 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		}
 	}
 	if uidNext == 0 {
-		if maxUID, _ := s.repo.MaxUID(folderID); maxUID > 0 {
-			uidNext = maxUID + 1
-		}
+		// 同 SyncFolderMessages：空文件夹也落 1，标记「同步过」
+		maxUID, _ := s.repo.MaxUID(folderID)
+		uidNext = maxUID + 1
 	}
 	return &FolderState{
 		UIDValidity: uidValidity,
@@ -384,6 +387,56 @@ func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, lim
 
 // DeleteByID 删除单封邮件的本地行（移动/删除成功后调用）。
 func (s *Service) DeleteByID(id uint) error { return s.repo.DeleteByID(id) }
+
+// ListAfterID 返回文件夹内本轮新入库的邮件（id > afterID，升序，最多 limit 封）。
+func (s *Service) ListAfterID(folderID uint, afterID uint, limit int) ([]Message, error) {
+	return s.repo.ListAfterID(folderID, afterID, limit)
+}
+
+// ListRecentInbox 返回收件箱最近的邮件（accountID = 0 表示全部账户），规则试运行用。
+func (s *Service) ListRecentInbox(accountID uint, limit int) ([]Message, error) {
+	return s.repo.ListRecentInbox(accountID, limit)
+}
+
+// RefreshNewMail 在规则引擎改动过本轮新邮件（移走 / 删除 / 标已读）之后重算未读部分，
+// 让后面的通知闸门看到的是执行后的状态。
+func (s *Service) RefreshNewMail(folderID uint, nm *NewMail) {
+	nm.Unseen, nm.UnseenTotal = nil, 0
+	if n, err := s.repo.CountUnseenAfterID(folderID, nm.AfterID); err == nil {
+		nm.UnseenTotal = int(n)
+	}
+	if nm.UnseenTotal > 0 {
+		nm.Unseen, _ = s.repo.UnseenAfterID(folderID, nm.AfterID, newMailUnseenCap)
+	}
+}
+
+// BodyText 返回一封邮件用于规则匹配的正文文本：优先纯文本，否则剥掉 HTML 标签。
+// 正文尚未落库时 known 为 false，调用方据此把正文条件当作「未知」。
+func (s *Service) BodyText(messageID uint) (text string, known bool) {
+	b, err := s.bodyRepo.GetByMessageID(messageID)
+	if err != nil || b == nil {
+		return "", false
+	}
+	if b.TextBody != "" {
+		return b.TextBody, true
+	}
+	return fts.StripHTML(b.HTMLBody), true
+}
+
+// AttachmentNames 返回一封邮件的附件文件名（含内联部件）。
+func (s *Service) AttachmentNames(messageID uint) []string {
+	atts, err := s.bodyRepo.ListAttachments(messageID)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(atts))
+	for _, a := range atts {
+		if a.Filename != "" {
+			names = append(names, a.Filename)
+		}
+	}
+	return names
+}
 
 // SearchContacts 收件人自动补全：返回历史往来联系人（按频率降序）。
 func (s *Service) SearchContacts(q string, limit int) ([]Contact, error) {
@@ -628,6 +681,9 @@ func (s *Service) CountByAccount(accountID uint) (int64, error) {
 
 // GetByID 透传单封邮件原始记录。
 func (s *Service) GetByID(id uint) (*Message, error) { return s.repo.GetByID(id) }
+
+// GetByIDs 批量取行，不存在的缺席。
+func (s *Service) GetByIDs(ids []uint) ([]Message, error) { return s.repo.GetByIDs(ids) }
 
 // SetSeenLocal 本地标记已读/未读。
 func (s *Service) SetSeenLocal(id uint, seen bool) error { return s.repo.SetSeen(id, seen) }

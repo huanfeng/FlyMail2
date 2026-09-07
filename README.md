@@ -19,6 +19,7 @@ workspace 内模块以本地源码互相解析依赖。
   - [部署与测试环境](docs/flymail/deployment.md)（Docker 部署、日常测试流程、故障排查）
   - [功能对比分析](docs/flymail/mailflow-gap-analysis.md)（对标开源 MailFlow 的现状快照）
   - [路线图](docs/flymail/roadmap.md)（M9–M16，持续更新）
+  - [M9 检索重构](docs/flymail/m9-search.md)（FTS5 索引、搜索语法、服务端兜底的设计与取舍）
 - `docs/superpowers/`：早期设计文档与实现计划（M1–M8），已停止更新，仅作历史参考
 - 各子项目自带 `README.md` / `docs/`；历史 AI 分析笔记归档在各自 `docs/archive/`
 - FlyMail 开发环境（后台进程托管、日志、启停）：`flymail/dev.ps1`

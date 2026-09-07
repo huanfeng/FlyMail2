@@ -27,6 +27,7 @@ import {
   useAccountStats,
   useMe,
   useUpdateProfile,
+  useReindexSearch,
 } from '@/lib/queries'
 import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
@@ -675,8 +676,10 @@ function AccountsSection() {
 
 function MailSection() {
   const { t } = useTranslation()
+  const { toast } = useToast()
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
+  const reindex = useReindexSearch()
 
   const [syncDepth, setSyncDepth] = React.useState<number>(settings?.sync_depth ?? 1000)
   const [pollInterval, setPollInterval] = React.useState<number>(settings?.sync_poll_interval ?? 180)
@@ -857,6 +860,26 @@ function MailSection() {
             {t('settings.mail.saved')}
           </span>
         )}
+      </div>
+
+      {/* 重建搜索索引：全文索引与邮件表失配时的兜底，与上面的同步偏好无关，
+          因此单独用一条分隔线隔开，避免被误当成「保存」的一部分。 */}
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+        <Row label={t('settings.mail.reindex')} help={t('settings.mail.reindexHint')}>
+          <button
+            type="button"
+            className="pill-btn"
+            onClick={() => {
+              reindex.mutate(undefined, {
+                onSuccess: () => toast(t('settings.mail.reindexDone')),
+                onError: () => toast(t('settings.mail.reindexFailed')),
+              })
+            }}
+            disabled={reindex.isPending}
+          >
+            {reindex.isPending ? t('settings.mail.reindexing') : t('settings.mail.reindexAction')}
+          </button>
+        </Row>
       </div>
     </div>
   )

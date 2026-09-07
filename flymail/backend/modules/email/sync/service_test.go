@@ -31,7 +31,9 @@ type fakeSession struct {
 	deletedUIDs     []imapv2.UID
 	movedUIDs       []imapv2.UID
 	movedTo         string
-	rawMessage      []byte // FetchRawMessage 返回的原始 RFC 5322 字节
+	rawMessage      []byte                   // FetchRawMessage 返回的原始 RFC 5322 字节
+	searchHits      []imapv2.UID             // UIDSearch 返回的命中
+	searchCriteria  []*imapv2.SearchCriteria // UIDSearch 收到的条件
 }
 
 func (f *fakeSession) ListFolders() ([]types.FolderInfo, error) {
@@ -62,6 +64,14 @@ func (f *fakeSession) FetchBySeqRange(from, to uint32, opts coreimap.FetchOption
 		{UID: 1, Subject: "a", Date: time.Now()},
 		{UID: 2, Subject: "b", Date: time.Now()},
 	}, nil
+}
+
+// UIDSearch 返回预置的命中 UID（供远程搜索测试使用）；记录收到的条件。
+func (f *fakeSession) UIDSearch(criteria *imapv2.SearchCriteria) ([]imapv2.UID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.searchCriteria = append(f.searchCriteria, criteria)
+	return f.searchHits, nil
 }
 
 // FetchByUIDs 返回一封带正文的 ParsedEmail（供 MessageDetail 测试使用）。
@@ -155,6 +165,10 @@ func (f *fakeAccounts) IMAPConfig(id uint) (types.IMAPConfig, error) {
 }
 func (f *fakeAccounts) TouchLastSync(id uint, t time.Time) error { f.touched = true; return nil }
 func (f *fakeAccounts) IsEnabled(id uint) (bool, error)          { return f.enabled, nil }
+func (f *fakeAccounts) ListEnabledIDs() ([]uint, error)          { return []uint{1}, nil }
+func (f *fakeAccounts) AccountIdentity(id uint) (string, string, error) {
+	return "工作邮箱", "me@work.com", nil
+}
 
 // newSyncService 构建带临时 SQLite 数据库的测试用 Service，dial 注入共享 fakeSession。
 func newSyncService(t *testing.T) (*syncmod.Service, *fakeAccounts, *folder.Service, *fakeSession) {

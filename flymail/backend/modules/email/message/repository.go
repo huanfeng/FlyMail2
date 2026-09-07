@@ -2,7 +2,10 @@ package message
 
 import (
 	"errors"
+	"strings"
 	"time"
+
+	"flymail/internal/fts"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -25,6 +28,61 @@ func (r *Repository) Upsert(m *Message) error {
 			"seen", "flagged", "answered", "deleted", "updated_at",
 		}),
 	}).Create(m).Error
+}
+
+// GetByFolderUID 按 (folder_id, uid) 唯一键取一封。
+func (r *Repository) GetByFolderUID(folderID uint, uid uint32) (*Message, error) {
+	var m Message
+	err := r.db.Where("folder_id = ? AND uid = ?", folderID, uid).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// uidChunk 是一次 IN 查询最多带的 UID 数，远低于 SQLite 绑定变量上限，留足其它参数的余量。
+const uidChunk = 900
+
+// UIDsNotSearchable 从给定 UID 中挑出「本地搜不到」的那些：本地没有这一行，或有行但正文尚未落库
+// （body_synced=false 时全文索引里没有正文，服务器按正文命中的邮件本地依然搜不出来）。
+// 服务端搜索兜底用它决定哪些命中需要补抓。
+func (r *Repository) UIDsNotSearchable(folderID uint, uids []uint32) ([]uint32, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	searchable := make(map[uint32]bool, len(uids))
+	// 分块查询：IN 列表的每个元素都是一个绑定变量，SQLite 上限 32766；
+	// 服务器上一个常用词命中几万封并不稀奇。
+	for start := 0; start < len(uids); start += uidChunk {
+		end := start + uidChunk
+		if end > len(uids) {
+			end = len(uids)
+		}
+		var rows []struct {
+			UID        uint32
+			BodySynced bool
+		}
+		err := r.db.Model(&Message{}).Select("uid, body_synced").
+			Where("folder_id = ? AND uid IN ?", folderID, uids[start:end]).Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if row.BodySynced {
+				searchable[row.UID] = true
+			}
+		}
+	}
+	out := make([]uint32, 0, len(uids))
+	for _, u := range uids {
+		if !searchable[u] {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (r *Repository) DeleteByFolder(folderID uint) error {
@@ -62,31 +120,65 @@ func (r *Repository) SetFlaggedByIDs(ids []uint, flagged bool) error {
 	return r.db.Model(&Message{}).Where("id IN ?", ids).Update("flagged", flagged).Error
 }
 
-// SearchMessages 跨账户全文检索：在 主题/发件人名/发件人地址/摘要/正文 上做 LIKE。
-// 按 (date, id) 降序 keyset 分页，与聚合一致。q 已由调用方做转义。
 // searchScope 构造搜索的匹配条件，供列表查询与计数共用。
-// 抽出来是因为两处各写一遍这串 LIKE 迟早会漂移，届时「共 N 封」会与实际能翻到的条目数对不上。
-func (r *Repository) searchScope(q string) *gorm.DB {
-	like := "%" + escapeLike(q) + "%"
-	// message_bodies 与 messages 是一对一，LEFT JOIN 不会放大行数，计数可安全复用
-	return r.db.Model(&Message{}).
-		Joins("LEFT JOIN message_bodies ON message_bodies.message_id = messages.id").
-		Where(
-			"messages.subject LIKE ? ESCAPE '\\' OR messages.from_name LIKE ? ESCAPE '\\' OR "+
-				"messages.from_addr LIKE ? ESCAPE '\\' OR messages.snippet LIKE ? ESCAPE '\\' OR "+
-				"message_bodies.text_body LIKE ? ESCAPE '\\'",
-			like, like, like, like, like,
+// 抽出来是因为两处各写一遍这串条件迟早会漂移，届时「共 N 封」会与实际能翻到的条目数对不上。
+//
+// 文本条件走 FTS5：messages_fts MATCH（索引命中的 rowid 即 messages.id），
+// 结构化条件（未读/星标/附件/日期/文件夹/账户）落到主表 WHERE，两者 AND。
+// 用 IN 子查询而不是 JOIN 虚表：与既有的 dedupeSameMessage / Filter 拼装方式正交，
+// 并且 SQLite 会把子查询物化一次再探测主表，不会为每行重跑一遍 MATCH。
+func (r *Repository) searchScope(q fts.Query) *gorm.DB {
+	dbq := r.db.Model(&Message{})
+	if m := q.Match(); m != "" {
+		dbq = dbq.Where("messages.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)", m)
+	}
+	if q.Seen != nil {
+		dbq = dbq.Where("messages.seen = ?", *q.Seen)
+	}
+	if q.Flagged != nil {
+		dbq = dbq.Where("messages.flagged = ?", *q.Flagged)
+	}
+	if q.HasAttachment != nil {
+		dbq = dbq.Where("messages.has_attachment = ?", *q.HasAttachment)
+	}
+	// before:/after: 是「按邮件自带时区的日期」比较，不是绝对时刻：date 列以带偏移的文本存储
+	// （2026-03-01 21:00:00+08:00），比较走字节序，串尾的偏移量不参与主序。
+	// 这与 IMAP SENTBEFORE/SENTSINCE 按 Date 头日期比较的口径一致，本地与服务端结果不会打架；
+	// 代价是跨时区邮件在日期边界上可能差一天。既有的 ORDER BY date 也是同一口径。
+	if q.Before != nil {
+		dbq = dbq.Where("messages.date < ?", *q.Before)
+	}
+	if q.After != nil {
+		dbq = dbq.Where("messages.date >= ?", *q.After)
+	}
+	if q.Folder != "" {
+		// in:inbox 这类按类型精确匹配；in:发票 这类按显示名/路径模糊匹配
+		like := "%" + escapeLike(q.Folder) + "%"
+		dbq = dbq.Where(
+			"messages.folder_id IN (SELECT id FROM folders WHERE type = ? OR display_name LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\')",
+			strings.ToLower(q.Folder), like, like,
 		)
+	}
+	if q.Account != "" {
+		like := "%" + escapeLike(q.Account) + "%"
+		dbq = dbq.Where(
+			"messages.account_id IN (SELECT id FROM accounts WHERE email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')",
+			like, like,
+		)
+	}
+	return dbq
 }
 
 // CountSearchMessages 返回搜索命中的总条数，与列表同口径去重 + 同筛选条件。
-func (r *Repository) CountSearchMessages(q string, f Filter) (int64, error) {
+func (r *Repository) CountSearchMessages(q fts.Query, f Filter) (int64, error) {
 	var n int64
 	err := f.apply(dedupeSameMessage(r.searchScope(q))).Count(&n).Error
 	return n, err
 }
 
-func (r *Repository) SearchMessages(q string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]Message, error) {
+// SearchMessages 跨账户检索，按 (date, id) 降序 keyset 分页，与聚合一致。
+// 语法解析在上层完成（fts.Parse）；空查询由调用方拦下，这里不重复判断。
+func (r *Repository) SearchMessages(q fts.Query, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}

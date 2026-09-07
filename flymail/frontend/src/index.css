@@ -598,6 +598,65 @@ body.is-resizing * { cursor: col-resize !important; }
   border: 1px solid var(--rule); background: var(--bg);
 }
 
+/* 搜索命中高亮。
+   配色沿用 ::selection 的 accent-soft / accent-ink 组合——它在全部色调 × 明暗
+   主题下都验证过对比度。不能用 accent-wash：那是 .mail-item.selected 的行底色，
+   选中行里的高亮会直接消失。 */
+mark.hl {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* 「在服务器上搜索」按钮：列表底部与空态共用，图标与文字同一基线 */
+.remote-search-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.remote-search-btn svg { flex: 0 0 auto; }
+/* 列表末尾的容器：与上方「没有更多」保持呼吸感，底部留白避开滚动条末端 */
+.remote-search-foot {
+  display: flex; justify-content: center;
+  padding: 4px 0 24px;
+}
+
+/* ── 搜索语法帮助浮层（搜索框右侧 ? 按钮，radix Popover） ────────────── */
+.search-help {
+  width: min(360px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  padding: 10px 0 0;
+  z-index: 100; /* 与右键菜单同层：高于设置弹框(55)与对话框(80) */
+  animation: fadeIn 0.1s;
+}
+.search-help .sh-title {
+  padding: 0 12px 8px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2);
+}
+.search-help .sh-rows { display: flex; flex-direction: column; padding: 0 4px; }
+.search-help .sh-row {
+  display: grid; grid-template-columns: 108px 1fr; gap: 8px; align-items: baseline;
+  width: 100%; text-align: left;
+  padding: 5px 8px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--ink); font-size: 12.5px;
+  cursor: pointer;
+}
+.search-help .sh-row:hover:not(.static) { background: var(--bg-active); }
+/* 纯说明行（如「"短语"」）没有可插入的片段，不做可点击的视觉暗示 */
+.search-help .sh-row.static { cursor: default; }
+.search-help .sh-row code {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.search-help .sh-row span { color: var(--ink-2); }
+.search-help .sh-foot {
+  margin-top: 8px; padding: 8px 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 11.5px; color: var(--ink-3);
+}
+
 /* 统一工具栏：筛选 + 选择 + 批量操作并存于固定高度的一条。
    高度恒定 44px——进入/退出选择态只是在同一行追加操作组，列表不会跳动。
    ⚠ 类名统一用 lt-（list toolbar）前缀：阅读器工具栏已占用 .tb-btn/.tb-sep，
@@ -973,6 +1032,9 @@ body.is-resizing * { cursor: col-resize !important; }
   border: 1px solid var(--rule); background: var(--surface);
 }
 .pill-btn:hover { background: var(--bg-hover); color: var(--ink); }
+/* 请求进行中的禁用态：光标不再是「可点」，避免用户在 90 秒的服务端搜索里反复戳 */
+.pill-btn:disabled { opacity: 0.55; cursor: default; }
+.pill-btn:disabled:hover { background: var(--surface); color: var(--ink-2); }
 .pill-btn.primary {
   background: var(--accent); border-color: var(--accent); color: white;
 }

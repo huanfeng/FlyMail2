@@ -2,6 +2,7 @@ package message
 
 import (
 	"encoding/json"
+	"flymail/internal/fts"
 	"regexp"
 	"strings"
 	"time"
@@ -341,11 +342,17 @@ func (s *Service) ListAggregate(view string, beforeDate *time.Time, beforeID uin
 }
 
 // ListSearch 跨账户全文检索，返回列表项 + 下一页游标（与聚合同款 keyset）。
+// q 是用户原始输入（含 from:/is:/before: 等限定符，见 fts.Parse）；解析后没有任何有效条件
+// 时直接返回空结果——「搜一堆标点」不该退化成列出全部邮件。
 func (s *Service) ListSearch(q string, beforeDate *time.Time, beforeID uint, limit int, f Filter) ([]MessageListItem, *AggCursor, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.repo.SearchMessages(q, beforeDate, beforeID, limit, f)
+	parsed := fts.Parse(q)
+	if parsed.Empty() {
+		return []MessageListItem{}, nil, nil
+	}
+	rows, err := s.repo.SearchMessages(parsed, beforeDate, beforeID, limit, f)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -374,9 +381,18 @@ func (s *Service) CountByFolder(folderID uint, f Filter) (int64, error) {
 	return s.repo.CountByFolder(folderID, f)
 }
 
-// CountSearchMessages 返回搜索命中的总条数（应用筛选后）。
+// CountSearchMessages 返回搜索命中的总条数（应用筛选后）。空查询计 0，与 ListSearch 口径一致。
 func (s *Service) CountSearchMessages(q string, f Filter) (int64, error) {
-	return s.repo.CountSearchMessages(q, f)
+	parsed := fts.Parse(q)
+	if parsed.Empty() {
+		return 0, nil
+	}
+	return s.repo.CountSearchMessages(parsed, f)
+}
+
+// RebuildSearchIndex 整体重建全文索引（运维入口：索引与主表漂移时使用）。
+func (s *Service) RebuildSearchIndex() error {
+	return RebuildFTS(s.repo.db)
 }
 
 // CountAggregateView 返回某聚合视图应用筛选后的条目总数，供列表标题「共 N 封」使用。
@@ -439,6 +455,30 @@ func (s *Service) SetFlaggedByIDs(ids []uint, flagged bool) error {
 // AccountUnreadCounts 返回各账户的未读数（account_id → 未读），供侧栏账户角标使用。
 func (s *Service) AccountUnreadCounts() (map[uint]int64, error) {
 	return s.repo.AccountUnreadCounts()
+}
+
+// UIDsNotSearchable 透传仓储：给定 UID 中本地搜不到（无行或无正文）的那些。
+func (s *Service) UIDsNotSearchable(folderID uint, uids []uint32) ([]uint32, error) {
+	return s.repo.UIDsNotSearchable(folderID, uids)
+}
+
+// StoreFetched 把一封抓回来的邮件整体入库：元数据 upsert，若带正文则一并落库并标记 body_synced。
+// 供服务端搜索兜底使用——命中的邮件本地可能根本没有行，也可能有行但没正文，
+// 两种情况统一走这里，回来即可被全文索引命中。返回本地行（含 ID）。
+func (s *Service) StoreFetched(accountID, folderID uint, e *types.ParsedEmail, withBody bool) (*Message, error) {
+	if err := s.repo.Upsert(toMessage(accountID, folderID, e)); err != nil {
+		return nil, err
+	}
+	m, err := s.repo.GetByFolderUID(folderID, e.UID)
+	if err != nil {
+		return nil, err
+	}
+	if withBody {
+		if err := s.StoreParsedBody(m.ID, e); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
 }
 
 // StoreParsedBody 落正文+附件，回填 snippet/has_attachment/body_synced。

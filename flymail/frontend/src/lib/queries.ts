@@ -12,7 +12,7 @@ import {
   removeMessages,
   restoreMail,
 } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, SendRequest, SyncStatus } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, SendRequest, SyncStatus } from '@/lib/types'
 
 export function useAccounts() {
   return useQuery({
@@ -196,6 +196,45 @@ export function useInfiniteSearch(q: string, filter: ListFilter = EMPTY_FILTER) 
       }
     },
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  })
+}
+
+/**
+ * 重建全文索引（FTS5）。
+ *
+ * 兜底手段：索引与 messages 表理论上由触发器保持同步，但导入/迁移/异常中断
+ * 后可能对不上，表现为「明明有这封邮件却搜不到」。后端同步重建，邮件多时较慢。
+ * 完成后清掉搜索缓存，让用户立刻能用新索引复查。
+ */
+export function useReindexSearch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => { await api.post('/search/reindex') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages', 'search'] })
+    },
+  })
+}
+
+/**
+ * 服务端兜底搜索：把当前查询翻译成 IMAP SEARCH 发给所有启用账户，
+ * 把服务器命中但本地没有的邮件补抓入库。
+ *
+ * 同步执行、最长约 90 秒——本地库只存已同步的部分，深层历史必须回服务器捞，
+ * 这是「明明记得有这封信却搜不到」的唯一出路。
+ * 成功后失效整个 ['messages'] 前缀：补抓的邮件既要出现在搜索结果里，
+ * 也会出现在它所属的文件夹列表里。
+ */
+export function useRemoteSearch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (q: string): Promise<RemoteSearchResult> => {
+      const { data } = await api.post<RemoteSearchResult>('/search/remote', { q })
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages'] })
+    },
   })
 }
 

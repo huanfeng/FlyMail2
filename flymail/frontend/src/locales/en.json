@@ -40,6 +40,7 @@
   },
   "list": {
     "search": "Search mail", "unreadCount": "{{count}} unread",
+    "searchPlaceholder": "Search mail — try from: subject: is:unread …",
     "totalCount": "{{count}} messages",
     "filteredCount": "{{count}} filtered",
     "empty": "No messages", "noSubject": "(No subject)", "filterUnread": "Unread", "filterFlagged": "Flagged",
@@ -65,6 +66,29 @@
     "selectMode": "Select messages",
     "exitSelect": "Exit selection",
     "deletedToast": "Deleted",
+    "remoteSearch": {
+      "action": "Search on server",
+      "running": "Searching on server…",
+      "emptyHint": "Nothing found locally — try searching on the server",
+      "added": "Fetched {{count}} messages from the server",
+      "none": "No more results on the server",
+      "errors": "{{count}} accounts failed",
+      "failed": "Server search failed, please try again later"
+    },
+    "syntax": {
+      "title": "Search syntax",
+      "from": "Sender, e.g. from:alice",
+      "to": "Recipient, e.g. to:lisi@x.com",
+      "subject": "Subject; quote phrases: subject:\"expense report\"",
+      "attachment": "Only messages with attachments",
+      "unread": "Only unread (is:read for read)",
+      "starred": "Only starred (is:unstarred for unstarred)",
+      "date": "Date range, e.g. before:2026-06-01, after:2026-01",
+      "folder": "A specific folder, e.g. in:inbox, in:Sent",
+      "account": "A specific account, e.g. account:me@work.com",
+      "phrase": "Match the whole phrase exactly",
+      "hint": "All conditions must match; qualifiers are case-insensitive."
+    },
     "relTime": {
       "justNow": "now",
       "minutesAgo": "{{n}}m",
@@ -397,7 +421,13 @@
       "invalidBodyDays": "Days must be between 1 and 3650",
       "listStyle": "List style",
       "listCompact": "Compact",
-      "listCard": "Card"
+      "listCard": "Card",
+      "reindex": "Rebuild search index",
+      "reindexHint": "Use when search results don't match reality; takes a while with many messages",
+      "reindexAction": "Rebuild",
+      "reindexing": "Rebuilding…",
+      "reindexDone": "Search index rebuilt",
+      "reindexFailed": "Rebuild failed, please try again later"
     },
     "account": {
       "add": "Add Account",

@@ -35,6 +35,8 @@ export type IconName =
   | 'mail'
   | 'user'
   | 'logout'
+  | 'help'
+  | 'cloud'
 
 interface IconProps {
   name: IconName
@@ -210,6 +212,23 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
         <svg {...p}>
           <path d="M6 2.5H3.5a1 1 0 00-1 1v9a1 1 0 001 1H6"/>
           <path d="M9.5 11l3-3-3-3M12.5 8H6"/>
+        </svg>
+      )
+
+    case 'cloud':
+      return (
+        <svg {...p}>
+          <path d="M4.7 12.5h6.4a2.85 2.85 0 00.5-5.66 4 4 0 00-7.68-.62A2.85 2.85 0 004.7 12.5z"/>
+        </svg>
+      )
+
+    case 'help':
+      return (
+        <svg {...p}>
+          <circle cx="8" cy="8" r="6"/>
+          {/* 问号：上弧 + 竖笔 + 独立的点（点用极短线段画，stroke-linecap=round 会渲染成圆点）*/}
+          <path d="M6.4 6.3a1.7 1.7 0 013.2.8c0 1.1-1.6 1.2-1.6 2.4"/>
+          <path d="M8 11.7v.01"/>
         </svg>
       )
 

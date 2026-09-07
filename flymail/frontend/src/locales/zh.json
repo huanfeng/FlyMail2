@@ -40,6 +40,7 @@
   },
   "list": {
     "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
+    "searchPlaceholder": "搜索邮件，支持 from: subject: is:unread …",
     "totalCount": "共 {{count}} 封",
     "filteredCount": "筛选出 {{count}} 封",
     "empty": "暂无邮件", "noSubject": "（无主题）", "filterUnread": "未读", "filterFlagged": "星标",
@@ -65,6 +66,29 @@
     "selectMode": "选择邮件",
     "exitSelect": "退出选择",
     "deletedToast": "已删除",
+    "remoteSearch": {
+      "action": "在服务器上搜索",
+      "running": "正在服务器上搜索…",
+      "emptyHint": "本地没有结果，试试在服务器上搜索",
+      "added": "从服务器补充了 {{count}} 封邮件",
+      "none": "服务器上没有更多结果",
+      "errors": "{{count}} 个账户搜索失败",
+      "failed": "服务器搜索失败，请稍后重试"
+    },
+    "syntax": {
+      "title": "搜索语法",
+      "from": "发件人，如 from:张三",
+      "to": "收件人，如 to:lisi@x.com",
+      "subject": "主题，含空格用引号：subject:\"报销 发票\"",
+      "attachment": "只看带附件的邮件",
+      "unread": "只看未读（is:read 看已读）",
+      "starred": "只看星标（is:unstarred 看未标）",
+      "date": "日期范围，如 before:2026-06-01、after:2026-01",
+      "folder": "指定文件夹，如 in:inbox、in:已发送",
+      "account": "指定账户，如 account:me@work.com",
+      "phrase": "精确匹配整个短语",
+      "hint": "多个条件同时成立才命中；限定符不区分大小写。"
+    },
     "relTime": {
       "justNow": "刚刚",
       "minutesAgo": "{{n}}分",
@@ -397,7 +421,13 @@
       "invalidBodyDays": "天数需在 1–3650 之间",
       "listStyle": "列表样式",
       "listCompact": "紧凑",
-      "listCard": "卡片"
+      "listCard": "卡片",
+      "reindex": "重建搜索索引",
+      "reindexHint": "搜索结果与实际不符时使用，邮件多时需要一些时间",
+      "reindexAction": "重建",
+      "reindexing": "重建中…",
+      "reindexDone": "搜索索引已重建",
+      "reindexFailed": "重建失败，请稍后重试"
     },
     "account": {
       "add": "添加账户",

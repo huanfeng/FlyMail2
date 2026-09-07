@@ -66,6 +66,19 @@ func (s *Session) FetchBySeqRange(from, to uint32, opts FetchOptions) ([]*types.
 	return s.doFetch(seqSet, opts)
 }
 
+// UIDSearch 在当前选中的文件夹执行 UID SEARCH，返回命中的 UID（服务器侧全文/头部检索）。
+// 由调用方构造 criteria（go-imap v2 的 SearchCriteria：Text/Header/Flag/SentSince…）。
+func (s *Session) UIDSearch(criteria *imapv2.SearchCriteria) ([]imapv2.UID, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	res, err := s.Client.UIDSearch(criteria, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+	return res.AllUIDs(), nil
+}
+
 // SearchUnseenSince searches for unseen messages with UID >= startUID.
 func (s *Session) SearchUnseenSince(startUID imapv2.UID) ([]imapv2.UID, error) {
 	if s.Client == nil {

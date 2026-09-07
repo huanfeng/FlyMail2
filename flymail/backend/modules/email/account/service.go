@@ -124,6 +124,15 @@ func (s *Service) IsEnabled(id uint) (bool, error) {
 // ListEnabledIDs 透传启用账户 ID 列表（供同步管理器调度）。
 func (s *Service) ListEnabledIDs() ([]uint, error) { return s.repo.ListEnabledIDs() }
 
+// AccountIdentity 返回账户的名称与邮箱（供服务端搜索按 account: 限定符筛账户）。
+func (s *Service) AccountIdentity(id uint) (name, email string, err error) {
+	a, err := s.repo.GetByID(id)
+	if err != nil {
+		return "", "", err
+	}
+	return a.Name, a.Email, nil
+}
+
 func (s *Service) applyProxy(a *Account, p *ProxyDTO) error {
 	if p == nil || p.Host == "" {
 		a.ProxyType, a.ProxyHost, a.ProxyPort, a.ProxyUsername, a.ProxyPasswordEnc = "", "", 0, "", ""

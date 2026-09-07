@@ -18,9 +18,9 @@ func Open(path string) (*gorm.DB, error) {
 	return coredb.OpenSQLite(coredb.Options{Path: path})
 }
 
-// Migrate 迁移所有 FlyMail 模型。后续里程碑在此追加模型。
+// Migrate 迁移所有 FlyMail 模型，随后建全文索引（虚表 + 触发器，AutoMigrate 管不了）。
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&auth.AdminUser{},
 		&account.Account{},
 		&folder.Folder{},
@@ -32,5 +32,9 @@ func Migrate(db *gorm.DB) error {
 		&notify.Notification{},
 		&notify.Channel{},
 		&notify.Log{},
-	)
+	); err != nil {
+		return err
+	}
+	// 触发器引用 messages / message_bodies，必须在 AutoMigrate 之后
+	return message.EnsureFTS(db)
 }

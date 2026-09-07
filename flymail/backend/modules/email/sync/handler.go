@@ -45,6 +45,26 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.POST("/batch/move", h.batchMove)
 	rg.POST("/batch/read", h.batchRead)
 	rg.POST("/batch/flag", h.batchFlag)
+	// 服务端搜索兜底：与 message 模块的 GET /search/messages 同前缀，但要走 runner 连接，所以挂在这里
+	rg.POST("/search/remote", h.remoteSearch)
+}
+
+// remoteSearch 用 IMAP SEARCH 在服务器上找本地没有的命中并补抓入库。
+// 同步等待完成（最长 remoteSearchTimeout）再返回汇总，前端随后重跑本地搜索即可看到新命中。
+func (h *handler) remoteSearch(c *gin.Context) {
+	var body struct {
+		Q string `json:"q"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Q) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	res, err := h.svc.RemoteSearch(c.Request.Context(), body.Q)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
 
 func (h *handler) batchDelete(c *gin.Context) {

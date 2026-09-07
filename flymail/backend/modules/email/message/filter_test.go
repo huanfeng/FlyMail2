@@ -1,6 +1,7 @@
 package message_test
 
 import (
+	"flymail/internal/fts"
 	"testing"
 
 	"flymail/modules/email/message"
@@ -141,7 +142,7 @@ func TestFilterOnSearch(t *testing.T) {
 
 	// 主题含 "unread" 的共 5 封，其中带星标的只有 trash-unread-star
 	f := message.Filter{Flagged: ptr(true)}
-	list, err := repo.SearchMessages("unread", nil, 0, 50, f)
+	list, err := repo.SearchMessages(fts.Parse("unread"), nil, 0, 50, f)
 	if err != nil {
 		t.Fatalf("SearchMessages: %v", err)
 	}
@@ -149,7 +150,7 @@ func TestFilterOnSearch(t *testing.T) {
 		t.Errorf("搜索 unread+星标 得到 %v, want [trash-unread-star]", got)
 	}
 
-	n, err := repo.CountSearchMessages("unread", f)
+	n, err := repo.CountSearchMessages(fts.Parse("unread"), f)
 	if err != nil {
 		t.Fatalf("CountSearchMessages: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestFilterOnSearch(t *testing.T) {
 	}
 
 	// 不筛选时应拿到全部 5 封，确认上面的 1 条确实是筛出来的
-	if all, _ := repo.CountSearchMessages("unread", message.Filter{}); all != 5 {
+	if all, _ := repo.CountSearchMessages(fts.Parse("unread"), message.Filter{}); all != 5 {
 		t.Errorf("搜索全量计数 = %d, want 5", all)
 	}
 }

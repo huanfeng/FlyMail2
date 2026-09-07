@@ -157,3 +157,16 @@ func TestHandlerSearchFilter(t *testing.T) {
 		t.Errorf("筛选后命中总数应为 1，得到 %v", starred.Total)
 	}
 }
+
+func TestHandlerReindex(t *testing.T) {
+	r := newFilterRouter(t)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/search/reindex", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("reindex status %d: %s", w.Code, w.Body.String())
+	}
+	// 重建后搜索仍可用
+	if all := getJSON(t, r, "/search/messages?q=unread"); all.Total == nil || *all.Total != 5 {
+		t.Fatalf("重建后命中总数应为 5，得到 %v", all.Total)
+	}
+}

@@ -590,6 +590,7 @@ export function ShellPage() {
               onLoadMore={loadMore}
               searchValue={searchQuery}
               onSearchChange={setSearchQuery}
+              searching={searching}
               filter={filter}
               onToggleFilter={onToggleFilter}
               onClearFilter={() => setFilter(EMPTY_FILTER)}

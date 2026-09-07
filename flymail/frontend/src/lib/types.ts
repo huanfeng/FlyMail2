@@ -296,3 +296,21 @@ export interface SyncStatus {
   processed?: number
   error?: string
 }
+
+/**
+ * 服务端兜底搜索的结果（POST /search/remote）。
+ * 后端把同一查询翻译成 IMAP SEARCH 发给所有启用账户，把服务器命中但本地没有的
+ * 邮件补抓入库——所以这里没有邮件列表，前端重跑一次本地搜索即可看到新命中。
+ */
+export interface RemoteSearchResult {
+  /** 补抓入库的邮件数 */
+  fetched: number
+  /** 服务器端命中数（含本地已有的） */
+  matched: number
+  /** 参与搜索的账户数 */
+  accounts: number
+  /** 参与搜索的文件夹数 */
+  folders: number
+  /** 失败账户的错误信息；部分账户失败不影响整体成功 */
+  errors?: string[]
+}

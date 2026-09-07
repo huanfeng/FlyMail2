@@ -17,6 +17,10 @@ import type { LayoutWidths } from '@/lib/layout-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { Folder, MessageListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
+import { highlightText } from '@/components/ui/Highlight'
+import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
+import { RemoteSearchButton } from '@/components/mail/RemoteSearchButton'
+import { extractHighlightTerms } from '@/lib/search-terms'
 import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
 import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 import { searchShortcutHint } from '@/lib/platform'
@@ -48,6 +52,12 @@ interface Props {
   /** 搜索框值（受控，由 Shell 管理以驱动后端搜索） */
   searchValue: string
   onSearchChange: (v: string) => void
+  /**
+   * 当前列表是否为搜索结果。
+   * 必须由 Shell 传入而非从 searchValue 推导：Shell 用的是防抖后的串，
+   * 刚敲下第一个字时列表还是文件夹内容，此时冒出「在服务器上搜索」会指向错的东西。
+   */
+  searching: boolean
   /**
    * 筛选条件（受控，由 Shell 管理）。
    * 必须由 Shell 持有：筛选是后端查询条件的一部分，在这里做前端过滤只能筛到
@@ -198,13 +208,15 @@ interface CardRowProps {
   active: boolean
   lang: string
   selected: boolean
+  /** 搜索命中词（非搜索态为空数组，高亮函数会原样返回字符串） */
+  terms: string[]
   onSelect: () => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
 }
 
-function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag, onDelete }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete }: CardRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -245,7 +257,7 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
             附件标记并入本行而非另起一行——行高必须与 estimateSize 恒等，
             不能随「有无附件」浮动。 */}
         <div className="mi-top">
-          <span className="mi-sender">{msg.from_name || msg.from_addr}</span>
+          <span className="mi-sender">{highlightText(msg.from_name || msg.from_addr, terms)}</span>
           {msg.has_attachment && (
             <span className="mi-tags">
               <span className="mi-tag mi-attach">
@@ -258,12 +270,12 @@ function CardRow({ msg, active, lang, selected, onSelect, onToggleSelect, onTogg
 
         {/* 第二行：主题 */}
         <div className="mi-subject">
-          {msg.subject || '—'}
+          {msg.subject ? highlightText(msg.subject, terms) : '—'}
         </div>
 
         {/* 第三行：摘要（2 行截断由 CSS 控制）*/}
         {msg.snippet && (
-          <div className="mi-preview">{msg.snippet}</div>
+          <div className="mi-preview">{highlightText(msg.snippet, terms)}</div>
         )}
       </div>
 
@@ -302,13 +314,15 @@ interface CompactRowProps {
   active: boolean
   lang: string
   selected: boolean
+  /** 搜索命中词（非搜索态为空数组，高亮函数会原样返回字符串） */
+  terms: string[]
   onSelect: () => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
 }
 
-function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onToggleFlag, onDelete }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete }: CompactRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -346,14 +360,14 @@ function CompactRow({ msg, active, lang, selected, onSelect, onToggleSelect, onT
 
       {/* 发件人列 */}
       <div className="mi-top">
-        <span className="mi-sender">{msg.from_name || msg.from_addr}</span>
+        <span className="mi-sender">{highlightText(msg.from_name || msg.from_addr, terms)}</span>
       </div>
 
       {/* 主题 + 摘要（单行，"— " 由 CSS ::before 注入）*/}
       <div className="mi-subject-preview">
-        <span className="mi-subject">{msg.subject || '—'}</span>
+        <span className="mi-subject">{msg.subject ? highlightText(msg.subject, terms) : '—'}</span>
         {msg.snippet && (
-          <span className="mi-preview">{msg.snippet}</span>
+          <span className="mi-preview">{highlightText(msg.snippet, terms)}</span>
         )}
       </div>
 
@@ -416,6 +430,7 @@ export function MailList({
   subtitleOverride,
   searchValue,
   onSearchChange,
+  searching,
   filter,
   onToggleFilter,
   onClearFilter,
@@ -443,6 +458,27 @@ export function MailList({
 
   // 搜索为受控值：由 Shell 管理并驱动后端跨账户搜索（searchValue/onSearchChange）。
   const query = searchValue
+
+  // 命中高亮词：用未防抖的 searchValue（Shell 防抖的是请求，高亮跟着输入走更跟手）。
+  // 非搜索态 query 为空 → 空数组 → highlightText 原样返回字符串，不产生额外节点。
+  const highlightTerms = useMemo(() => extractHighlightTerms(query), [query])
+
+  /**
+   * 把语法帮助里选中的片段追加到搜索框末尾并聚焦。
+   * 需要补空格：`from:张三` 后面直接接 `is:unread` 会被后端当成一个 token。
+   */
+  const appendSyntax = useCallback((fragment: string) => {
+    const base = query.length > 0 && !query.endsWith(' ') ? query + ' ' : query
+    const next = base + fragment
+    onSearchChange(next)
+    // 等受控值回流到 DOM 后再把光标移到末尾，否则 setSelectionRange 会被覆盖
+    requestAnimationFrame(() => {
+      const el = searchInputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(next.length, next.length)
+    })
+  }, [query, onSearchChange])
 
   // 监听快捷键 / 广播的自定义事件，聚焦搜索框
   useEffect(() => {
@@ -664,11 +700,15 @@ export function MailList({
           <input
             ref={searchInputRef}
             type="text"
-            placeholder={t('list.search')}
+            placeholder={t('list.searchPlaceholder')}
             value={query}
             onChange={(e) => onSearchChange(e.target.value)}
             aria-label={t('list.search')}
           />
+
+          {/* 语法帮助：限定符不写出来用户不会知道它们存在 */}
+          <SearchSyntaxHelp onPick={appendSyntax} />
+
           {query ? (
             /* 有输入时显示清除按钮 */
             <button
@@ -903,6 +943,14 @@ export function MailList({
                   ? t('list.filterNoResult')
                   : t('list.noMessages')}
             </div>
+
+            {/* 本地一无所获时，服务端兜底是唯一还能走的路，所以直接摆在空态里 */}
+            {searching && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ marginBottom: 10 }}>{t('list.remoteSearch.emptyHint')}</div>
+                <RemoteSearchButton q={query} />
+              </div>
+            )}
           </div>
         )}
 
@@ -997,6 +1045,7 @@ export function MailList({
                       active={row.msg.id === activeMessageId}
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
+                      terms={highlightTerms}
                       onSelect={() => onSelectMessage(row.msg.id)}
                       onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
@@ -1011,6 +1060,7 @@ export function MailList({
                       active={row.msg.id === activeMessageId}
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
+                      terms={highlightTerms}
                       onSelect={() => onSelectMessage(row.msg.id)}
                       onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
@@ -1043,6 +1093,14 @@ export function MailList({
               : !hasNextPage
                 ? t('list.noMore')
                 : null}
+          </div>
+        )}
+
+        {/* 服务端兜底搜索：只在翻到底之后出现——还有下一页时，
+            用户该做的是继续加载本地结果，不是花 90 秒去连 IMAP。 */}
+        {!loading && searching && messages.length > 0 && !hasNextPage && !isFetchingNextPage && (
+          <div className="remote-search-foot">
+            <RemoteSearchButton q={query} />
           </div>
         )}
       </div>

@@ -14,7 +14,8 @@ import (
 //   - GET /aggregate/messages?view=&before_date=&before_id=&limit=  跨账户聚合列表
 //   - GET /aggregate/counts                              聚合入口徽标计数
 //   - GET /aggregate/account-unread                      各账户未读数（侧栏角标）
-//   - GET /search/messages?q=&before_date=&before_id=&limit=        跨账户搜索
+//   - GET /search/messages?q=&before_date=&before_id=&limit=        跨账户搜索（q 支持 from:/is: 等语法，见 fts.Parse）
+//   - POST /search/reindex                               重建全文索引
 //
 // 三个列表接口（folder / aggregate / search）都额外接受可叠加的筛选参数
 // ?seen=&flagged=&has_attachment=（见 Filter），彼此为 AND 关系；
@@ -26,7 +27,20 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.GET("/aggregate/counts", h.aggregateCounts)
 	rg.GET("/aggregate/account-unread", h.accountUnread)
 	rg.GET("/search/messages", h.search)
+	rg.POST("/search/reindex", h.reindex)
 	rg.GET("/contacts", h.contacts)
+}
+
+// reindex 整体重建全文索引。运维入口：索引由触发器维护，正常情况下不会漂移，
+// 但触发器逻辑若有 bug（或用户手工改过库），这里是唯一的自愈手段。
+// 同步执行、结束才返回：邮件量大时要等一会儿，前端按钮做加载态即可，
+// 不值得为一个偶尔点一次的操作引入异步任务与进度轮询。
+func (h *handler) reindex(c *gin.Context) {
+	if err := h.svc.RebuildSearchIndex(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func (h *handler) contacts(c *gin.Context) {

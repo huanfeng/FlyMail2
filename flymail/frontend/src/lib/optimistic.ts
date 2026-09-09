@@ -99,9 +99,16 @@ export function removeMessages(qc: QueryClient, ids: Set<number>): void {
   }
 }
 
-/** 同步修改单封邮件详情缓存（阅读器正在显示这封时立即反映）。 */
+/**
+ * 同步修改单封邮件详情缓存（阅读器正在显示这封时立即反映）。
+ *
+ * ⚠ 用 setQueriesData 按前缀改而不是 setQueryData 打精确 key：
+ * M12 之后详情的 key 是 ['message', id, remote]，同一封邮件可能同时缓存着
+ * 「挡住远程引用」与「放行远程引用」两份。精确 key 只会命中其中一份，
+ * 于是「标已读」在用户点过显示图片的那封上看着没生效。
+ */
 export function patchMessageDetail(qc: QueryClient, id: number, patch: MessagePatch): void {
-  qc.setQueryData(['message', id], (old: unknown) =>
+  qc.setQueriesData({ queryKey: ['message', id] }, (old: unknown) =>
     old ? { ...(old as object), ...patch } : old,
   )
 }

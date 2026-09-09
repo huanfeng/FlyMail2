@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.ts'],
+    // 含 .tsx：组件级用例（如信任名单分区）也要跑。
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

@@ -299,6 +299,34 @@ export interface MessageDetail extends MessageListItem {
   message_id?: string
   in_reply_to?: string
   references?: string
+  /**
+   * 正文里远程资源引用的条数（图片 / CSS url() / background / srcset …）。
+   * 由服务端净化时统计，前端据此决定要不要显示「此邮件包含 N 个远程图片」横幅。
+   */
+  remote_count: number
+  /**
+   * html_body 里的远程引用是否被保留。
+   *
+   * 为真有两种来路：请求带了 remote=1（用户点了显示图片），或发件人在信任名单里。
+   * 为假时服务端已把远程引用换成占位符——所以「有没有发出外部请求」这件事
+   * 由服务端的返回内容决定，前端不需要、也不应该再去猜。
+   */
+  remote_allowed: boolean
+  /**
+   * 只能取这一封邮件附件、一小时过期的令牌。
+   *
+   * ⚙ 凡是会进入邮件正文文档的附件 URL（cid: 内联图）都必须用它而不是
+   * access token：正文由发件人控制，可用 CSS 属性选择器把 URL 里的令牌逐字符外泄。
+   * 后端未升级时缺省，前端退回 access token。
+   */
+  attachment_token?: string
+}
+
+/** 发件人信任名单条目：地址已由后端归一化为小写，精确匹配（不做域名通配） */
+export interface TrustedSender {
+  id: number
+  address: string
+  created_at: string
 }
 
 export interface SendRequest {

@@ -24,6 +24,7 @@ import (
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
+	"flymail/modules/system/privacy"
 	"flymail/modules/system/setting"
 
 	"gorm.io/gorm"
@@ -158,6 +159,12 @@ func New(cfg *config.Config) (*App, error) {
 	})
 	manager.SetRuleRunner(ruleSvc)
 
+	// 阅读隐私：远程图片信任名单；登录限流（按 IP，落库）
+	privacySvc := privacy.NewService(db)
+	syncSvc.SetTrustedSenderCheck(privacySvc.IsTrusted)
+	syncSvc.SetAttachmentTokenIssuer(authSvc.IssueAttachmentToken)
+	loginLimiter := auth.NewLimiter(db)
+
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())
 	eventsHandler := sse.NewHandler(hub, func(token string) error {
@@ -166,22 +173,26 @@ func New(cfg *config.Config) (*App, error) {
 	})
 
 	handler := server.New(server.Deps{
-		Auth:       authSvc,
-		Account:    accountSvc,
-		Folder:     folderSvc,
-		Message:    messageSvc,
-		Sync:       syncSvc,
-		Setting:    settingSvc,
-		Send:       sendSvc,
-		Draft:      draftSvc,
-		Notify:     notifySvc,
-		Monitoring: monitoringSvc,
-		Rule:       ruleSvc,
-		Events:     eventsHandler,
+		Auth:           authSvc,
+		Account:        accountSvc,
+		Folder:         folderSvc,
+		Message:        messageSvc,
+		Sync:           syncSvc,
+		Setting:        settingSvc,
+		Send:           sendSvc,
+		Draft:          draftSvc,
+		Notify:         notifySvc,
+		Monitoring:     monitoringSvc,
+		Rule:           ruleSvc,
+		Privacy:        privacySvc,
+		LoginLimiter:   loginLimiter,
+		TrustedProxies: cfg.Server.TrustedProxies,
+		Events:         eventsHandler,
 		VerifyToken: func(token string) error {
 			_, err := authSvc.VerifyAccessToken(token)
 			return err
 		},
+		VerifyAttachment: authSvc.VerifyAttachmentAccess,
 	})
 	a.cfg = cfg
 	a.srv = &http.Server{Handler: handler}

@@ -15,7 +15,7 @@ import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
 import { ShortcutsCheatsheet } from '@/components/mail/ShortcutsCheatsheet'
 import { useToast } from '@/components/ui/Toast'
-import { buildReply, buildForward } from '@/lib/compose-prefill'
+import { buildReply, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
 import {
   useAccounts,
   useFolders,
@@ -600,6 +600,21 @@ export function ShellPage() {
     setComposeOpen(true)
   }
 
+  /**
+   * 正文里的 mailto: 链接：打开应用自己的撰写器，而不是甩给系统默认邮件程序——
+   * 在一个邮件客户端里点收件人地址却弹出别的客户端，是明显的断裂。
+   *
+   * href 由正文 iframe 经 postMessage 上报（去掉 allow-same-origin 后父窗口
+   * 碰不到那份文档），协议已在 parseFrameMessage 里校验过是 mailto:。
+   */
+  function onMailto(href: string) {
+    const initial = buildMailtoCompose(href)
+    if (!initial) return
+    setComposeInitial(initial)
+    setComposeDraftId(null)
+    setComposeOpen(true)
+  }
+
   // ── 全局键盘快捷键 ────────────────────────────────────────────────────────────
   useKeyboardShortcuts({
     onCompose,
@@ -820,6 +835,7 @@ export function ShellPage() {
               onNext={nextThreadId != null ? () => selectThread(nextThreadId) : null}
               onArchived={() => toast(t('reader.archivedToast'))}
               onActiveMessageChange={setThreadActiveMessageId}
+              onMailto={onMailto}
             />
           ) : (
             <Reader
@@ -830,6 +846,7 @@ export function ShellPage() {
               onPrev={prevMessageId != null ? () => selectMessage(prevMessageId) : null}
               onNext={nextMessageId != null ? () => selectMessage(nextMessageId) : null}
               onArchived={() => toast(t('reader.archivedToast'))}
+              onMailto={onMailto}
             />
           )
         }

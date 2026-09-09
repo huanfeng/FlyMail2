@@ -35,7 +35,7 @@ func setup(t *testing.T) (*gin.Engine, *auth.Service) {
 		t.Fatal(err)
 	}
 	r := gin.New()
-	auth.RegisterRoutes(r.Group("/api/v1"), svc)
+	auth.RegisterRoutes(r.Group("/api/v1"), svc, nil)
 	return r, svc
 }
 
@@ -129,7 +129,7 @@ func setupWithProtected(t *testing.T) (*gin.Engine, *auth.Service) {
 	}
 	r := gin.New()
 	api := r.Group("/api/v1")
-	auth.RegisterRoutes(api, svc)
+	auth.RegisterRoutes(api, svc, nil)
 	protected := api.Group("")
 	protected.Use(auth.Middleware(svc))
 	auth.RegisterProtectedRoutes(protected, svc)

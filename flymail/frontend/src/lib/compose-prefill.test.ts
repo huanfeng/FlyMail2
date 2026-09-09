@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildReply, buildForward } from '@/lib/compose-prefill'
+import { buildReply, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
 import type { MessageDetail } from '@/lib/types'
 
 /** 构造最小 MessageDetail，未指定字段给合理默认值 */
@@ -25,6 +25,8 @@ function makeDetail(overrides: Partial<MessageDetail> = {}): MessageDetail {
     body_synced: true,
     message_id: '<msg001@example.com>',
     references: '',
+    remote_count: 0,
+    remote_allowed: false,
     ...overrides,
   }
 }
@@ -120,5 +122,33 @@ describe('buildForward', () => {
     expect(r.bodyHtml).toContain('<pre>')
     expect(r.bodyHtml).toContain('&lt;b&gt;')
     expect(r.bodyHtml).not.toContain('<b>加粗</b>')
+  })
+})
+
+describe('buildMailtoCompose', () => {
+  it('把 mailto 字段搬进撰写器初始内容', () => {
+    const c = buildMailtoCompose('mailto:a@x.com?cc=b@x.com&subject=Hi&body=one%0Atwo')
+    expect(c).toEqual({
+      to: ['a@x.com'],
+      cc: ['b@x.com'],
+      subject: 'Hi',
+      bodyHtml: 'one<br>two',
+    })
+  })
+
+  it('body 是纯文本，进富文本前必须转义', () => {
+    // mailto 链接完全由发件人控制，不转义就是把邮件内容注入到我们要发出去的那封信里
+    const c = buildMailtoCompose('mailto:a@x.com?body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E')
+    expect(c?.bodyHtml).toBe('&lt;img src=x onerror=alert(1)&gt;')
+    expect(c?.bodyHtml).not.toContain('<img')
+  })
+
+  it('主题不做 HTML 转义（撰写器主题栏是纯文本输入框）', () => {
+    expect(buildMailtoCompose('mailto:a@x.com?subject=a%20%26%20b')?.subject).toBe('a & b')
+  })
+
+  it('不是 mailto 或内容为空时返回 null，调用方据此不开撰写器', () => {
+    expect(buildMailtoCompose('https://x.com')).toBeNull()
+    expect(buildMailtoCompose('mailto:')).toBeNull()
   })
 })

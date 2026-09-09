@@ -37,6 +37,13 @@ type MessageDetail struct {
 	References  string          `json:"references"`
 	// ThreadID 让前端在会话视图下按单封 id（通知跳转、深链）定位到所属会话
 	ThreadID string `json:"thread_id"`
+	// RemoteCount 是净化时数出的远程资源引用个数；RemoteAllowed 表示 HTMLBody 里保留了这些引用
+	// （用户要求显示，或发件人在信任名单里）。两者由详情接口在净化后填写。
+	RemoteCount   int  `json:"remote_count"`
+	RemoteAllowed bool `json:"remote_allowed"`
+	// AttachmentToken 是限定这一封、短时效的附件令牌：前端拼 cid 内联图与附件链接时用它，
+	// 不把长期 access token 写进邮件 HTML 所在的文档。
+	AttachmentToken string `json:"attachment_token"`
 }
 
 // Contact 是收件人自动补全的候选项（来自历史往来地址）。

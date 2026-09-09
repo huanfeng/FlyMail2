@@ -8,6 +8,7 @@ import (
 	"flymail/modules/email/message"
 	"flymail/modules/email/rule"
 	"flymail/modules/system/notify"
+	"flymail/modules/system/privacy"
 	"flymail/modules/system/setting"
 
 	coredb "flymail-core/database"
@@ -36,6 +37,8 @@ func Migrate(db *gorm.DB) error {
 		&notify.Notification{},
 		&notify.Channel{},
 		&notify.Log{},
+		&privacy.TrustedSender{},
+		&auth.LoginAttempt{},
 	); err != nil {
 		return err
 	}

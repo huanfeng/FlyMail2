@@ -25,6 +25,7 @@ vi.mock('@/lib/auth', () => ({
 
 // 导入被测模块（在 mock 之后）
 import api from '@/lib/api'
+import { parseRetryAfter } from '@/lib/rate-limit'
 
 // jsdom 中 window.location 默认不可写，替换为可控对象
 Object.defineProperty(window, 'location', {
@@ -106,5 +107,43 @@ describe('api 拦截器 - 401 自动刷新', () => {
 
     // refresh 只应被调用一次（singleflight）
     expect(refreshCallCount).toBe(1)
+  })
+})
+
+// 登录限流（M12）：429 必须原样穿过拦截器到达登录页。
+// 拦截器里那条 401 分支一旦写宽（比如改成 status >= 400），
+// 限流响应就会被当成过期拿去刷 token，用户看到的变成「登录失败」而不是倒计时。
+describe('api 拦截器 - 429 限流', () => {
+  let mockApi: MockAdapter
+
+  beforeEach(() => {
+    mockAuthState._access = 'old-access-token'
+    mockAuthState._refresh = 'valid-refresh-token'
+    mockApi = new MockAdapter(api)
+  })
+
+  afterEach(() => {
+    mockApi.restore()
+  })
+
+  it('/auth/login 的 429 不被刷新逻辑吞掉，响应体与 Retry-After 头完整保留', async () => {
+    mockApi.onPost('/auth/login').reply(
+      429,
+      { error: '尝试次数过多', retry_after: 600 },
+      { 'retry-after': '600' },
+    )
+
+    const err = await api
+      .post('/auth/login', { username: 'admin', password: 'x' })
+      .then(() => null)
+      .catch((e: unknown) => e)
+
+    expect(axios.isAxiosError(err)).toBe(true)
+    const ae = err as import('axios').AxiosError<{ retry_after?: number }>
+    expect(ae.response?.status).toBe(429)
+    expect(ae.response?.data?.retry_after).toBe(600)
+    expect(parseRetryAfter(ae)).toBe(600)
+    // 刷新流程没被触发，登录态也没被清掉
+    expect(mockAuthState.clear).not.toHaveBeenCalled()
   })
 })

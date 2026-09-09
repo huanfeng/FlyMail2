@@ -63,6 +63,8 @@ interface ThreadItemProps {
   selfAddr: string
   /** 单封操作的移动目标（同账户的可选文件夹）*/
   accountFolders: Folder[]
+  /** 正文里点到 mailto: 链接时打开撰写器 */
+  onMailto?: (href: string) => void
 }
 
 function ThreadItem({
@@ -73,6 +75,7 @@ function ThreadItem({
   folderName,
   selfAddr,
   accountFolders,
+  onMailto,
 }: ThreadItemProps) {
   const { t } = useTranslation()
   // 展开时才请求正文：一条 20 封的会话若一次性全拉，本地库也要扫 20 遍附件表
@@ -219,7 +222,7 @@ function ThreadItem({
           </div>
 
           {detail ? (
-            <MessageBody key={detail.id} detail={detail} />
+            <MessageBody key={detail.id} detail={detail} onMailto={onMailto} />
           ) : (
             <div className="ti-loading">{t('reader.loading')}</div>
           )}
@@ -251,6 +254,8 @@ interface ThreadReaderProps {
   onArchived?: () => void
   /** 「当前这一封」变化时上报，供 Shell 把 r 快捷键接到正确的邮件上 */
   onActiveMessageChange?: (id: number | null) => void
+  /** 正文里点到 mailto: 链接时打开撰写器 */
+  onMailto?: (href: string) => void
 }
 
 export function ThreadReader({
@@ -265,6 +270,7 @@ export function ThreadReader({
   onNext,
   onArchived,
   onActiveMessageChange,
+  onMailto,
 }: ThreadReaderProps) {
   const { t } = useTranslation()
   const {
@@ -499,6 +505,7 @@ export function ThreadReader({
                 folderName={folderNames.get(m.folder_id) ?? null}
                 selfAddr={selfAddr}
                 accountFolders={accountFolders}
+                onMailto={onMailto}
               />
             ))}
           </div>

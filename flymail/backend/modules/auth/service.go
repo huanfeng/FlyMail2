@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -166,6 +167,35 @@ func (s *Service) VerifyAccessToken(tokenStr string) (*Claims, error) {
 		return nil, errors.New("not an access token")
 	}
 	return c, nil
+}
+
+// attachmentTokenTTL 是附件令牌的有效期：够用户读完一封邮件并点开附件，泄露后也只剩这么久。
+const attachmentTokenTTL = time.Hour
+
+// IssueAttachmentToken 签发限定单封邮件的附件令牌。
+// 内联图（cid:）的 URL 要写进邮件 HTML 所在的 iframe 文档，那是攻击者可控的内容：
+// 带上完整 access token 的话，开启远程内容后可用 CSS 属性选择器逐字符外泄。
+// 这个令牌只能取这一封的附件、一小时后失效，泄露的代价被压到「拿到本就已经在看的这封邮件的附件」。
+func (s *Service) IssueAttachmentToken(messageID uint) (string, error) {
+	return s.signToken(fmt.Sprintf("msg:%d", messageID), "attachment", attachmentTokenTTL)
+}
+
+// VerifyAttachmentAccess 校验附件端点的令牌：access token，或限定该邮件的附件令牌。
+func (s *Service) VerifyAttachmentAccess(tokenStr string, messageID uint) error {
+	c, err := s.parseToken(tokenStr)
+	if err != nil {
+		return err
+	}
+	switch c.Type {
+	case "access":
+		return nil
+	case "attachment":
+		if c.Username != fmt.Sprintf("msg:%d", messageID) {
+			return errors.New("attachment token scoped to another message")
+		}
+		return nil
+	}
+	return errors.New("token type not accepted")
 }
 
 // ChangePassword 验证旧密码后更新为新密码。

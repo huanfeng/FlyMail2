@@ -26,7 +26,11 @@
     "submit": "Sign in",
     "submitting": "Signing in...",
     "errInvalid": "Invalid username or password",
-    "errGeneric": "Login failed, please try again later"
+    "errGeneric": "Login failed, please try again later",
+    "errRateLimitedMinutes": "Too many attempts. Try again in {{n}} minute(s).",
+    "errRateLimitedSeconds": "Too many attempts. Try again in {{n}} second(s).",
+    "errRateLimitedUnknown": "Too many attempts. Try again later.",
+    "rateLimitOver": "You can try signing in again now."
   },
   "sidebar": {
     "compose": "Compose",
@@ -126,8 +130,14 @@
     "loading": "Loading…",
     "to": "To",
     "cc": "Cc",
-    "showImages": "This message contains remote images that were not loaded",
-    "showImagesBtn": "Show images",
+    "remote": {
+      "blocked": "Blocked {{n}} remote resource(s) in this message to protect your privacy",
+      "show": "Show remote content",
+      "always": "Always show this sender",
+      "alwaysHint": "Add {{address}} to the trusted list and load its remote content automatically",
+      "trusted": "Trusted {{address}}",
+      "trustFailed": "Could not add the sender to the trusted list"
+    },
     "attachments": "Attachments",
     "download": "Download",
     "preview": "Preview",
@@ -267,6 +277,7 @@
     "navNotify": "Notifications",
     "navRules": "Rules",
     "navBlocklist": "Blocklist",
+    "navPrivacy": "Privacy",
     "navMonitoring": "Monitoring",
     "navShortcuts": "Shortcuts",
     "navAbout": "About",
@@ -486,6 +497,19 @@
       "deleteFailed": "Could not remove, please try again",
       "deleteConfirm": "Remove {{pattern}} from the blocklist?"
     },
+    "privacy": {
+      "reading": "Reading",
+      "remoteImages": "Show remote content by default",
+      "remoteImagesHint": "Load remote images and styles in messages by default (off is more private)",
+      "trusted": {
+        "title": "Trusted senders",
+        "help": "Remote content loads automatically for these addresses. Entries come from the 'Always show this sender' action in the reading pane.",
+        "none": "No trusted senders yet.",
+        "remove": "Remove from trusted list",
+        "deleteConfirm": "Stop trusting {{address}}?",
+        "deleteFailed": "Failed to remove, please try again"
+      }
+    },
     "page": {
       "sub": "Manage appearance, accounts and mail sync preferences",
       "sectAppearance": "Appearance",
@@ -519,8 +543,6 @@
     },
     "general": {
       "language": "Language",
-      "reading": "Reading",
-      "remoteImagesHint": "Show remote images in messages by default (off is more private)",
       "theme": "Theme",
       "light": "Light",
       "dark": "Dark",
@@ -556,7 +578,6 @@
       "syncDepthHint": "Range 100–5000",
       "syncInterval": "Background poll interval (seconds)",
       "syncIntervalHint": "Range 30–3600",
-      "loadRemoteImages": "Load remote images in messages by default",
       "save": "Save",
       "saved": "Saved",
       "invalidDepth": "Sync depth must be between 100 and 5000",

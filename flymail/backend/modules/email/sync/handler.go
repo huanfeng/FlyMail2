@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"flymail/internal/htmlsan"
 	"flymail/modules/email/message"
 )
 
@@ -317,6 +318,18 @@ func (h *handler) detail(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
+	// 服务端净化：脚本与危险标签一律剥掉；远程资源只在用户要求（?remote=1）或发件人受信任时保留。
+	// 前端 iframe 的 CSP / sandbox 是纵深防御，不再承担净化。
+	allowRemote := c.Query("remote") == "1" || h.svc.trustedSender(d.FromAddr)
+	res := htmlsan.Sanitize(d.HTMLBody, allowRemote)
+	d.HTMLBody = res.HTML
+	d.RemoteCount = res.RemoteCount
+	d.RemoteAllowed = allowRemote
+	if h.svc.attachmentToken != nil {
+		if tok, err := h.svc.attachmentToken(d.ID); err == nil {
+			d.AttachmentToken = tok
+		}
+	}
 	c.JSON(http.StatusOK, d)
 }
 
@@ -347,19 +360,20 @@ func (h *handler) markRead(c *gin.Context) {
 // AttachmentHandler 流式返回附件。鉴权：Authorization: Bearer 头 或 ?access_token= query
 // （img/iframe/预览新标签无法设头，故支持 query，见 KI-2）。默认 inline 便于图片/PDF 预览，
 // ?dl=1 则强制下载。
-func AttachmentHandler(svc *Service, verify func(token string) error) gin.HandlerFunc {
+// AttachmentHandler 附件端点。verify 接受 access token 或限定该邮件的附件令牌（详情接口签发）。
+func AttachmentHandler(svc *Service, verify func(token string, messageID uint) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		mid, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+			return
+		}
 		token := c.Query("access_token")
 		if token == "" {
 			token = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 		}
-		if verify(token) != nil {
+		if verify(token, uint(mid)) != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
-		}
-		mid, err := strconv.ParseUint(c.Param("id"), 10, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
 			return
 		}
 		idx, err := strconv.Atoi(c.Param("idx"))
@@ -376,18 +390,41 @@ func AttachmentHandler(svc *Service, verify func(token string) error) gin.Handle
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
+		// 附件与 SPA 同源：邮件自带的 Content-Type 若是 text/html 而又 inline 返回，点开预览就是
+		// 在应用 origin 上执行任意脚本（能直接读走 token）。只有白名单类型才允许 inline，
+		// 其余一律按二进制流下载；nosniff 让浏览器不去猜类型；CSP sandbox 再把 inline 的内容关进沙箱。
+		ctype := res.ContentType
 		disp := "inline"
-		if c.Query("dl") == "1" {
+		if c.Query("dl") == "1" || !inlineSafe(ctype) {
 			disp = "attachment"
+			if !inlineSafe(ctype) {
+				ctype = "application/octet-stream"
+			}
 		}
 		fn := res.Filename
 		if fn == "" {
 			fn = "attachment"
 		}
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
 		// RFC 5987 编码文件名，兼容中文等非 ASCII 及特殊字符。
 		c.Header("Content-Disposition", disp+"; filename*=UTF-8''"+encodeRFC5987(fn))
-		c.Data(http.StatusOK, res.ContentType, res.Data)
+		c.Data(http.StatusOK, ctype, res.Data)
 	}
+}
+
+// inlineSafe 判断附件类型能否在浏览器里直接打开：图片、PDF、纯文本、音视频；
+// text/html / svg / xml 这类能载脚本的一律不算。
+func inlineSafe(ctype string) bool {
+	mt := strings.ToLower(strings.TrimSpace(strings.SplitN(ctype, ";", 2)[0]))
+	switch mt {
+	case "application/pdf", "text/plain", "text/csv", "audio/mpeg", "audio/ogg", "audio/wav", "video/mp4", "video/webm":
+		return true
+	}
+	if strings.HasPrefix(mt, "image/") && mt != "image/svg+xml" {
+		return true
+	}
+	return false
 }
 
 func (h *handler) markFlag(c *gin.Context) {

@@ -129,7 +129,10 @@ type Service struct {
 	dial        func(types.IMAPConfig) (Session, error)
 	syncDepthFn func() int
 	emit        EmitFunc
-	orch        orchestrator
+	trusted     func(addr string) bool // 远程图片信任名单查询（可为 nil）
+	// attachmentToken 签发限定单封邮件的附件令牌（可为 nil：响应不带令牌，前端退回 access token）
+	attachmentToken func(messageID uint) (string, error)
+	orch            orchestrator
 
 	status  *statusStore
 	mu      gosync.Mutex
@@ -145,6 +148,19 @@ func (s *Service) SetManager(m *Manager) {
 
 // SetEmitter 注入通知回调（同步失败等事件）。
 func (s *Service) SetEmitter(fn EmitFunc) { s.emit = fn }
+
+// SetTrustedSenderCheck 注入「发件人是否在远程图片信任名单」的查询，详情接口据此决定是否保留远程引用。
+func (s *Service) SetTrustedSenderCheck(fn func(addr string) bool) { s.trusted = fn }
+
+// SetAttachmentTokenIssuer 注入附件令牌签发（限定单封邮件、短时效），详情接口随响应带出。
+func (s *Service) SetAttachmentTokenIssuer(fn func(messageID uint) (string, error)) {
+	s.attachmentToken = fn
+}
+
+// trustedSender 未注入时一律不信任。
+func (s *Service) trustedSender(addr string) bool {
+	return s.trusted != nil && s.trusted(addr)
+}
 
 // NewService 创建 Sync 服务。
 func NewService(accounts AccountConfigProvider, folders *folder.Service, messages *message.Service) *Service {

@@ -16,6 +16,7 @@ import (
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
+	"flymail/modules/system/privacy"
 	"flymail/modules/system/setting"
 	"flymail/web"
 
@@ -36,15 +37,25 @@ type Deps struct {
 	Notify     *notify.Service
 	Monitoring *monitoring.Service
 	Rule       *rule.Service
-	Events     http.HandlerFunc
-	// VerifyToken 校验 access token（供 SSE/附件等无法走 Bearer 中间件的端点自鉴权）。
+	Privacy    *privacy.Service
+	// LoginLimiter 登录限流（可为 nil）
+	LoginLimiter *auth.Limiter
+	// TrustedProxies 允许改写客户端 IP 的反向代理；空 = 不信任任何代理（gin 默认信任所有，必须显式收紧）
+	TrustedProxies []string
+	Events         http.HandlerFunc
+	// VerifyToken 校验 access token（供 SSE 等无法走 Bearer 中间件的端点自鉴权）。
 	VerifyToken func(token string) error
+	// VerifyAttachment 校验附件端点的令牌：access token 或限定该邮件的附件令牌。
+	VerifyAttachment func(token string, messageID uint) error
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
 func New(deps Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	// gin 默认 trustedCIDRs = 0.0.0.0/0：任何直连客户端带 X-Forwarded-For 都能让 ClientIP() 返回任意值，
+	// 按 IP 的登录限流就形同虚设，还能伪造他人 IP 制造封禁。默认不信任任何代理，挂反代时再按配置放行。
+	_ = r.SetTrustedProxies(deps.TrustedProxies)
 	// request_id 必须最先注册，使后续访问日志能带上它。
 	r.Use(logging.RequestID())
 	// 结构化访问日志；跳过健康检查与长连接 SSE，避免噪音。
@@ -64,12 +75,12 @@ func New(deps Deps) http.Handler {
 
 	// 附件下载/预览：支持 Bearer 头或 ?access_token= query（img/iframe/预览新标签需要），
 	// 故挂在 api 组、不走 Bearer 中间件，由 handler 自鉴权。
-	if deps.Sync != nil && deps.VerifyToken != nil {
-		api.GET("/messages/:id/attachments/:idx", syncmod.AttachmentHandler(deps.Sync, deps.VerifyToken))
+	if deps.Sync != nil && deps.VerifyAttachment != nil {
+		api.GET("/messages/:id/attachments/:idx", syncmod.AttachmentHandler(deps.Sync, deps.VerifyAttachment))
 	}
 
 	if deps.Auth != nil {
-		auth.RegisterRoutes(api, deps.Auth)
+		auth.RegisterRoutes(api, deps.Auth, deps.LoginLimiter)
 	}
 
 	if deps.Auth != nil && deps.Account != nil {
@@ -103,6 +114,9 @@ func New(deps Deps) http.Handler {
 		}
 		if deps.Rule != nil {
 			rule.RegisterRoutes(protected, deps.Rule)
+		}
+		if deps.Privacy != nil {
+			privacy.RegisterRoutes(protected, deps.Privacy)
 		}
 	}
 

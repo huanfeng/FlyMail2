@@ -26,7 +26,11 @@
     "submit": "登录",
     "submitting": "登录中...",
     "errInvalid": "用户名或密码错误",
-    "errGeneric": "登录失败，请稍后重试"
+    "errGeneric": "登录失败，请稍后重试",
+    "errRateLimitedMinutes": "尝试次数过多，请 {{n}} 分钟后再试",
+    "errRateLimitedSeconds": "尝试次数过多，请 {{n}} 秒后再试",
+    "errRateLimitedUnknown": "尝试次数过多，请稍后再试",
+    "rateLimitOver": "现在可以重新尝试登录了"
   },
   "sidebar": {
     "compose": "写邮件",
@@ -126,8 +130,14 @@
     "loading": "加载中…",
     "to": "收件人",
     "cc": "抄送",
-    "showImages": "此邮件包含未加载的远程图片",
-    "showImagesBtn": "显示图片",
+    "remote": {
+      "blocked": "为保护隐私，已阻止此邮件中的 {{n}} 处远程内容",
+      "show": "显示远程内容",
+      "always": "总是显示此发件人",
+      "alwaysHint": "把 {{address}} 加入信任名单，以后自动显示其邮件中的远程内容",
+      "trusted": "已信任 {{address}}",
+      "trustFailed": "加入信任名单失败"
+    },
     "attachments": "附件",
     "download": "下载",
     "preview": "预览",
@@ -267,6 +277,7 @@
     "navNotify": "通知",
     "navRules": "规则",
     "navBlocklist": "黑名单",
+    "navPrivacy": "隐私",
     "navMonitoring": "监控",
     "navShortcuts": "快捷键",
     "navAbout": "关于",
@@ -486,6 +497,19 @@
       "deleteFailed": "移出失败，请稍后重试",
       "deleteConfirm": "确认将 {{pattern}} 移出黑名单？"
     },
+    "privacy": {
+      "reading": "阅读",
+      "remoteImages": "默认显示远程内容",
+      "remoteImagesHint": "默认加载邮件中的远程图片与样式（关闭更注重隐私）",
+      "trusted": {
+        "title": "发件人信任名单",
+        "help": "名单里的地址，其邮件正文中的远程内容会自动加载。条目来自阅读界面的「总是显示此发件人」。",
+        "none": "还没有信任的发件人。",
+        "remove": "移出信任名单",
+        "deleteConfirm": "不再信任 {{address}}？",
+        "deleteFailed": "移出失败，请稍后重试"
+      }
+    },
     "page": {
       "sub": "管理外观、账户与邮件同步偏好",
       "sectAppearance": "外观",
@@ -519,8 +543,6 @@
     },
     "general": {
       "language": "语言",
-      "reading": "阅读",
-      "remoteImagesHint": "默认显示邮件中的远程图片（关闭更注重隐私）",
       "theme": "主题",
       "light": "亮色",
       "dark": "暗色",
@@ -556,7 +578,6 @@
       "syncDepthHint": "范围 100–5000",
       "syncInterval": "后台轮询间隔（秒）",
       "syncIntervalHint": "范围 30–3600",
-      "loadRemoteImages": "默认加载邮件中的远程图片",
       "save": "保存",
       "saved": "已保存",
       "invalidDepth": "同步深度需在 100–5000 之间",

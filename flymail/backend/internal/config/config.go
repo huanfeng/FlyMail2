@@ -11,6 +11,9 @@ import (
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
+	// TrustedProxies 是允许改写客户端 IP 的反向代理地址（CIDR 或 IP）。默认空：不信任任何代理，
+	// ClientIP 只取 TCP 对端——否则任何直连客户端发一个 X-Forwarded-For 就能伪造 IP 绕过登录限流。
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type AuthConfig struct {

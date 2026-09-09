@@ -3,21 +3,28 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
+	"flymail-core/logger"
+
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
-// RegisterRoutes 在给定路由组下注册 auth 相关端点。
-func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
-	h := &handler{svc: svc}
+// RegisterRoutes 在给定路由组下注册 auth 相关端点。limiter 可为 nil（不限流，单测用）。
+func RegisterRoutes(rg *gin.RouterGroup, svc *Service, limiter *Limiter) {
+	h := &handler{svc: svc, limiter: limiter}
 	g := rg.Group("/auth")
 	g.POST("/login", h.login)
 	g.POST("/refresh", h.refresh)
 	g.POST("/logout", h.logout)
 }
 
-type handler struct{ svc *Service }
+type handler struct {
+	svc     *Service
+	limiter *Limiter
+}
 
 type loginReq struct {
 	Username string `json:"username" binding:"required"`
@@ -30,14 +37,39 @@ func (h *handler) login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
+	ip := c.ClientIP()
+	if h.limiter != nil {
+		var tooMany *ErrTooManyAttempts
+		if err := h.limiter.Check(ip); errors.As(err, &tooMany) {
+			retry := int(tooMany.RetryAfter.Round(time.Second).Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			// 不记用户名：用户常把密码敲进用户名框，日志里会留存明文
+			logger.Warn("auth: 登录限流", zap.String("client_ip", ip), zap.Int("username_len", len(req.Username)), zap.Int("retry_after", retry))
+			c.Header("Retry-After", strconv.Itoa(retry))
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "尝试次数过多，请稍后再试", "retry_after": retry})
+			return
+		} else if err != nil {
+			logger.Warn("auth: 限流检查失败", zap.Error(err))
+		}
+	}
 	pair, err := h.svc.Login(req.Username, req.Password)
 	if errors.Is(err, ErrInvalidCredentials) {
+		if h.limiter != nil {
+			if err := h.limiter.Fail(ip); err != nil {
+				logger.Warn("auth: 记录登录失败次数失败", zap.Error(err))
+			}
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "登录失败"})
 		return
+	}
+	if h.limiter != nil {
+		_ = h.limiter.Reset(ip)
 	}
 	c.JSON(http.StatusOK, pair)
 }

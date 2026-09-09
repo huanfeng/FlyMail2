@@ -59,6 +59,18 @@ describe('attachmentUrl', () => {
     expect(url).toContain('&dl=1')
     expect(url).toBe('/api/v1/messages/5/attachments/2?access_token=TOK123&dl=1')
   })
+
+  it('传了 token 就用它，access token 不得出现在 URL 里', () => {
+    // 这条是安全约束：写进邮件文档的 URL 只能带限定单封的 attachment_token，
+    // 否则邮件自带的 <style> 可用属性选择器把完整 access token 逐字符外泄
+    const url = attachmentUrl(5, 2, { token: 'ATT-TOKEN' })
+    expect(url).toBe('/api/v1/messages/5/attachments/2?access_token=ATT-TOKEN')
+    expect(url).not.toContain('TOK123')
+  })
+
+  it('token 为空串时退回 access token（后端未升级的兼容路径）', () => {
+    expect(attachmentUrl(5, 2, { token: '' })).toContain('access_token=TOK123')
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -73,6 +85,14 @@ describe('rewriteCidLinks', () => {
     const result = rewriteCidLinks(html, MSG_ID, attachments)
     expect(result).not.toContain('cid:')
     expect(result).toContain('/api/v1/messages/10/attachments/0?access_token=TOK123')
+  })
+
+  it('传入 attachment_token 时改写结果不含 access token', () => {
+    const html = '<img src="cid:img1">'
+    const attachments = [makeAttachment({ content_id: 'img1', content_type: 'image/png' })]
+    const result = rewriteCidLinks(html, MSG_ID, attachments, 'ATT-TOKEN')
+    expect(result).toContain('access_token=ATT-TOKEN')
+    expect(result).not.toContain('TOK123')
   })
 
   it('大小写：cid:IMG1 对 content_id img1 → 命中改写', () => {

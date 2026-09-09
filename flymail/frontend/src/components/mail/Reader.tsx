@@ -23,11 +23,13 @@ interface ReaderProps {
   onNext?: (() => void) | null
   /** 归档成功后的提示回调（Toast 由 Shell 统一发） */
   onArchived?: () => void
+  /** 正文里点到 mailto: 链接时打开撰写器（正文 iframe 已不同源，只能由它上报） */
+  onMailto?: (href: string) => void
 }
 
 // ── 主组件 ───────────────────────────────────────────────
 
-export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext, onArchived }: ReaderProps) {
+export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext, onArchived, onMailto }: ReaderProps) {
   const { t } = useTranslation()
 
   const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
@@ -225,7 +227,7 @@ export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext,
             </div>
 
             {/* 消息正文（远程图拦截 / iframe / 引用折叠 / 附件都在这里）*/}
-            <MessageBody key={detail.id} detail={detail} />
+            <MessageBody key={detail.id} detail={detail} onMailto={onMailto} />
           </div>
           {/* 底部回复框已移除：入口在顶部工具栏已有一份，占着正文空间不划算 */}
         </div>

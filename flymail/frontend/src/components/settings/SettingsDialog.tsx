@@ -12,9 +12,11 @@ import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSecti
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { RulesSection } from '@/components/settings/RulesSection'
 import { BlocklistSection } from '@/components/settings/BlocklistSection'
+import { TrustedSendersSection } from '@/components/settings/TrustedSendersSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
+import { getRemoteImageDefault, setRemoteImageDefault } from '@/lib/privacy-prefs'
 import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
 import type { LayoutWidths } from '@/lib/layout-prefs'
 import {
@@ -38,7 +40,6 @@ import type { LayoutMode } from '@/lib/layout-mode'
 import type { Account, BodySyncMode, SyncPhase } from '@/lib/types'
 
 // ── 常量 ─────────────────────────────────────────────────
-const LOAD_REMOTE_IMAGES_KEY = 'flymail_load_remote_images'
 const SYNC_DEPTH_MIN = 100
 const SYNC_DEPTH_MAX = 5000
 const POLL_INTERVAL_MIN = 30
@@ -61,7 +62,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'rules' | 'blocklist' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -376,18 +377,10 @@ function AppearanceSection({
 function GeneralSection() {
   const { t, i18n } = useTranslation()
   const currentLang = i18n.language.startsWith('zh') ? 'zh' : 'en'
-  const [loadRemoteImages, setLoadRemoteImages] = React.useState<boolean>(
-    () => localStorage.getItem(LOAD_REMOTE_IMAGES_KEY) === 'true',
-  )
 
   function handleLang(lng: string) {
     void i18n.changeLanguage(lng)
     localStorage.setItem('flymail_lang', lng)
-  }
-
-  function handleRemoteImages(next: boolean) {
-    setLoadRemoteImages(next)
-    localStorage.setItem(LOAD_REMOTE_IMAGES_KEY, String(next))
   }
 
   return (
@@ -413,13 +406,45 @@ function GeneralSection() {
           </div>
         </Row>
       </div>
+    </>
+  )
+}
 
+// ════════════════════════════════════════════════════════
+// 子组件：隐私分区（M12）
+// ════════════════════════════════════════════════════════
+
+/**
+ * 阅读隐私：远程图片默认开关 + 发件人信任名单。
+ *
+ * 开关从「通用」搬到这里而不是两处都放：它存在 localStorage 里，
+ * 两个入口各自持一份 state 早晚会对不上，而隐私开关显示错值比不显示更糟。
+ */
+function PrivacySection() {
+  const { t } = useTranslation()
+  const [loadRemoteImages, setLoadRemoteImages] = React.useState<boolean>(() =>
+    getRemoteImageDefault(),
+  )
+
+  function handleRemoteImages(next: boolean) {
+    setLoadRemoteImages(next)
+    // 写完就结束：开关是可订阅的（见 privacy-prefs），已挂载的 useMessageDetail
+    // 会因此重新渲染、把 remote 换进 query key，新 key 自然去取新口径的正文。
+    // ⚙ 不能在这里 invalidate ['message']：那一瞬间阅读器还没重渲染，失效的是旧 key，
+    // 结果是按旧口径白白多打一趟网络。
+    setRemoteImageDefault(next)
+  }
+
+  return (
+    <>
       <div className="settings-block">
-        <h3>{t('settings.general.reading')}</h3>
-        <Row label={t('settings.mail.loadRemoteImages')} help={t('settings.general.remoteImagesHint')}>
+        <h3>{t('settings.privacy.reading')}</h3>
+        <Row label={t('settings.privacy.remoteImages')} help={t('settings.privacy.remoteImagesHint')}>
           <Toggle on={loadRemoteImages} onChange={handleRemoteImages} />
         </Row>
       </div>
+
+      <TrustedSendersSection />
     </>
   )
 }
@@ -1189,6 +1214,7 @@ export function SettingsDialog({
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
     { id: 'rules',      labelKey: 'settings.navRules',            icon: 'filter' },
     { id: 'blocklist',  labelKey: 'settings.navBlocklist',        icon: 'shield' },
+    { id: 'privacy',    labelKey: 'settings.navPrivacy',          icon: 'cloud' },
     { id: 'notify',     labelKey: 'settings.navNotify',           icon: 'bell' },
     { id: 'monitoring', labelKey: 'settings.navMonitoring',       icon: 'circle-dot' },
     { id: 'security',   labelKey: 'settings.navSecurity',         icon: 'tag' },
@@ -1269,6 +1295,7 @@ export function SettingsDialog({
             )}
             {section === 'rules' && <RulesSection />}
             {section === 'blocklist' && <BlocklistSection />}
+            {section === 'privacy' && <PrivacySection />}
             {section === 'notify' && <NotifyChannelsSection />}
             {section === 'monitoring' && <MonitoringSection />}
             {section === 'security' && <SecuritySection />}

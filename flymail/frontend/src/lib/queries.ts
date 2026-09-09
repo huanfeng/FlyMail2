@@ -1,8 +1,10 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
+import { useSyncExternalStore } from 'react'
 import api from '@/lib/api'
 import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
 import type { ListFilter } from '@/lib/list-filters'
+import { getRemoteImageDefault, subscribeRemoteImageDefault } from '@/lib/privacy-prefs'
 import {
   applyThreadUnreadDelta,
   applyUnreadDelta,
@@ -19,7 +21,7 @@ import {
   restoreMail,
 } from '@/lib/optimistic'
 import type { ThreadPatch } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
 async function fetchFolders(accountId: number): Promise<Folder[]> {
@@ -879,9 +881,32 @@ export function useTestConnection() {
   })
 }
 
-export function useMessageDetail(messageId: number | null) {
+/** useMessageDetail 的可选参数 */
+export interface MessageDetailOptions {
+  /**
+   * 显式要求服务端保留正文里的远程引用（请求带 remote=1）。
+   *
+   * 不传时看全局的「默认显示远程图片」开关——把这个默认值放在这里而不是各个调用点，
+   * 是为了让「开关打开 = 所有详情请求都带 remote=1」这件事只有一处实现。
+   */
+  remote?: boolean
+}
+
+export function useMessageDetail(messageId: number | null, opts?: MessageDetailOptions) {
+  // 订阅而不是直读：开关参与下面的 query key，只有让已挂载的详情查询
+  // 在开关改变时重新渲染、先换 key 再取数，才不会按旧口径白白再请求一次。
+  const defaultRemote = useSyncExternalStore(
+    subscribeRemoteImageDefault,
+    getRemoteImageDefault,
+    getRemoteImageDefault,
+  )
+  const remote = opts?.remote ?? defaultRemote
   return useQuery({
-    queryKey: ['message', messageId],
+    // ⚠ remote 必须进 key：同一封邮件的「挡住远程引用」与「放行远程引用」是两份不同的正文，
+    // 共用一个缓存条目会让点过「显示图片」的那一封在下次打开时直接命中放行版本，
+    // 等于把一次性的选择悄悄变成永久的。
+    // 前缀仍是 ['message', id]，invalidateQueries / setQueriesData 按前缀照常命中两份。
+    queryKey: ['message', messageId, remote],
     enabled: messageId != null,
     // 切换邮件时保留上一封的数据，直到新数据到达。
     // 否则每次点击都要走一遍 isLoading → 骨架屏 → 内容：本地接口只要几毫秒，
@@ -890,7 +915,9 @@ export function useMessageDetail(messageId: number | null) {
     // Reader 必须据此禁用工具栏，避免"看着旧邮件、操作新邮件"。
     placeholderData: keepPreviousData,
     queryFn: async (): Promise<MessageDetail> => {
-      const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
+      const { data } = await api.get<MessageDetail>(
+        `/messages/${messageId}${remote ? '?remote=1' : ''}`,
+      )
       return data
     },
   })
@@ -1262,5 +1289,74 @@ export function useDeleteBlock() {
   return useMutation({
     mutationFn: async (id: number) => { await api.delete(`/blocklist/${id}`) },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['blocklist'] }) },
+  })
+}
+
+// ── M12 发件人信任名单 ────────────────────────────────────────────────────────
+
+/**
+ * 信任名单：名单里的发件人，其邮件详情接口直接返回保留远程引用的正文
+ * （remote_allowed=true），不再显示拦截横幅。
+ *
+ * 只按精确地址匹配，不做域名——「总是显示此发件人的图片」是对一个人的信任，
+ * 放宽到整个域名等于替用户做了一个他没做的决定。
+ */
+export function useTrustedSenders() {
+  return useQuery({
+    queryKey: ['trusted-senders'],
+    queryFn: async (): Promise<TrustedSender[]> => {
+      const { data } = await api.get<{ senders: TrustedSender[] }>('/privacy/trusted-senders')
+      return data.senders ?? []
+    },
+  })
+}
+
+/** 添加信任发件人的结果：existed 表示后端返回 409（该地址已在名单里） */
+export interface AddTrustedResult {
+  sender: TrustedSender | null
+  existed: boolean
+}
+
+/**
+ * 把发件人加入信任名单。
+ *
+ * 409（已存在）吃掉转成 existed 而不是抛错：从两封不同邮件上各点一次
+ * 「总是显示此发件人的图片」，对用户而言第二次就是「已经信任了」，不是失败。
+ * 400（地址非法）仍照常抛出。
+ *
+ * ⚠ 成功后必须失效整个 ['message'] 前缀：名单是按发件人生效的，
+ * 受影响的不只是当前这封，还有缓存里同一个人的其它邮件——
+ * 只失效当前 id 会让用户在别的邮件上再看到一次拦截横幅。
+ */
+export function useAddTrustedSender() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (address: string): Promise<AddTrustedResult> => {
+      try {
+        const { data } = await api.post<TrustedSender>('/privacy/trusted-senders', { address })
+        return { sender: data, existed: false }
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 409) {
+          return { sender: null, existed: true }
+        }
+        throw err
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['trusted-senders'] })
+      void qc.invalidateQueries({ queryKey: ['message'] })
+    },
+  })
+}
+
+export function useDeleteTrustedSender() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => { await api.delete(`/privacy/trusted-senders/${id}`) },
+    // 同上：撤销信任后，已缓存的详情里 remote_allowed 还是旧的 true，必须一并作废
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['trusted-senders'] })
+      void qc.invalidateQueries({ queryKey: ['message'] })
+    },
   })
 }

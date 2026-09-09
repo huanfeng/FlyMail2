@@ -28,7 +28,7 @@ func TestBuildRFC5322(t *testing.T) {
 	msgID := "20260601.abc123@example.com"
 	date := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
-	raw, err := send.BuildRFC5322(from, req, msgID, date)
+	raw, err := send.BuildRFC5322(send.Identity{Address: from}, req, msgID, date)
 	if err != nil {
 		t.Fatalf("BuildRFC5322 error: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestBuildRFC5322_NoInReplyTo(t *testing.T) {
 		Subject:   "Hello",
 		BodyHTML:  "<p>hi</p>",
 	}
-	raw, err := send.BuildRFC5322("sender@example.com", req, "msgid@x.com", time.Now())
+	raw, err := send.BuildRFC5322(send.Identity{Address: "sender@example.com"}, req, "msgid@x.com", time.Now())
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestBuildRFC5322_InReplyToWithBrackets(t *testing.T) {
 		BodyHTML:  "<p>re</p>",
 		InReplyTo: "<already-bracketed@example.com>",
 	}
-	raw, err := send.BuildRFC5322("sender@example.com", req, "msgid@x.com", time.Now())
+	raw, err := send.BuildRFC5322(send.Identity{Address: "sender@example.com"}, req, "msgid@x.com", time.Now())
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestBuildRFC5322_WithAttachments(t *testing.T) {
 	}
 	date := time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC)
 
-	raw, err := send.BuildRFC5322("sender@example.com", req, "mid@example.com", date)
+	raw, err := send.BuildRFC5322(send.Identity{Address: "sender@example.com"}, req, "mid@example.com", date)
 	if err != nil {
 		t.Fatalf("BuildRFC5322 error: %v", err)
 	}

@@ -650,6 +650,8 @@ export function ShellPage() {
       bodyHtml: d.body_html,
       inReplyTo: d.in_reply_to || undefined,
       references: d.references || undefined,
+      // M13 之前的草稿没有 from_alias，读出来是 undefined —— 落到账户默认发件项
+      fromAlias: d.from_alias,
     })
     setComposeDraftId(d.id)
     setComposeOpen(true)

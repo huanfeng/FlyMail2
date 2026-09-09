@@ -18,6 +18,7 @@ type fakeAccounts struct {
 	acct    *account.AccountResponse
 	smtpCfg types.SMTPConfig
 	imapCfg types.IMAPConfig
+	aliases map[string]string
 	getErr  error
 	smtpErr error
 	imapErr error
@@ -28,6 +29,18 @@ func (f *fakeAccounts) Get(id uint) (*account.AccountResponse, error) {
 		return nil, f.getErr
 	}
 	return f.acct, nil
+}
+
+// ResolveFrom 模拟发信身份解析：aliases 里有就用它，否则回落主地址；
+// 显式登记为不允许的别名返回 ErrAliasNotFound。
+func (f *fakeAccounts) ResolveFrom(accountID uint, alias string) (string, string, error) {
+	if alias == "" {
+		return f.acct.Email, f.acct.Name, nil
+	}
+	if name, ok := f.aliases[alias]; ok {
+		return alias, name, nil
+	}
+	return "", "", account.ErrAliasNotFound
 }
 
 func (f *fakeAccounts) SMTPConfig(id uint) (types.SMTPConfig, error) {

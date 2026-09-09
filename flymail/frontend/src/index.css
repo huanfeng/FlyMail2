@@ -2061,3 +2061,155 @@ mark.hl {
   .shortcuts-backdrop { padding: 12px; align-items: start; padding-top: 8vh; }
   .shortcuts-card .sc-groups { grid-template-columns: 1fr; gap: 16px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   富文本编辑器（Tiptap）—— 撰写正文与签名共用
+   ════════════════════════════════════════════════════════════════════════ */
+.rich-editor {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--surface);
+  margin: 10px 0 4px;
+  overflow: hidden;
+}
+
+/* 工具栏：窄屏会换行，所以不能给固定高度 */
+.rich-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-alt);
+}
+.rich-toolbar .rt-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 26px; height: 26px; padding: 0 5px;
+  border: 0; border-radius: 5px; background: transparent;
+  color: var(--ink-2); font-size: 13px; line-height: 1;
+  cursor: pointer;
+}
+.rich-toolbar .rt-btn:hover:not(:disabled) { background: var(--rule); color: var(--ink); }
+.rich-toolbar .rt-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
+.rich-toolbar .rt-btn:disabled { opacity: 0.45; cursor: default; }
+.rich-toolbar .rt-text { font-family: var(--font-mono); font-size: 11px; }
+.rich-toolbar .rt-sep {
+  width: 1px; height: 16px; margin: 0 4px;
+  background: var(--rule); flex-shrink: 0;
+}
+.rich-toolbar .rt-select {
+  height: 26px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--ink-2);
+  font-size: 12px; font-family: var(--font-body);
+  padding: 0 2px; cursor: pointer;
+}
+.rich-toolbar .rt-select:hover { background: var(--rule); color: var(--ink); }
+/* 颜色选择：原生 input[type=color] 各平台外观差异太大，藏起来只留一个色块 */
+.rich-toolbar .rt-color {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 5px; cursor: pointer;
+}
+.rich-toolbar .rt-color:hover { background: var(--rule); }
+.rich-toolbar .rt-color input[type="color"] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  width: 100%; height: 100%; border: 0; padding: 0;
+}
+.rich-toolbar .rt-color-swatch {
+  width: 14px; height: 14px; border-radius: 3px;
+  border: 1px solid var(--rule);
+}
+.rich-toolbar .rt-highlight-mark {
+  padding: 0 3px; border-radius: 2px;
+  background: #fff3a3; color: #333; font-weight: 600;
+}
+
+.rich-editor-shell { overflow-y: auto; max-height: 46vh; }
+.rich-editor .ProseMirror {
+  padding: 12px 14px; outline: none;
+  font-size: 14px; line-height: 1.6;
+  color: var(--ink); font-family: var(--font-body);
+}
+.rich-editor .ProseMirror p { margin: 0 0 0.55em; }
+.rich-editor .ProseMirror p:last-child { margin-bottom: 0; }
+.rich-editor .ProseMirror ul,
+.rich-editor .ProseMirror ol { padding-left: 1.4em; margin: 0 0 0.55em; }
+.rich-editor .ProseMirror ul { list-style: disc; }
+.rich-editor .ProseMirror ol { list-style: decimal; }
+.rich-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
+.rich-editor .ProseMirror img { max-width: 100%; height: auto; border-radius: 3px; }
+.rich-editor .ProseMirror img.ProseMirror-selectednode { outline: 2px solid var(--accent); }
+.rich-editor .ProseMirror blockquote {
+  margin: 0 0 0.55em; padding-left: 10px;
+  border-left: 2px solid var(--rule); color: var(--ink-2);
+}
+/* 表格：ProseMirror 的列宽调整需要 fixed 布局，否则拖动手柄和实际列宽对不上 */
+.rich-editor .ProseMirror table {
+  border-collapse: collapse; table-layout: fixed; width: 100%;
+  margin: 0 0 0.55em; overflow: hidden;
+}
+.rich-editor .ProseMirror th,
+.rich-editor .ProseMirror td {
+  border: 1px solid var(--rule); padding: 5px 7px;
+  vertical-align: top; position: relative;
+}
+.rich-editor .ProseMirror th { background: var(--bg-alt); font-weight: 600; text-align: left; }
+.rich-editor .ProseMirror .selectedCell::after {
+  content: ''; position: absolute; inset: 0;
+  background: var(--accent-wash); pointer-events: none;
+}
+.rich-editor .ProseMirror .column-resize-handle {
+  position: absolute; right: -2px; top: 0; bottom: 0; width: 4px;
+  background: var(--accent); pointer-events: none;
+}
+.rich-editor .tableWrapper { overflow-x: auto; }
+
+/* 引用折叠：收起时只留一个折叠头，内容仍在文档里（发送时完整带上） */
+.rich-editor .quote-block {
+  margin: 8px 0 0; padding-left: 10px;
+  border-left: 2px solid var(--rule);
+}
+.rich-editor .quote-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; margin-bottom: 4px;
+  border: 1px solid var(--rule); border-radius: 999px;
+  background: var(--bg-alt); color: var(--ink-3);
+  font-size: 11.5px; cursor: pointer; user-select: none;
+}
+.rich-editor .quote-toggle:hover { color: var(--ink); border-color: var(--ink-3); }
+.rich-editor .quote-content { color: var(--ink-2); }
+
+/* 签名块：正文里的一段普通可编辑内容，只是带了个身份标记 */
+.rich-editor .mail-signature {
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+  color: var(--ink-2);
+}
+
+/* ── 设置页：签名 / 别名分区用到的表单件 ─────────────────────────────── */
+.settings-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.settings-field > label {
+  font-size: 12px; color: var(--ink-3);
+  font-family: var(--font-mono); letter-spacing: 0.04em;
+}
+.settings-field > input,
+.settings-field > select {
+  height: 32px; padding: 0 9px;
+  border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--surface); color: var(--ink);
+  font-size: 13px; font-family: var(--font-body);
+  outline: none;
+}
+.settings-field > input:focus,
+.settings-field > select:focus { border-color: var(--accent); }
+.settings-check {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0; font-size: 13px; color: var(--ink);
+  cursor: pointer;
+}
+.settings-check input[type="checkbox"] {
+  width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+}
+.alias-form {
+  margin-top: 14px; padding: 12px;
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--bg-alt);
+}
+.signature-editor .rich-editor { margin-top: 4px; }

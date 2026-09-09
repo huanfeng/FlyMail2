@@ -64,13 +64,16 @@ func (r *Repository) ListEnabledIDs() ([]uint, error) {
 	return ids, err
 }
 
+// Delete 删除账户，并在同一事务内清理其别名与签名（否则重建同 id 账户会捡到旧身份）。
 func (r *Repository) Delete(id uint) error {
-	res := r.db.Delete(&Account{}, id)
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrAccountNotFound
-	}
-	return nil
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Delete(&Account{}, id)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrAccountNotFound
+		}
+		return r.deleteIdentityOf(tx, id)
+	})
 }

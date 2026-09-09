@@ -10,6 +10,7 @@ type DraftRequest struct {
 	Bcc        []string `json:"bcc"`
 	Subject    string   `json:"subject"`
 	BodyHTML   string   `json:"body_html"`
+	FromAlias  string   `json:"from_alias"`
 	InReplyTo  string   `json:"in_reply_to"`
 	References string   `json:"references"`
 }
@@ -23,6 +24,7 @@ type DraftResponse struct {
 	Bcc        []string `json:"bcc"`
 	Subject    string   `json:"subject"`
 	BodyHTML   string   `json:"body_html"`
+	FromAlias  string   `json:"from_alias"`
 	InReplyTo  string   `json:"in_reply_to"`
 	References string   `json:"references"`
 }
@@ -58,6 +60,7 @@ func toResponse(d *Draft) *DraftResponse {
 		Bcc:        splitAddrs(d.BccStr),
 		Subject:    d.Subject,
 		BodyHTML:   d.BodyHTML,
+		FromAlias:  d.FromAlias,
 		InReplyTo:  d.InReplyTo,
 		References: d.References,
 	}

@@ -23,11 +23,16 @@ import (
 // ErrNoRecipient 未提供收件人时返回此错误。
 var ErrNoRecipient = errors.New("no recipient: To field is empty")
 
+// ErrAliasNotAllowed 请求指定的 from_alias 不属于该账户。
+var ErrAliasNotAllowed = errors.New("from_alias does not belong to this account")
+
 // AccountProvider 账户服务所需最小接口（方便测试注入 fake）。
 type AccountProvider interface {
 	SMTPConfig(id uint) (types.SMTPConfig, error)
 	IMAPConfig(id uint) (types.IMAPConfig, error)
 	Get(id uint) (*account.AccountResponse, error)
+	// ResolveFrom 校验并解析发信身份，返回地址与显示名。
+	ResolveFrom(accountID uint, alias string) (string, string, error)
 }
 
 // FolderProvider 文件夹服务所需最小接口。
@@ -89,7 +94,34 @@ func (s *Service) Send(req SendRequest) error {
 	if err != nil {
 		return fmt.Errorf("get account: %w", err)
 	}
-	from := acct.Email
+
+	// From 头可以是别名，但 SMTP 信封发件人始终是账户主地址：多数服务器只接受
+	// 等于认证账户的信封发件人，而 SPF 校验的恰恰是信封域。二者分开，同域别名才发得出去。
+	fromAddr, fromName, err := s.accounts.ResolveFrom(req.AccountID, req.FromAlias)
+	if err != nil {
+		if errors.Is(err, account.ErrAliasNotFound) {
+			return fmt.Errorf("%w: %s", ErrAliasNotAllowed, req.FromAlias)
+		}
+		return fmt.Errorf("resolve from: %w", err)
+	}
+	envelopeFrom := acct.Email
+
+	// 草稿把内联图存成 data: URI，发送前转成 cid: 内联附件（收件方才看得见）。
+	bodyHTML, dataAtts, err := InlineDataURIImages(req.BodyHTML)
+	if err != nil {
+		return fmt.Errorf("inline images: %w", err)
+	}
+	req.BodyHTML = bodyHTML
+	req.Attachments = append(req.Attachments, dataAtts...)
+
+	// 总量兜底：草稿走 JSON，绕过了 handler 里 multipart 的大小校验。
+	var totalBytes int
+	for _, att := range req.Attachments {
+		totalBytes += len(att.Content)
+	}
+	if totalBytes > maxAttachmentTotal {
+		return fmt.Errorf("attachments exceed %d bytes", maxAttachmentTotal)
+	}
 
 	smtpCfg, err := s.accounts.SMTPConfig(req.AccountID)
 	if err != nil {
@@ -97,9 +129,9 @@ func (s *Service) Send(req SendRequest) error {
 	}
 
 	now := s.now()
-	messageID := generateMessageID(now, from)
+	messageID := generateMessageID(now, fromAddr)
 
-	raw, err := BuildRFC5322(from, req, messageID, now)
+	raw, err := BuildRFC5322(Identity{Address: fromAddr, Name: fromName}, req, messageID, now)
 	if err != nil {
 		return fmt.Errorf("build message: %w", err)
 	}
@@ -110,7 +142,7 @@ func (s *Service) Send(req SendRequest) error {
 	recipients = append(recipients, req.Cc...)
 	recipients = append(recipients, req.Bcc...)
 
-	if err := s.sendFn(smtpCfg, from, recipients, raw); err != nil {
+	if err := s.sendFn(smtpCfg, envelopeFrom, recipients, raw); err != nil {
 		return fmt.Errorf("smtp send: %w", err)
 	}
 

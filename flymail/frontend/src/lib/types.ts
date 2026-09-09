@@ -338,6 +338,13 @@ export interface SendRequest {
   body_html: string
   in_reply_to?: string
   references?: string
+  /** 发件别名地址；缺省表示用账户主地址。必须是该账户已配置的别名，否则后端 400 */
+  from_alias?: string
+  /**
+   * 内联资源的 Content-ID 列表，**与 form.File["inline"] 按下标一一对应**。
+   * 顺序错了就是图错位，所以这两个数组只能由 prepareInlineForSend 一处同时产出。
+   */
+  inline_cids?: string[]
 }
 
 export interface Draft {
@@ -350,6 +357,8 @@ export interface Draft {
   body_html: string
   in_reply_to: string
   references: string
+  /** 发件别名；M13 之前的草稿没有这个字段，读出来是 undefined，按主地址处理 */
+  from_alias?: string
 }
 
 export interface DraftRequest {
@@ -361,6 +370,7 @@ export interface DraftRequest {
   body_html: string
   in_reply_to: string
   references: string
+  from_alias?: string
 }
 
 export type SyncPhase = 'none' | 'folders' | 'messages' | 'done' | 'error'
@@ -478,3 +488,38 @@ export interface BlockEntry {
   note: string
   created_at: string
 }
+
+// ── M13 撰写器：发件人别名与签名 ─────────────────────────────
+
+/**
+ * 发件人别名。
+ *
+ * 只影响 `From:` 头；SMTP 信封发件人仍用账户主地址（多数服务器只允许信封
+ * 发件人等于认证账户，SPF 校的也是信封域）。跨域别名的 DMARC 对齐依旧会失败。
+ */
+export interface Alias {
+  id: number
+  account_id: number
+  email: string
+  display_name: string
+  /** 同一账户至多一个；置位时后端自动清零其余 */
+  is_default: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AliasInput {
+  email: string
+  display_name: string
+  is_default: boolean
+}
+
+/** 账户签名（1:1）。未配置时后端返回空对象，前端归一成字段齐备的空值。 */
+export interface Signature {
+  body_html: string
+  use_on_new: boolean
+  use_on_reply: boolean
+  updated_at?: string
+}
+
+export type SignatureInput = Pick<Signature, 'body_html' | 'use_on_new' | 'use_on_reply'>

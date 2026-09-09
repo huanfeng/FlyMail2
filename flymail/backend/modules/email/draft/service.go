@@ -22,6 +22,7 @@ func (s *Service) Create(req DraftRequest) (*DraftResponse, error) {
 		BccStr:     joinAddrs(req.Bcc),
 		Subject:    req.Subject,
 		BodyHTML:   req.BodyHTML,
+		FromAlias:  req.FromAlias,
 		InReplyTo:  req.InReplyTo,
 		References: req.References,
 	}
@@ -43,6 +44,7 @@ func (s *Service) Update(id uint, req DraftRequest) (*DraftResponse, error) {
 	d.BccStr = joinAddrs(req.Bcc)
 	d.Subject = req.Subject
 	d.BodyHTML = req.BodyHTML
+	d.FromAlias = req.FromAlias
 	d.InReplyTo = req.InReplyTo
 	d.References = req.References
 	if err := s.repo.Update(d); err != nil {
@@ -91,6 +93,7 @@ func (s *Service) SendDraft(id uint, sender Sender) error {
 		Bcc:        splitAddrs(d.BccStr),
 		Subject:    d.Subject,
 		BodyHTML:   d.BodyHTML,
+		FromAlias:  d.FromAlias,
 		InReplyTo:  d.InReplyTo,
 		References: d.References,
 	}

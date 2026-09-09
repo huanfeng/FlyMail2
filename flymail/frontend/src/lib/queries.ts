@@ -21,7 +21,7 @@ import {
   restoreMail,
 } from '@/lib/optimistic'
 import type { ThreadPatch } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, Alias, AliasInput, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, Signature, SignatureInput, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
 async function fetchFolders(accountId: number): Promise<Folder[]> {
@@ -1045,12 +1045,17 @@ export function useAccountStats(accountId: number | null) {
 export function useSend() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ req, files }: { req: SendRequest; files?: File[] }) => {
-      if (files && files.length > 0) {
-        // 有附件：用 multipart/form-data，payload 为 JSON 字段，文件挂在 attachments 下。
+    mutationFn: async ({ req, files, inline }: { req: SendRequest; files?: File[]; inline?: File[] }) => {
+      const hasAttach = (files?.length ?? 0) > 0
+      const hasInline = (inline?.length ?? 0) > 0
+      if (hasAttach || hasInline) {
+        // 有附件或内联图：用 multipart/form-data，payload 为 JSON 字段。
+        // 普通附件走 attachments，内联资源走 inline —— 后者的 Content-ID 由
+        // payload.inline_cids 的**同下标项**给出，所以这里必须原样按序 append。
         const fd = new FormData()
         fd.append('payload', JSON.stringify(req))
-        for (const f of files) fd.append('attachments', f, f.name)
+        for (const f of files ?? []) fd.append('attachments', f, f.name)
+        for (const f of inline ?? []) fd.append('inline', f, f.name)
         // 显式置空 Content-Type，让浏览器/axios 自动补全带 boundary 的 multipart 头。
         await api.post('/send', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       } else {
@@ -1358,5 +1363,107 @@ export function useDeleteTrustedSender() {
       void qc.invalidateQueries({ queryKey: ['trusted-senders'] })
       void qc.invalidateQueries({ queryKey: ['message'] })
     },
+  })
+}
+
+
+// ── M13 撰写器：发件人别名与签名 ──────────────────────────────────────────────
+
+/** 取单个账户的别名。useAliases 与 useAliasesOfAccounts 共用，保证 query key 一致。 */
+async function fetchAliases(accountId: number): Promise<Alias[]> {
+  const { data } = await api.get<{ aliases: Alias[] } | Alias[]>(`/accounts/${accountId}/aliases`)
+  return Array.isArray(data) ? data : (data.aliases ?? [])
+}
+
+export function useAliases(accountId: number | null) {
+  return useQuery({
+    queryKey: ['aliases', accountId],
+    enabled: accountId != null,
+    queryFn: (): Promise<Alias[]> => fetchAliases(Number(accountId)),
+  })
+}
+
+/**
+ * 若干账户的别名，按账户 id 归组（撰写器的发件人下拉需要一次拿全）。
+ *
+ * 与 useFoldersOfAccounts 同构：复用 ['aliases', id] 这个 key，
+ * 设置页里打开过的账户别名在这里直接命中缓存。
+ */
+export function useAliasesOfAccounts(accountIds: number[]) {
+  return useQueries({
+    queries: accountIds.map((id) => ({
+      queryKey: ['aliases', id],
+      queryFn: (): Promise<Alias[]> => fetchAliases(id),
+    })),
+    combine: (results) => {
+      const byAccount: Record<number, Alias[]> = {}
+      results.forEach((r, i) => { byAccount[accountIds[i]] = r.data ?? [] })
+      return { byAccount, isLoading: results.some((r) => r.isLoading) }
+    },
+  })
+}
+
+export function useCreateAlias() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ accountId, input }: { accountId: number; input: AliasInput }): Promise<Alias> => {
+      const { data } = await api.post<Alias>(`/accounts/${accountId}/aliases`, input)
+      return data
+    },
+    onSuccess: (_d, { accountId }) => { void qc.invalidateQueries({ queryKey: ['aliases', accountId] }) },
+  })
+}
+
+export function useUpdateAlias() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ accountId, aliasId, input }: { accountId: number; aliasId: number; input: AliasInput }): Promise<Alias> => {
+      const { data } = await api.put<Alias>(`/accounts/${accountId}/aliases/${aliasId}`, input)
+      return data
+    },
+    onSuccess: (_d, { accountId }) => { void qc.invalidateQueries({ queryKey: ['aliases', accountId] }) },
+  })
+}
+
+export function useDeleteAlias() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ accountId, aliasId }: { accountId: number; aliasId: number }) => {
+      await api.delete(`/accounts/${accountId}/aliases/${aliasId}`)
+    },
+    onSuccess: (_d, { accountId }) => { void qc.invalidateQueries({ queryKey: ['aliases', accountId] }) },
+  })
+}
+
+/**
+ * 账户签名。未配置时后端返回空对象，这里补齐字段，调用方不必到处判 undefined。
+ *
+ * 刻意不给 placeholderData：撰写器要等这个查询**落定**才决定插不插签名，
+ * 占位数据会让它先按"没有签名"处理一次，真签名到货时就再也插不进去了。
+ */
+export function useSignature(accountId: number | null) {
+  return useQuery({
+    queryKey: ['signature', accountId],
+    enabled: accountId != null,
+    queryFn: async (): Promise<Signature> => {
+      const { data } = await api.get<Partial<Signature>>(`/accounts/${accountId}/signature`)
+      return {
+        body_html: data?.body_html ?? '',
+        use_on_new: data?.use_on_new ?? false,
+        use_on_reply: data?.use_on_reply ?? false,
+        updated_at: data?.updated_at,
+      }
+    },
+  })
+}
+
+export function useSaveSignature() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ accountId, input }: { accountId: number; input: SignatureInput }): Promise<Signature> => {
+      const { data } = await api.put<Signature>(`/accounts/${accountId}/signature`, input)
+      return data
+    },
+    onSuccess: (_d, { accountId }) => { void qc.invalidateQueries({ queryKey: ['signature', accountId] }) },
   })
 }

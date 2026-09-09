@@ -25,6 +25,8 @@ func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&auth.AdminUser{},
 		&account.Account{},
+		&account.Alias{},
+		&account.Signature{},
 		&folder.Folder{},
 		&message.Message{},
 		&message.MessageBody{},

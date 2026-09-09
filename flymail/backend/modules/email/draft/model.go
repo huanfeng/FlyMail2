@@ -11,6 +11,7 @@ type Draft struct {
 	BccStr     string    `json:"-"`
 	Subject    string    `json:"subject"`
 	BodyHTML   string    `json:"body_html"`
+	FromAlias  string    `json:"from_alias"`
 	InReplyTo  string    `json:"in_reply_to"`
 	References string    `json:"references"`
 	CreatedAt  time.Time `json:"created_at"`

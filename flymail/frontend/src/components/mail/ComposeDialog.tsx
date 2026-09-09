@@ -1,14 +1,28 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import Editor from 'react-simple-wysiwyg'
-import type { ContentEditableEvent } from 'react-simple-wysiwyg'
 import { Icon } from '@/components/ui/Icon'
 import { AddressInput } from '@/components/mail/AddressInput'
-import { useSend, useCreateDraft, useUpdateDraft, useDeleteDraft, useAccounts } from '@/lib/queries'
+import { RichEditor } from '@/components/mail/composer/RichEditor'
+import type { RichEditorHandle } from '@/components/mail/composer/RichEditor'
+import {
+  useSend,
+  useCreateDraft,
+  useUpdateDraft,
+  useDeleteDraft,
+  useAccounts,
+  useAliasesOfAccounts,
+  useSignature,
+} from '@/lib/queries'
 import { useToast } from '@/components/ui/Toast'
+import { useInlineImages } from '@/hooks/useInlineImages'
 import { formatBytes } from '@/lib/format'
+import { buildFromOptions, pickFromOption } from '@/lib/from-options'
+import { prepareInlineForDraft, prepareInlineForSend } from '@/lib/inline-images'
+import { signatureForScenario } from '@/lib/signature'
+import type { ComposeScenario } from '@/lib/signature'
 
 // 附件总大小上限（25 MiB），需与后端 maxAttachmentTotal 保持一致。
+// 内联图也走同一份配额：对收件方而言它们同样是 MIME part，服务器不区分。
 const MAX_ATTACH_TOTAL = 25 * 1024 * 1024
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -22,6 +36,10 @@ export interface ComposeInitial {
   bodyHtml?: string
   inReplyTo?: string
   references?: string
+  /** 撰写场景，决定插哪一份签名（新建 / 回复）。缺省按新建处理。 */
+  scenario?: ComposeScenario
+  /** 草稿里存的发件别名；空串或缺省表示用账户主地址 */
+  fromAlias?: string
 }
 
 export interface ComposeDialogProps {
@@ -33,20 +51,23 @@ export interface ComposeDialogProps {
 }
 
 interface FormState {
-  fromId: number | null
+  /**
+   * 用户手动选中的发件项 key；null 表示"没手动选过"，此时按账户默认别名推导。
+   * 存"覆盖值"而不是"当前值"，是为了别名列表异步到达时不需要在 effect 里补一次 setState。
+   */
+  fromOverride: string | null
   toStr: string
   ccStr: string
   bccStr: string
   subject: string
-  bodyHtml: string
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────────
 
-function emptyForm(fromId: number | null): FormState {
-  return { fromId, toStr: '', ccStr: '', bccStr: '', subject: '', bodyHtml: '' }
+function emptyForm(): FormState {
+  return { fromOverride: null, toStr: '', ccStr: '', bccStr: '', subject: '' }
 }
 
 /** 按逗号或分号拆分地址，去空格和空项 */
@@ -90,7 +111,16 @@ export function ComposeDialog({
   const [infoMessage, setInfoMessage] = React.useState<string | null>(null)
 
   // ── Form state ───────────────────────────────────────────────────────────────
-  const [form, setForm] = React.useState<FormState>(() => emptyForm(accountId))
+  const [form, setForm] = React.useState<FormState>(emptyForm)
+
+  // 一次撰写会话的标识：变化时 RichEditor 重灌正文。
+  const [session, setSession] = React.useState(0)
+
+  // ── 正文编辑器 ───────────────────────────────────────────────────────────────
+  // 正文不进 React state：每敲一个键就把整篇（可能带十封引用的）文档序列化一遍，
+  // 在长回复里是实打实的卡顿。真正需要正文的只有发送和存草稿两处，届时按需取。
+  const editorRef = React.useRef<RichEditorHandle>(null)
+  const inline = useInlineImages()
 
   // ── 附件 ─────────────────────────────────────────────────────────────────────
   const [attachments, setAttachments] = React.useState<File[]>([])
@@ -102,7 +132,7 @@ export function ComposeDialog({
     e.target.value = '' // 允许再次选择同一文件
     if (picked.length === 0) return
     const next = [...attachments, ...picked]
-    const total = next.reduce((sum, f) => sum + f.size, 0)
+    const total = next.reduce((sum, f) => sum + f.size, 0) + inline.totalBytes()
     if (total > MAX_ATTACH_TOTAL) {
       setValidationError(t('compose.attachTooLarge', { size: formatBytes(MAX_ATTACH_TOTAL) }))
       return
@@ -150,36 +180,94 @@ export function ComposeDialog({
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
   }
 
-  // 打开时用 initial 预填，关闭时重置 UI 状态
-  React.useEffect(() => {
-    if (open) {
-      setValidationError(null)
-      setInfoMessage(null)
-      setMinimized(false)
-      setPos(null) // 每次打开回到默认右下角
-      setAttachments([]) // 附件不随草稿持久化，每次打开清空
+  // ── 发件人别名 ───────────────────────────────────────────────────────────────
+  // 只在浮窗打开时拉：没在写信的时候，为每个账户都发一次别名请求没有意义。
+  const aliasAccountIds = React.useMemo(
+    () => (open ? accounts.map((a) => a.id) : []),
+    [open, accounts],
+  )
+  const { byAccount: aliasesByAccount } = useAliasesOfAccounts(aliasAccountIds)
 
-      // 有抄送预填时自动展开抄送行
-      const hasCc = (initial?.cc ?? []).length > 0
-      setShowCc(hasCc)
-      setShowBcc(false)
+  const fromOptions = React.useMemo(
+    () => buildFromOptions(accounts, aliasesByAccount),
+    [accounts, aliasesByAccount],
+  )
 
-      const defaultFrom = accountId ?? (accounts[0]?.id ?? null)
-
-      if (initial) {
-        setForm({
-          fromId: defaultFrom,
-          toStr: (initial.to ?? []).join(', '),
-          ccStr: (initial.cc ?? []).join(', '),
-          bccStr: '',
-          subject: initial.subject ?? '',
-          bodyHtml: initial.bodyHtml ?? '',
-        })
-      } else {
-        setForm(emptyForm(defaultFrom))
-      }
+  /**
+   * 当前发件项。
+   *
+   * 手动选过就用手选的；没选过则由 pickFromOption 推导（草稿里的别名 → 账户默认别名 →
+   * 主地址）。做成派生值而不是 state，别名列表异步到达时才不需要再补一次 setState。
+   */
+  const fromOption = React.useMemo(() => {
+    if (form.fromOverride) {
+      const hit = fromOptions.find((o) => o.key === form.fromOverride)
+      if (hit) return hit
     }
-  }, [open, initial, draftId, accountId, accounts])
+    return pickFromOption(fromOptions, accountId, initial?.fromAlias, aliasesByAccount)
+  }, [form.fromOverride, fromOptions, accountId, initial?.fromAlias, aliasesByAccount])
+
+  const effectiveAccountId = fromOption?.accountId ?? accountId
+  const noAccount = effectiveAccountId == null
+
+  // ── 签名 ─────────────────────────────────────────────────────────────────────
+  const scenario: ComposeScenario = initial?.scenario ?? (initial?.inReplyTo ? 'reply' : 'new')
+  const sigQuery = useSignature(effectiveAccountId)
+  const signatureHtml = signatureForScenario(sigQuery.data, scenario)
+  // 等结果落定再动文档：placeholder 阶段的空签名一插，真签名到货时就成了"重复插入"
+  const signatureReady = effectiveAccountId == null || sigQuery.isSuccess || sigQuery.isError
+
+  // 打开时用 initial 预填，关闭时释放内联图。
+  // ⚠ 所有初始化 setState 必须留在这**一个** effect 里：拆成多个不会更清楚，
+  //   只会让"打开一次浮窗"变成好几轮渲染，而且更难保证它们的先后顺序。
+  React.useEffect(() => {
+    if (!open) return
+
+    setValidationError(null)
+    setInfoMessage(null)
+    setMinimized(false)
+    setPos(null) // 每次打开回到默认右下角
+    setAttachments([]) // 附件不随草稿持久化，每次打开清空
+    setShowCc((initial?.cc ?? []).length > 0) // 有抄送预填时自动展开抄送行
+    setShowBcc(false)
+    setForm({
+      fromOverride: null,
+      toStr: (initial?.to ?? []).join(', '),
+      ccStr: (initial?.cc ?? []).join(', '),
+      bccStr: '',
+      subject: initial?.subject ?? '',
+    })
+    setSession((s) => s + 1)
+
+    // 关闭（或换一封信）时释放上一会话的 blob URL——早了图裂，不放就是内存泄漏
+    return () => { inline.reset() }
+  }, [open, initial, draftId, accountId, inline])
+
+  /**
+   * 签名的插入与替换。
+   *
+   * 三条规则：
+   *   1. 打开草稿时不插——草稿正文里已经带着上次存的签名，再插一次就是两份；
+   *   2. 新会话插一次；
+   *   3. 会话中途换发件人时整块替换（RichEditor.applySignature 走 ProseMirror 事务，
+   *      只动 signature 节点，用户写的正文一个字不碰）。
+   * 这里只调编辑器的命令、不碰 React state，所以不会多出一次渲染。
+   */
+  const sigAppliedRef = React.useRef<{ session: number; account: number | null } | null>(null)
+  React.useEffect(() => {
+    if (!open || !signatureReady) return
+    const prev = sigAppliedRef.current
+    const isNewSession = prev === null || prev.session !== session
+    if (isNewSession) {
+      sigAppliedRef.current = { session, account: effectiveAccountId }
+      if (draftId == null && signatureHtml) editorRef.current?.applySignature(signatureHtml)
+      return
+    }
+    if (prev.account !== effectiveAccountId) {
+      sigAppliedRef.current = { session, account: effectiveAccountId }
+      editorRef.current?.applySignature(signatureHtml)
+    }
+  }, [open, session, signatureReady, signatureHtml, effectiveAccountId, draftId])
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const sendMutation = useSend()
@@ -191,15 +279,10 @@ export function ComposeDialog({
   const isSending = sendMutation.isPending
   const isSavingDraft = createDraft.isPending || updateDraft.isPending
   const isBusy = isSending || isSavingDraft
-  const effectiveAccountId = form.fromId ?? accountId
-  const noAccount = effectiveAccountId === null
 
-  // 当前选中账户信息（用于 from 行显示）
-  const fromAccount = accounts.find((a) => a.id === effectiveAccountId) ?? accounts[0] ?? null
-  const fromAccountIndex = fromAccount ? accounts.indexOf(fromAccount) : 0
-
-  // 多账户时允许切换，单账户只展示
-  const multiAccount = accounts.length > 1
+  // 单账户单地址时只展示不可选
+  const fromAccountIndex = Math.max(0, accounts.findIndex((a) => a.id === effectiveAccountId))
+  const multiFrom = fromOptions.length > 1
 
   // ── 标题：回复/转发/写邮件 ─────────────────────────────────────────────────
   function resolveTitle(): string {
@@ -225,6 +308,16 @@ export function ComposeDialog({
     }
     if (noAccount) return
 
+    // 正文里的 blob:/data: 图收敛成 cid: 引用，同时得到与之严格同序的文件列表
+    const raw = editorRef.current?.getHTML() ?? ''
+    const prepared = prepareInlineForSend(raw, (src) => inline.lookup(src))
+
+    const inlineBytes = prepared.files.reduce((sum, f) => sum + f.size, 0)
+    if (attachTotal + inlineBytes > MAX_ATTACH_TOTAL) {
+      setValidationError(t('compose.attachTooLarge', { size: formatBytes(MAX_ATTACH_TOTAL) }))
+      return
+    }
+
     const ccAddrs = parseAddrs(form.ccStr)
     const bccAddrs = parseAddrs(form.bccStr)
 
@@ -236,11 +329,15 @@ export function ComposeDialog({
           cc: ccAddrs.length > 0 ? ccAddrs : undefined,
           bcc: bccAddrs.length > 0 ? bccAddrs : undefined,
           subject: form.subject,
-          body_html: form.bodyHtml,
+          body_html: prepared.html,
           in_reply_to: initial?.inReplyTo,
           references: initial?.references,
+          // 主地址不带该字段，保持与 M13 之前完全一致的请求体
+          from_alias: fromOption?.alias || undefined,
+          inline_cids: prepared.cids.length > 0 ? prepared.cids : undefined,
         },
         files: attachments,
+        inline: prepared.files,
       },
       {
         onSuccess: () => {
@@ -261,10 +358,15 @@ export function ComposeDialog({
   }
 
   // ── 存草稿 ───────────────────────────────────────────────────────────────────
-  function handleSaveDraft() {
+  async function handleSaveDraft() {
     setValidationError(null)
     setInfoMessage(null)
     if (noAccount) return
+
+    // 草稿要自包含：blob URL 换页面就失效，内联图必须内嵌成 data: URI 存进正文
+    const raw = editorRef.current?.getHTML() ?? ''
+    const { html, truncated } = await prepareInlineForDraft(raw, (src) => inline.toDataUri(src))
+    if (truncated) toast(t('compose.draftTooLarge'))
 
     const req = {
       account_id: effectiveAccountId as number,
@@ -272,9 +374,10 @@ export function ComposeDialog({
       cc: parseAddrs(form.ccStr),
       bcc: parseAddrs(form.bccStr),
       subject: form.subject,
-      body_html: form.bodyHtml,
+      body_html: html,
       in_reply_to: initial?.inReplyTo ?? '',
       references: initial?.references ?? '',
+      from_alias: fromOption?.alias ?? '',
     }
 
     if (draftId != null) {
@@ -296,11 +399,6 @@ export function ComposeDialog({
         },
       })
     }
-  }
-
-  // ── onChange 富文本编辑器 ────────────────────────────────────────────────────
-  function handleBodyChange(e: ContentEditableEvent) {
-    set('bodyHtml', e.target.value)
   }
 
   // ── 切换最小化 ──────────────────────────────────────────────────────────────
@@ -396,14 +494,13 @@ export function ComposeDialog({
       {/* ── 表单主体 .compose-body ───────────────────────────────────────────── */}
       <div className="compose-body">
 
-        {/* From 行 */}
+        {/* From 行：账户 × 别名的扁平列表 */}
         <div className="compose-row">
           <label>{t('compose.from')}</label>
-          {multiAccount ? (
-            // 多账户：可点击选择，用原生 select 套 from-account 样式
+          {multiFrom ? (
             <select
-              value={form.fromId ?? ''}
-              onChange={(e) => set('fromId', Number(e.target.value))}
+              value={fromOption?.key ?? ''}
+              onChange={(e) => set('fromOverride', e.target.value)}
               disabled={isBusy}
               style={{
                 border: 0, outline: 0,
@@ -413,22 +510,21 @@ export function ComposeDialog({
                 fontSize: 13,
                 color: 'var(--ink)',
                 fontFamily: 'var(--font-body)',
+                maxWidth: '100%',
               }}
             >
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {a.email}
-                </option>
+              {fromOptions.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
               ))}
             </select>
           ) : (
-            // 单账户：只读展示
+            // 单账户单地址：只读展示
             <span className="from-account">
               <span
                 className="acct-dot"
                 style={{ background: acctDotColor(fromAccountIndex) }}
               />
-              {fromAccount?.email ?? ''}
+              {fromOption?.email ?? ''}
             </span>
           )}
         </div>
@@ -507,27 +603,14 @@ export function ComposeDialog({
           />
         </div>
 
-        {/* 正文：保留 react-simple-wysiwyg 富文本编辑，外观贴近 compose-textarea */}
-        {/* 保留富文本的原因：回复/转发预填是 HTML 引用块，纯 textarea 会显示原始标签 */}
-        <div style={{ position: 'relative' }}>
-          <Editor
-            value={form.bodyHtml}
-            onChange={handleBodyChange}
-            disabled={isBusy}
-            containerProps={{
-              // 用内联样式覆盖 rsw 默认边框，使其外观贴近 compose-textarea
-              style: {
-                border: 'none',
-                background: 'transparent',
-                minHeight: 240,
-                fontSize: 14,
-                lineHeight: '1.6',
-                color: 'var(--ink)',
-                fontFamily: 'var(--font-body)',
-              },
-            }}
-          />
-        </div>
+        {/* 正文：Tiptap 富文本（工具栏 + 引用折叠 + 内联图） */}
+        <RichEditor
+          ref={editorRef}
+          initialHtml={initial?.bodyHtml ?? ''}
+          resetKey={String(session)}
+          editable={!isBusy}
+          registerInlineImage={(file) => inline.register(file)}
+        />
 
         {/* 附件列表 */}
         {attachments.length > 0 && (
@@ -594,7 +677,7 @@ export function ComposeDialog({
         {/* 存草稿按钮 */}
         <button
           className="pill-btn"
-          onClick={handleSaveDraft}
+          onClick={() => { void handleSaveDraft() }}
           disabled={isBusy || noAccount}
           type="button"
         >
@@ -626,10 +709,10 @@ export function ComposeDialog({
         {/* spacer 推开右侧 */}
         <div style={{ flex: 1 }} />
 
-        {/* 右侧：显示发件账户邮箱 */}
-        {fromAccount && (
+        {/* 右侧：显示发件地址 */}
+        {fromOption && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>
-            {fromAccount.email}
+            {fromOption.email}
           </span>
         )}
 

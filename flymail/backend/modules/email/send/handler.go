@@ -2,10 +2,13 @@ package send
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +27,7 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 		}
 
 		if err := svc.Send(req); err != nil {
-			if err == ErrNoRecipient {
+			if errors.Is(err, ErrNoRecipient) || errors.Is(err, ErrAliasNotAllowed) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -67,18 +70,66 @@ func parseMultipart(c *gin.Context) (SendRequest, error) {
 	}
 
 	var total int64
-	for _, fh := range form.File["attachments"] {
+	add := func(fh *multipart.FileHeader, cid string) error {
 		total += fh.Size
 		if total > maxAttachmentTotal {
-			return SendRequest{}, fmt.Errorf("attachments exceed %d bytes", maxAttachmentTotal)
+			return fmt.Errorf("attachments exceed %d bytes", maxAttachmentTotal)
 		}
 		att, err := readAttachment(fh)
 		if err != nil {
+			return err
+		}
+		att.ContentID = cid
+		req.Attachments = append(req.Attachments, att)
+		return nil
+	}
+
+	// 内联资源：inline 文件字段与 payload 里的 inline_cids 按下标一一对应。
+	// 数量对不上说明前端拼错了表单，此时宁可整封拒收也不能错配 cid——
+	// 错配的结果是正文引用不到图，收件方看到一堆裂图外加莫名附件。
+	inlineFiles := form.File["inline"]
+	if len(inlineFiles) != len(req.InlineCIDs) {
+		return SendRequest{}, fmt.Errorf("inline files (%d) and inline_cids (%d) count mismatch",
+			len(inlineFiles), len(req.InlineCIDs))
+	}
+	for i, fh := range inlineFiles {
+		cid := req.InlineCIDs[i]
+		if !ValidContentID(cid) {
+			return SendRequest{}, fmt.Errorf("%w: %q", ErrInvalidContentID, cid)
+		}
+		if err := add(fh, cid); err != nil {
 			return SendRequest{}, err
 		}
-		req.Attachments = append(req.Attachments, att)
+		// 内联图的 Content-Type 决定收件方是否把它当图片渲染，不能只信客户端：
+		// 表单上传经常只给 application/octet-stream，那样发出去就是一张裂图。
+		last := &req.Attachments[len(req.Attachments)-1]
+		last.ContentType = resolveInlineContentType(last.ContentType, last.Filename, last.Content)
+	}
+
+	for _, fh := range form.File["attachments"] {
+		if err := add(fh, ""); err != nil {
+			return SendRequest{}, err
+		}
 	}
 	return req, nil
+}
+
+// resolveInlineContentType 定内联资源的 Content-Type。
+// 先嗅探再看扩展名：嗅探对 png/jpeg/gif/webp 准确且骗不过去，
+// svg 这类文本格式嗅探不出来，才回退到扩展名。
+func resolveInlineContentType(declared, filename string, content []byte) string {
+	if declared != "" && !strings.EqualFold(declared, "application/octet-stream") {
+		return declared
+	}
+	if sniffed := http.DetectContentType(content); strings.HasPrefix(sniffed, "image/") {
+		return sniffed
+	}
+	if ext := filepath.Ext(filename); ext != "" {
+		if byExt := mime.TypeByExtension(ext); byExt != "" {
+			return byExt
+		}
+	}
+	return "application/octet-stream"
 }
 
 // readAttachment 读取单个上传文件为 Attachment。

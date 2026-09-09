@@ -1,3 +1,4 @@
+import { QUOTE_BLOCK_ATTR } from '@/components/mail/composer/schema'
 import { parseMailto } from '@/lib/mailto'
 import type { MessageDetail } from '@/lib/types'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
@@ -19,22 +20,37 @@ function rePrefix(subject: string, p: string): string {
   return new RegExp('^' + p, 'i').test(subject.trim()) ? subject : `${p}${subject}`
 }
 
+/**
+ * 引用块。
+ *
+ * 标记属性 `data-quote-block` 是给撰写器的 quoteBlock 节点认的——认出来才能折叠。
+ * 收件方的邮件客户端不认识这个属性，看到的就是一个普通的 blockquote，
+ * 行内样式因此必须留着（renderHTML 会再补一遍，这里是给不过编辑器的路径兜底）。
+ */
+function quoteBlock(inner: string): string {
+  return `<blockquote ${QUOTE_BLOCK_ATTR}="true" style="border-left:2px solid #ccc;padding-left:10px;color:#666">${inner}</blockquote>`
+}
+
 export function buildReply(d: MessageDetail): ComposeInitial {
   return {
     to: d.from_addr ? [d.from_addr] : [],
     subject: rePrefix(d.subject || '', 'Re: '),
-    bodyHtml: `<br><br><blockquote style="border-left:2px solid #ccc;padding-left:10px;color:#666">${quoteHeader(d)}<br>${originalBody(d)}</blockquote>`,
+    // 前面留一个空段落：光标落点在这里，用户直接就能开始写
+    bodyHtml: `<p></p>${quoteBlock(`<p>${escapeHtml(quoteHeader(d))}</p>${originalBody(d)}`)}`,
     inReplyTo: d.message_id,
     references: [d.references, d.message_id].filter(Boolean).join(' '),
+    scenario: 'reply',
   }
 }
 
 export function buildForward(d: MessageDetail): ComposeInitial {
-  const head = `---------- 转发邮件 ----------<br>主题: ${escapeHtml(d.subject || '')}<br>发件人: ${escapeHtml(d.from_name || d.from_addr || '')}<br>日期: ${escapeHtml(d.date)}<br><br>`
+  const head = `---------- 转发邮件 ----------<br>主题: ${escapeHtml(d.subject || '')}<br>发件人: ${escapeHtml(d.from_name || d.from_addr || '')}<br>日期: ${escapeHtml(d.date)}`
   return {
     to: [],
     subject: rePrefix(d.subject || '', 'Fwd: '),
-    bodyHtml: `<br><br>${head}${originalBody(d)}`,
+    bodyHtml: `<p></p>${quoteBlock(`<p>${head}</p>${originalBody(d)}`)}`,
+    // 转发和回复一样是"接着一封已有的信写"，签名按回复场景走
+    scenario: 'reply',
   }
 }
 

@@ -13,6 +13,8 @@ import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { RulesSection } from '@/components/settings/RulesSection'
 import { BlocklistSection } from '@/components/settings/BlocklistSection'
 import { TrustedSendersSection } from '@/components/settings/TrustedSendersSection'
+import { SignatureSection } from '@/components/settings/SignatureSection'
+import { AliasesSection } from '@/components/settings/AliasesSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
@@ -62,7 +64,7 @@ const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: str
 }
 
 /** 设置分区 ID */
-type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'signature' | 'aliases' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -1212,6 +1214,8 @@ export function SettingsDialog({
     { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
+    { id: 'signature',  labelKey: 'settings.navSignature',        icon: 'draft' },
+    { id: 'aliases',    labelKey: 'settings.navAliases',          icon: 'mail' },
     { id: 'rules',      labelKey: 'settings.navRules',            icon: 'filter' },
     { id: 'blocklist',  labelKey: 'settings.navBlocklist',        icon: 'shield' },
     { id: 'privacy',    labelKey: 'settings.navPrivacy',          icon: 'cloud' },
@@ -1293,6 +1297,8 @@ export function SettingsDialog({
                 onChangeConversationView={onChangeConversationView}
               />
             )}
+            {section === 'signature' && <SignatureSection />}
+            {section === 'aliases' && <AliasesSection />}
             {section === 'rules' && <RulesSection />}
             {section === 'blocklist' && <BlocklistSection />}
             {section === 'privacy' && <PrivacySection />}

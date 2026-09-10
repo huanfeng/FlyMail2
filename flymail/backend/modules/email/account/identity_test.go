@@ -277,3 +277,24 @@ func TestAliasRejectsNonAddrSpec(t *testing.T) {
 		t.Errorf("合法别名被拒: %v", err)
 	}
 }
+
+// TestSaveAliasDuplicateAtDBLayer 服务层查重是第一道防线，但并发下两个请求可能同时
+// 查完再同时写——最终挡住重复的是唯一索引。那条错误必须仍然是 ErrAliasDuplicate
+// （→ 409），落到默认分支就成了 500，前端只能显示"操作失败"。
+func TestSaveAliasDuplicateAtDBLayer(t *testing.T) {
+	svc, repo, _ := newSvc(t)
+	id := newAcct(t, svc, "main@example.com")
+
+	first := &account.Alias{AccountID: id, Email: "sales@example.com"}
+	if err := repo.SaveAlias(first); err != nil {
+		t.Fatalf("首次落库失败: %v", err)
+	}
+	// 绕开服务层查重，直接让唯一索引撞车（模拟并发下两个请求都查完再写）
+	err := repo.SaveAlias(&account.Alias{AccountID: id, Email: "sales@example.com"})
+	if !errors.Is(err, account.ErrAliasDuplicate) {
+		t.Fatalf("唯一索引撞车应返回 ErrAliasDuplicate，实际 %v", err)
+	}
+	if list, _ := svc.ListAliases(id); len(list) != 1 {
+		t.Errorf("撞车后不应多出记录，实际 %d 条", len(list))
+	}
+}

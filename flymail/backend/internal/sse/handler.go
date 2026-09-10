@@ -7,11 +7,18 @@ import (
 )
 
 // NewHandler 返回 SSE 端点处理器。
-// verify 校验 access_token 查询参数，返回非 nil 错误时响应 401。
-func NewHandler(hub *Hub, verify func(token string) error) http.HandlerFunc {
+//
+// 鉴权用一次性连接票据（?ticket=），不再接受 access token：EventSource 设不了请求头，
+// 凭据只能走 URL，而 URL 会留在代理日志与浏览器历史里——留在那里的必须是一张
+// 一分钟后就作废的票，不能是能开整个账号的长期凭据。票据由 NewTicketHandler 在
+// 受保护端点签发。
+//
+// consume 校验并作废票据（通常是 TicketStore.Consume），返回 false 时响应 401。
+func NewHandler(hub *Hub, consume func(ticket string) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("access_token")
-		if err := verify(token); err != nil {
+		// 票据在握手时一次性核销。SSE 是长连接，连上之后不再复查：
+		// 连接的存续期由 TCP 与 ctx 决定，与票据寿命无关。
+		if !consume(r.URL.Query().Get("ticket")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -22,15 +29,17 @@ func NewHandler(hub *Hub, verify func(token string) error) http.HandlerFunc {
 			return
 		}
 
+		// 先订阅再写响应头：反过来的话，从客户端收到头到这里完成订阅之间推送的事件
+		// 会静默丢失（前端刚连上就漏掉一封新邮件，且无从察觉）。
+		ch, cancel := hub.Subscribe()
+		defer cancel()
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
-
-		ch, cancel := hub.Subscribe()
-		defer cancel()
 
 		heartbeat := time.NewTicker(25 * time.Second)
 		defer heartbeat.Stop()

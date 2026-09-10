@@ -15,11 +15,20 @@ import (
 )
 
 // maxAttachmentTotal 单封邮件附件总大小上限（25 MiB），防止内存被超大上传撑爆。
-const maxAttachmentTotal = 25 << 20
+// maxRequestBody 是请求体本身的上限：25 MiB 附件经 base64 编码约 33.4 MiB，
+// 加上正文与表单开销取 64 MiB。这是整条发送链路的第一道闸——没有它，
+// JSON/草稿那条路可以把任意大的正文先读进内存，之后所有校验都已经晚了。
+// 声明成 var 只为测试能注入小阈值。
+var (
+	maxAttachmentTotal int64 = 25 << 20
+	maxRequestBody     int64 = 64 << 20
+)
 
 // RegisterRoutes 注册发送相关路由到给定的路由组。
 func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.POST("/send", func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBody)
+
 		req, err := parseSendRequest(c)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -27,7 +36,10 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 		}
 
 		if err := svc.Send(req); err != nil {
-			if errors.Is(err, ErrNoRecipient) || errors.Is(err, ErrAliasNotAllowed) {
+			// 超限是客户端输入的问题：回 500 会让前端提示"服务器错误"并鼓励重试，
+			// 而重试只会再吃一遍同样的内存
+			if errors.Is(err, ErrNoRecipient) || errors.Is(err, ErrAliasNotAllowed) ||
+				errors.Is(err, ErrPayloadTooLarge) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -73,7 +85,7 @@ func parseMultipart(c *gin.Context) (SendRequest, error) {
 	add := func(fh *multipart.FileHeader, cid string) error {
 		total += fh.Size
 		if total > maxAttachmentTotal {
-			return fmt.Errorf("attachments exceed %d bytes", maxAttachmentTotal)
+			return fmt.Errorf("%w: attachments exceed %d bytes", ErrPayloadTooLarge, maxAttachmentTotal)
 		}
 		att, err := readAttachment(fh)
 		if err != nil {
@@ -92,11 +104,18 @@ func parseMultipart(c *gin.Context) (SendRequest, error) {
 		return SendRequest{}, fmt.Errorf("inline files (%d) and inline_cids (%d) count mismatch",
 			len(inlineFiles), len(req.InlineCIDs))
 	}
+	// 重复 cid 同样是一次错配：两个 part 顶着同一个 Content-ID，收件方只认第一个，
+	// 第二张图永远显示不出来。既然数量对不上是整封拒收，重复也一并拒掉。
+	seen := make(map[string]bool, len(req.InlineCIDs))
 	for i, fh := range inlineFiles {
 		cid := req.InlineCIDs[i]
 		if !ValidContentID(cid) {
 			return SendRequest{}, fmt.Errorf("%w: %q", ErrInvalidContentID, cid)
 		}
+		if seen[cid] {
+			return SendRequest{}, fmt.Errorf("duplicate inline cid %q", cid)
+		}
+		seen[cid] = true
 		if err := add(fh, cid); err != nil {
 			return SendRequest{}, err
 		}

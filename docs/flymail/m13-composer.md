@@ -223,24 +223,65 @@ Message-ID: <1234@e.com>>          ← 多出一个 >
 同一个函数里为 cid 建了安全边界，紧邻的两个头却不设防，本身就是不一致。
 现在整个值含 CR/LF 直接整条丢弃（那必然是注入尝试），合法 msg-id 校验后重新拼装。
 
-### 待修（不阻塞本次提交，已记录）
+### 待修 → ✅ 已于 2026-09-10 收尾清理全部修完
 
-- **草稿直发路径的内存放大**（中等）：`InlineDataURIImages` 先把所有 `data:` 图解码进内存，
-  之后才判 25 MiB。单张有 10 MiB 上限但**张数无上限**，且路由层没有任何请求体大小限制。
-  实测 40 张 9 MiB 图的单个请求吃掉 2.4 GiB 堆、跑满 209 秒才回 500。
-  multipart 路径有前置校验挡着，恰恰是 JSON/草稿这条绕过去了。
-  修法：进解码前先判 `len(BodyHTML)`（O(1)）+ 解码中累计短路 + 路由层 `MaxBytesReader`。
-  顺带这个错误应该是 400 不是 500。
-- **`data:` 图正则按 `src=` 子串匹配**（中等）：没有前置边界，实测 `data-src="data:image/..."`
-  会被改成 `data-src="cid:..."`（属性名没改，图在收件方是裂的，但附件照挂），
-  正文里贴一段讲 data URI 的代码也会被静默篡改并多出无引用的 inline part。
-  另有漏匹配：`srcset`、CSS `background:url(...)`、大写 `DATA:IMAGE`
-  （`strings.Contains` 预检是大小写敏感的，`(?i)` 白加了）。
-  修法：改用 `x/net/html` tokenizer 遍历属性，项目里 `internal/htmlsan` 已有同款实现可复用。
-- **重复 cid 被静默接受**（轻微）：`inline_cids: ["ii_dup","ii_dup"]` 会产出两个同 `Content-ID`
-  的 part，第二张永远显示不出来。既然已因"数量对不上宁可整封拒收"做了严格配对，重复也该一并拒掉。
-- **唯一索引撞车返回 500 而非 409**（轻微）：服务层查重是第一道防线且并发下实测没撞上过
-  （SQLite 写锁把并发串行化了），但 DB 层 `ErrDuplicatedKey` 落到了 `default` 分支。
-- **`postMultipart` 测试辅助的 `ctype` 字段是死代码**（轻微）：`CreateFormFile` 永远写
-  `application/octet-stream`，所以 `TestSendInlineSniffsContentType` 是**碰巧**走到嗅探分支的，
-  且没有任何用例覆盖"客户端声明了非 octet-stream 类型"那条分支。
+原先记录的 5 项（内存放大 / `data:` 正则误匹配 / 重复 cid / 唯一索引 409 / 测试 ctype 死代码）
+已在分支 `feat/flymail-cleanup` 一并修掉，并经独立审查（实现者未自我批准）。
+审查在修复本身里又抓出 3 个缺陷，一并修完：
+
+- **H-1 预算闸门被架空**：闸门算术本身正确（判断确实全在 `DecodeString` 之前），
+  但它只约束「解码后字节数」，没约束 `strings.Fields`+`Join` 去空白这一步的分配——
+  后者的代价与 payload 的**空白密度**成正比，与闸门判的量完全脱钩。
+  实测 8 MiB 输入 → 119 MiB 分配（~15x），外推单请求可达 ~600 MiB，
+  等于第 1 项声称的「超限输入一个字节都不放大」当时并未成立。
+  改用预分配 `base64Len` 大小、单趟拷贝的 `stripWS`；`base64Len` 与 `stripWS` 共用
+  同一个 `isASCIISpace` 判定，从结构上保证容量预估不会和实际处理的字符走偏。
+  **教训：闸门必须约束真实的分配点，而不是一个与之相关但不等价的量。**
+- **H-1 顺藤摸出的另外两处同类脱钩**（修复过程中自查发现，非审查提出）：
+  - `convertSrcset` / `splitSrcset`：同一个 `strings.Fields` 病，且发生在预算闸门判大小**之前**，
+    实测 20.1×——比点名的 `src`（14.9×）更重，且白烧 42 MB 一张图都没产出。
+    改成 `splitSrcset` 只记边界返回子串（零拷贝）+ 新增 `splitCandidate` 按下标切 URL 与描述符。
+  - `cleanMsgIDList`（`builder.go`，**M13 原有**）：`strings.FieldsFunc` 把整串所有分段一次性物化，
+    而函数最多只保留 `max` 个 id（References 255 / In-Reply-To 1）。5 MiB 输入分配 53 MB。
+    要命的是这条路上**没有任何长度闸门**——`in_reply_to` / `references` 是自由字符串字段，
+    只受 `maxRequestBody` 约束。改成按下标手工切分、`len(ids) >= max` 即停。
+- **L-1 `<style/>` 自闭合写法漏转**：`style` 是 rawtext 元素，Go tokenizer 对 `<style/>`
+  返回 `SelfClosingTagToken` 的同时**仍然**把后续内容当 rawtext 交出
+  （`readStartTag` 里 `rawTag` 的设置早于自闭合判断），只判 `StartTagToken` 就漏了。
+  后果是里面的背景图不转 `cid:`，data: 图原样发出被 Gmail/Outlook 屏蔽 → 收件方裂图。
+- **L-2 空 base64 payload 产出 0 字节 inline part**：撰写器图片加载失败时会留下占位的空 data URI，
+  外发邮件多挂一个没内容的 `image/png`，部分客户端显示为「损坏的附件」。
+
+### 仍未修（已评估，判定不值得改）
+
+- **L-3 `splitSrcset` 对「恰好以 `;base64` 结尾的普通 URL」会吞掉分隔逗号**：
+  如 `srcset="a.png?x=;base64, data:image/png;base64,… 2x"`，第一个逗号被
+  `endsWithBase64Marker` 误判为 URI 内部逗号，两候选合并 → 后一个候选漏转、收件方裂图。
+  被吞的逗号最终由 `Join(", ")` 复原，**结构不损坏**，影响仅限漏转。极构造化。
+  要修则把标记判断收紧为「`;base64` 之前必须能回溯到一个 `data:` scheme」。
+- **重复属性**：`<img src="data:A" src="data:B">` 两个都转、各登记一张附件，客户端只认第一个，
+  多一个无人引用的 inline part。与「重复 cid 整封拒收」的严格度略不一致，但畸形 HTML 不值得加逻辑。
+- **外观类**：候选 `Join(", ")` 后的双空格；改动过的开始标签被小写化而结束标签保留原样
+  （`<style>…</STYLE>`，HTML 大小写不敏感，无影响）。
+- **票据比对非常量时间**（`internal/sse/ticket.go`）：走 map 查找。
+  32 字节 `crypto/rand` 空间下无实际攻击面，放弃 map 换常量时间比对得不偿失。
+- **正文改写的固有分配常数（6–9 × 正文长度）**：tokenizer 缓冲 + 属性拷贝 + 输出缓冲 + 解码结果，
+  与空白密度已无关（那是 H-1 修掉的部分），但 40 MiB 正文极限下单请求峰值仍是数百 MB。
+  要再压只能改成流式改写、不整份物化，属另一个量级的改动。
+  （曾考虑把 `maxInlineHTML` 从 40 MiB 下调到 34 MiB，未采纳——余量是有意留的，
+  这 6 MiB 不会让 6–9 倍的固有常数有质变。）
+- **`in_reply_to` / `references` 没有独立长度上限**：只受 `maxRequestBody` 约束。
+  分配已与 `max` 挂钩不再放大，但仍有一次 O(请求体) 的扫描。
+
+### 审查明确通过的部分
+
+tokenizer 改写（除 L-1 外）经 14 组边界探针实证正确、未引入新的 XSS/注入面：
+属性值统一双引号 + `html.EscapeString`（会转义 `"`，故无法提前闭合属性）、实体往返语义等价且更严、
+未改动 token 原样 `z.Raw()` 拷回、rawtext 容器（`<textarea>`）内不被误伤、
+`splitSrcset` 对 `data:image/png;base64,` 自带逗号的切分正确（base64 字母表不含逗号，
+只需保护紧跟 `;base64` 的那一个）。
+
+**职责边界**：`dataurl.go` 不是净化器，净化归 `internal/htmlsan`。两者方向相反——
+htmlsan 是收信侧白名单净化，dataurl 是发信侧定点改写；dataurl 对命中标签会重新序列化，
+与 htmlsan 的规范化结果不完全一致。这不构成安全问题（dataurl 的重写只会让转义更严），
+但不要指望「两边处理完字节相同」。

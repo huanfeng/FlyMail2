@@ -324,3 +324,129 @@ func TestFromDisplayNameCannotInjectHeaders(t *testing.T) {
 		t.Errorf("From 地址被篡改: %q", addr.Address)
 	}
 }
+
+// TestInlineDataURIOnlyRealURLAttributes data: 图只能从真正的资源属性里取。
+// 原先按 `src=` 子串匹配没有前置边界：data-src 会被改成 cid:（属性名没改，
+// 收件方看到的是裂图外加一个没人引用的 inline part），正文里贴一段讲 data URI
+// 的代码也会被静默篡改。
+func TestInlineDataURIOnlyRealURLAttributes(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G'})
+	html := `<div data-src="data:image/png;base64,` + b64 + `">` +
+		`<code>写法是 data:image/png;base64,` + b64 + `</code></div>`
+
+	out, atts, err := send.InlineDataURIImages(html)
+	if err != nil {
+		t.Fatalf("不该报错: %v", err)
+	}
+	if len(atts) != 0 {
+		t.Errorf("非资源属性与正文文本不应产出内联附件，实际 %d 个", len(atts))
+	}
+	if out != html {
+		t.Errorf("应原样返回，实际 %q", out)
+	}
+}
+
+// TestInlineDataURIOtherCarriers data: 图不只出现在 img src 上：
+// srcset、CSS background 的 url()、以及大写的 DATA:IMAGE 都得转，
+// 漏掉的那些发出去就是被 Gmail/Outlook 屏蔽的裂图。
+func TestInlineDataURIOtherCarriers(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G'})
+	html := `<img srcset="data:image/png;base64,` + b64 + ` 2x">` +
+		`<div style="background:url('data:image/gif;base64,` + b64 + `')"></div>` +
+		`<img src="DATA:IMAGE/PNG;BASE64,` + b64 + `">` +
+		`<style>.a{background-image:url(data:image/webp;base64,` + b64 + `)}</style>`
+
+	out, atts, err := send.InlineDataURIImages(html)
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(atts) != 4 {
+		t.Fatalf("srcset / style / 大写 / <style> 块各一张，应有 4 个内联附件，实际 %d", len(atts))
+	}
+	if strings.Contains(strings.ToLower(out), "data:image/") {
+		t.Errorf("转换后不应残留 data: URI: %s", out)
+	}
+	for _, att := range atts {
+		if !send.ValidContentID(att.ContentID) {
+			t.Errorf("生成的 cid 不合法: %q", att.ContentID)
+		}
+		if !strings.Contains(out, "cid:"+att.ContentID) {
+			t.Errorf("正文未引用 cid %q: %s", att.ContentID, out)
+		}
+	}
+	// srcset 的描述符（2x）必须留着，否则高清屏上尺寸算错
+	if !strings.Contains(out, " 2x") {
+		t.Errorf("srcset 描述符丢失: %s", out)
+	}
+	if atts[2].ContentType != "image/png" {
+		t.Errorf("大写 DATA:IMAGE/PNG 的类型应归一化为 image/png，实际 %q", atts[2].ContentType)
+	}
+}
+
+// TestInlineDataURIKeepsSrcsetSiblings srcset 里 data: 图与普通候选混排时，
+// 不能把别的候选一起吃掉——data: URI 自己就带一个逗号，按逗号切会切坏。
+func TestInlineDataURIKeepsSrcsetSiblings(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G'})
+	html := `<img srcset="https://example.com/a.png 1x, data:image/png;base64,` + b64 + ` 2x">`
+
+	out, atts, err := send.InlineDataURIImages(html)
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(atts) != 1 {
+		t.Fatalf("应只转换 data: 那一个候选，实际 %d 个附件", len(atts))
+	}
+	if !strings.Contains(out, "https://example.com/a.png 1x") {
+		t.Errorf("普通候选被破坏: %s", out)
+	}
+	if !strings.Contains(out, "cid:"+atts[0].ContentID+" 2x") {
+		t.Errorf("data: 候选未正确替换: %s", out)
+	}
+}
+
+// TestInlineDataURIStyleSelfClosing <style/> 这种自闭合写法照样是样式块：
+// tokenizer 给的是 SelfClosingTagToken，但后续内容仍按 rawtext 交出。
+// 只认 StartTagToken 就会让里面的背景图原样发出去——收件方那边被屏蔽成裂图，
+// 而这个函数存在的理由正是防这一点。
+func TestInlineDataURIStyleSelfClosing(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte{0x89, 'P', 'N', 'G'})
+	html := `<style/>body{background:url(data:image/png;base64,` + b64 + `)}</style><p>x</p>`
+
+	out, atts, err := send.InlineDataURIImages(html)
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if len(atts) != 1 {
+		t.Fatalf("<style/> 里的背景图应被转换，实际产出 %d 个附件: %s", len(atts), out)
+	}
+	if strings.Contains(strings.ToLower(out), "data:image/") {
+		t.Errorf("转换后不应残留 data: URI: %s", out)
+	}
+	if !strings.Contains(out, "cid:"+atts[0].ContentID) {
+		t.Errorf("样式块未引用 cid %q: %s", atts[0].ContentID, out)
+	}
+}
+
+// TestInlineDataURIEmptyPayloadIgnored 空的 data: URI 是占位符（撰写器图片加载失败时很常见），
+// 不能凭它挂一个 0 字节的 image/png inline part——部分客户端会显示成"损坏的附件"。
+func TestInlineDataURIEmptyPayloadIgnored(t *testing.T) {
+	for _, html := range []string{
+		`<img src="data:image/png;base64,">`,
+		`<img src="data:image/png;base64,   ">`,
+		`<img srcset="data:image/png;base64,,b.png 2x">`,
+		`<div style="background:url(data:image/gif;base64,)"></div>`,
+	} {
+		out, atts, err := send.InlineDataURIImages(html)
+		if err != nil {
+			t.Errorf("%s: 不该报错: %v", html, err)
+			continue
+		}
+		if len(atts) != 0 {
+			t.Errorf("%s: 空 payload 不应产出附件，实际 %d 个（首个 %d 字节）",
+				html, len(atts), len(atts[0].Content))
+		}
+		if out != html {
+			t.Errorf("%s: 引用应保持原样，实际 %q", html, out)
+		}
+	}
+}

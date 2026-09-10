@@ -158,11 +158,20 @@ func cleanMsgIDList(raw string, max int) (string, bool) {
 	if strings.ContainsAny(raw, "\r\n") {
 		return "", false
 	}
+	// 手工按下标切分，不用 strings.FieldsFunc：后者会把整串的所有分段一次性物化成
+	// []string（每段一个 16 字节 header），而这里最多只留 max 个 id——一个几 MB 的
+	// References 能在够到 max 之前先分配几十 MB，分配量与真正保留的数量完全脱钩。
 	var ids []string
-	for _, tok := range strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ' ' || r == '	' || r == ','
-	}) {
-		id := tok
+	for i := 0; i < len(raw) && len(ids) < max; {
+		for i < len(raw) && isMsgIDSep(raw[i]) {
+			i++
+		}
+		j := i
+		for j < len(raw) && !isMsgIDSep(raw[j]) {
+			j++
+		}
+		id := raw[i:j]
+		i = j
 		if len(id) >= 2 && id[0] == '<' && id[len(id)-1] == '>' {
 			id = id[1 : len(id)-1]
 		}
@@ -170,15 +179,15 @@ func cleanMsgIDList(raw string, max int) (string, bool) {
 			continue // 非法 id 静默丢弃，不连累其他 id
 		}
 		ids = append(ids, id)
-		if len(ids) >= max {
-			break
-		}
 	}
 	if len(ids) == 0 {
 		return "", false
 	}
 	return strings.Join(ids, "> <"), true
 }
+
+// isMsgIDSep 是 msg-id 列表的分隔符：空格、TAB、逗号。
+func isMsgIDSep(c byte) bool { return c == ' ' || c == '	' || c == ',' }
 
 // ValidMsgID 校验一个 msg-id 的内容（不含尖括号）。
 // RFC 5322 的 msg-id 由 atext、点与 @ 组成；除了能注入头的 CRLF/空格，任何其他

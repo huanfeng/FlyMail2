@@ -115,12 +115,12 @@ func (s *Service) Send(req SendRequest) error {
 	req.Attachments = append(req.Attachments, dataAtts...)
 
 	// 总量兜底：草稿走 JSON，绕过了 handler 里 multipart 的大小校验。
-	var totalBytes int
+	var totalBytes int64
 	for _, att := range req.Attachments {
-		totalBytes += len(att.Content)
+		totalBytes += int64(len(att.Content))
 	}
 	if totalBytes > maxAttachmentTotal {
-		return fmt.Errorf("attachments exceed %d bytes", maxAttachmentTotal)
+		return fmt.Errorf("%w: attachments exceed %d bytes", ErrPayloadTooLarge, maxAttachmentTotal)
 	}
 
 	smtpCfg, err := s.accounts.SMTPConfig(req.AccountID)

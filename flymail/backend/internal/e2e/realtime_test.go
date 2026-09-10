@@ -17,12 +17,19 @@ type sseEvent struct {
 	NewCount  int    `json:"new_count"`
 }
 
-// startSSEReader 订阅 /api/v1/events（query access_token 鉴权），后台解析 data: 行推入 channel。
-func startSSEReader(t *testing.T, baseURL, token string) <-chan sseEvent {
+// startSSEReader 订阅 /api/v1/events，后台解析 data: 行推入 channel。
+// 先用 Bearer 凭据换一张一次性连接票据：EventSource 设不了请求头，SSE 的 URL 鉴权
+// 只认这张 60 秒作废、用一次即销的票（见 internal/sse/ticket.go）。
+func startSSEReader(t *testing.T, c *apiClient) <-chan sseEvent {
 	t.Helper()
+	var tk struct {
+		Ticket string `json:"ticket"`
+	}
+	c.mustJSON(http.MethodPost, "/api/v1/events/ticket", nil, http.StatusOK, &tk)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		baseURL+"/api/v1/events?access_token="+token, nil)
+		c.baseURL+"/api/v1/events?ticket="+tk.Ticket, nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("SSE request: %v", err)
@@ -71,7 +78,7 @@ func TestRealtime_IDLESSE(t *testing.T) {
 	acctID := c.createAccount(mb)
 	sendSeed(t, "seeder@localhost", mb, "rt-baseline", "rt-body-0")
 
-	events := startSSEReader(t, ta.baseURL, c.token)
+	events := startSSEReader(t, c)
 
 	ta.startBackground()
 

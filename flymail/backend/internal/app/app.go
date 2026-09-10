@@ -167,31 +167,27 @@ func New(cfg *config.Config) (*App, error) {
 
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())
-	eventsHandler := sse.NewHandler(hub, func(token string) error {
-		_, err := authSvc.VerifyAccessToken(token)
-		return err
-	})
+	// SSE 连接票据：受保护端点签发，EventSource 用 ?ticket= 连接，握手时核销。
+	ticketStore := sse.NewTicketStore(sse.TicketTTL)
+	eventsHandler := sse.NewHandler(hub, ticketStore.Consume)
 
 	handler := server.New(server.Deps{
-		Auth:           authSvc,
-		Account:        accountSvc,
-		Folder:         folderSvc,
-		Message:        messageSvc,
-		Sync:           syncSvc,
-		Setting:        settingSvc,
-		Send:           sendSvc,
-		Draft:          draftSvc,
-		Notify:         notifySvc,
-		Monitoring:     monitoringSvc,
-		Rule:           ruleSvc,
-		Privacy:        privacySvc,
-		LoginLimiter:   loginLimiter,
-		TrustedProxies: cfg.Server.TrustedProxies,
-		Events:         eventsHandler,
-		VerifyToken: func(token string) error {
-			_, err := authSvc.VerifyAccessToken(token)
-			return err
-		},
+		Auth:             authSvc,
+		Account:          accountSvc,
+		Folder:           folderSvc,
+		Message:          messageSvc,
+		Sync:             syncSvc,
+		Setting:          settingSvc,
+		Send:             sendSvc,
+		Draft:            draftSvc,
+		Notify:           notifySvc,
+		Monitoring:       monitoringSvc,
+		Rule:             ruleSvc,
+		Privacy:          privacySvc,
+		LoginLimiter:     loginLimiter,
+		TrustedProxies:   cfg.Server.TrustedProxies,
+		Events:           eventsHandler,
+		EventsTicket:     sse.NewTicketHandler(ticketStore),
 		VerifyAttachment: authSvc.VerifyAttachmentAccess,
 	})
 	a.cfg = cfg

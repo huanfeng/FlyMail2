@@ -129,10 +129,25 @@ func (r *Repository) GetAlias(accountID, aliasID uint) (*Alias, error) {
 	return &a, nil
 }
 
+// isUniqueViolation 判断错误是否来自唯一索引冲突。
+// core 侧建连没开 gorm 的 TranslateError，所以拿不到 gorm.ErrDuplicatedKey，
+// 只能认驱动原文；两条都判，日后 core 打开翻译这里不用跟着改。
+func isUniqueViolation(err error) bool {
+	return errors.Is(err, gorm.ErrDuplicatedKey) ||
+		strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
 // SaveAlias 新增或更新别名；IsDefault 置位时在同一事务里清零同账户其余项。
+//
+// 服务层的查重是第一道防线，但并发下两个请求可能都查完再都写——最终挡住的是唯一索引。
+// 那条错误必须仍然是 ErrAliasDuplicate（→ 409），落到 handler 的默认分支就成了 500，
+// 前端只能显示"操作失败"，用户看不出重试没有意义。
 func (r *Repository) SaveAlias(a *Alias) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(a).Error; err != nil {
+			if isUniqueViolation(err) {
+				return ErrAliasDuplicate
+			}
 			return err
 		}
 		if !a.IsDefault {

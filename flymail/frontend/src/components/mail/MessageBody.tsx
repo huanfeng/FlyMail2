@@ -366,7 +366,7 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
                 {/* 可预览时额外展示预览链接 */}
                 {previewable && (
                   <a
-                    href={attachmentUrl(view.id, idx, { token: view.attachment_token })}
+                    href={attachmentUrl(view.id, idx, view.attachment_token)}
                     target="_blank"
                     rel="noopener noreferrer"
                     // 阻止点击冒泡到外层 onClick（下载）

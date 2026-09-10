@@ -357,22 +357,28 @@ func (h *handler) markRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// AttachmentHandler 流式返回附件。鉴权：Authorization: Bearer 头 或 ?access_token= query
-// （img/iframe/预览新标签无法设头，故支持 query，见 KI-2）。默认 inline 便于图片/PDF 预览，
-// ?dl=1 则强制下载。
-// AttachmentHandler 附件端点。verify 接受 access token 或限定该邮件的附件令牌（详情接口签发）。
-func AttachmentHandler(svc *Service, verify func(token string, messageID uint) error) gin.HandlerFunc {
+// AttachmentHandler 流式返回附件。默认 inline 便于图片/PDF 预览，?dl=1 则强制下载。
+//
+// 鉴权有两条路，凭据来源不同、可接受的令牌也不同：
+//   - `?ticket=` —— img/iframe 内联图与新标签预览无法设请求头，只能走 URL。
+//     这条路只接受详情接口签发的、限定这一封的附件令牌（见 KI-2：URL 会落进邮件文档，
+//     而邮件文档能用 CSS 属性选择器把 URL 里的凭据外泄）。
+//     它可重复使用是刻意的：一封信里十几张 cid: 内联图会并发请求，一次性票据只有第一张能成。
+//   - `Authorization: Bearer` —— 用户主动下载（axios 取 blob），接受 access token。
+//
+// verify 的 fromQuery 参数即用于区分这两条路。
+func AttachmentHandler(svc *Service, verify func(token string, messageID uint, fromQuery bool) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mid, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
 			return
 		}
-		token := c.Query("access_token")
+		token, fromQuery := c.Query("ticket"), true
 		if token == "" {
-			token = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+			token, fromQuery = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "), false
 		}
-		if verify(token, uint(mid)) != nil {
+		if verify(token, uint(mid), fromQuery) != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}

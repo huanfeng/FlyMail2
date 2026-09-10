@@ -43,10 +43,10 @@ type Deps struct {
 	// TrustedProxies 允许改写客户端 IP 的反向代理；空 = 不信任任何代理（gin 默认信任所有，必须显式收紧）
 	TrustedProxies []string
 	Events         http.HandlerFunc
-	// VerifyToken 校验 access token（供 SSE 等无法走 Bearer 中间件的端点自鉴权）。
-	VerifyToken func(token string) error
-	// VerifyAttachment 校验附件端点的令牌：access token 或限定该邮件的附件令牌。
-	VerifyAttachment func(token string, messageID uint) error
+	// EventsTicket 签发 SSE 一次性连接票据；挂在 Bearer 中间件之后。
+	EventsTicket http.HandlerFunc
+	// VerifyAttachment 校验附件端点的令牌；fromQuery 表示凭据取自 URL，此时只接受附件令牌。
+	VerifyAttachment func(token string, messageID uint, fromQuery bool) error
 }
 
 // New 装配 gin 并返回 http.Handler（单一真相源：server 与 desktop 共用）。
@@ -68,12 +68,21 @@ func New(deps Deps) http.Handler {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// SSE 实时事件流：自带 query-param access_token 鉴权，不走 Bearer 中间件。
+	// SSE 实时事件流：EventSource 设不了请求头，用 ?ticket= 一次性票据自鉴权，
+	// 故不走 Bearer 中间件。票据由下面的签发端点在受保护组里发出。
 	if deps.Events != nil {
 		api.GET("/events", gin.WrapF(deps.Events))
 	}
 
-	// 附件下载/预览：支持 Bearer 头或 ?access_token= query（img/iframe/预览新标签需要），
+	// 票据签发：单独一个受保护子组，不与下面那个大组共命运——
+	// 少了 Bearer 这道门，SSE 端点就等于完全不鉴权。
+	if deps.Auth != nil && deps.EventsTicket != nil {
+		ticketGroup := api.Group("")
+		ticketGroup.Use(auth.Middleware(deps.Auth))
+		ticketGroup.POST("/events/ticket", gin.WrapF(deps.EventsTicket))
+	}
+
+	// 附件下载/预览：支持 Bearer 头或 ?ticket=（附件令牌，img/iframe/预览新标签需要），
 	// 故挂在 api 组、不走 Bearer 中间件，由 handler 自鉴权。
 	if deps.Sync != nil && deps.VerifyAttachment != nil {
 		api.GET("/messages/:id/attachments/:idx", syncmod.AttachmentHandler(deps.Sync, deps.VerifyAttachment))

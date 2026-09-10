@@ -3,9 +3,11 @@ package send_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -53,7 +55,9 @@ func postMultipart(t *testing.T, r *gin.Engine, payload map[string]any,
 		t.Fatalf("写 payload 字段失败: %v", err)
 	}
 	for _, f := range inline {
-		part, err := w.CreateFormFile("inline", f.name)
+		// 必须用 CreatePart 手工写 Content-Type：CreateFormFile 一律写 application/octet-stream，
+		// 那样 ctype 就是死字段，"客户端声明了类型"这条分支根本没被测到。
+		part, err := w.CreatePart(fileHeader("inline", f.name, f.ctype))
 		if err != nil {
 			t.Fatalf("创建 inline 字段失败: %v", err)
 		}
@@ -73,6 +77,19 @@ func postMultipart(t *testing.T, r *gin.Engine, payload map[string]any,
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
+}
+
+// fileHeader 拼一个带指定 Content-Type 的文件字段头。ctype 为空时按浏览器的常见行为
+// 写 application/octet-stream（那正是内联图需要服务端嗅探的场景）。
+func fileHeader(field, filename, ctype string) textproto.MIMEHeader {
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`, field, filename))
+	h.Set("Content-Type", ctype)
+	return h
 }
 
 // TestSendInlineFormPairsCIDs inline 文件按下标与 inline_cids 配对，落成 related 内的资源。
@@ -247,5 +264,59 @@ func TestSendInlineSniffsContentType(t *testing.T) {
 	}
 	if root.children[2].mediaType != "image/gif" {
 		t.Errorf("GIF 应嗅探为 image/gif，实际 %q", root.children[2].mediaType)
+	}
+}
+
+// TestSendInlineHonorsDeclaredContentType 客户端声明了非 octet-stream 的类型就照用：
+// svg 是文本格式，http.DetectContentType 嗅不出来，只能信声明（否则发出去是 text/plain，图裂）。
+func TestSendInlineHonorsDeclaredContentType(t *testing.T) {
+	var raw []byte
+	var envFrom string
+	r := newSendServer(t, &raw, &envFrom)
+
+	svg := `<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`
+	rec := postMultipart(t, r, map[string]any{
+		"account_id":  1,
+		"to":          []string{"to@example.com"},
+		"body_html":   `<p><img src="cid:ii_s"></p>`,
+		"inline_cids": []string{"ii_s"},
+	}, []struct{ name, ctype, data string }{
+		{"a.svg", "image/svg+xml", svg},
+	}, nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应 200，实际 %d: %s", rec.Code, rec.Body.String())
+	}
+	_, root := parseMIME(t, raw)
+	if len(root.children) != 2 {
+		t.Fatalf("应为 HTML + 1 张图，实际 %d 个 part", len(root.children))
+	}
+	if root.children[1].mediaType != "image/svg+xml" {
+		t.Errorf("应沿用客户端声明的 image/svg+xml，实际 %q", root.children[1].mediaType)
+	}
+}
+
+// TestSendInlineDuplicateCIDRejected 两个 part 顶着同一个 Content-ID，
+// 收件方只认第一个，第二张图永远显示不出来。既然数量对不上是整封拒收，重复也一样。
+func TestSendInlineDuplicateCIDRejected(t *testing.T) {
+	var raw []byte
+	var envFrom string
+	r := newSendServer(t, &raw, &envFrom)
+
+	rec := postMultipart(t, r, map[string]any{
+		"account_id":  1,
+		"to":          []string{"to@example.com"},
+		"body_html":   `<p><img src="cid:ii_dup"></p>`,
+		"inline_cids": []string{"ii_dup", "ii_dup"},
+	}, []struct{ name, ctype, data string }{
+		{"one.png", "image/png", "ONE"},
+		{"two.png", "image/png", "TWO"},
+	}, nil)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("重复 cid 应 400，实际 %d: %s", rec.Code, rec.Body.String())
+	}
+	if raw != nil {
+		t.Error("拒收的请求不应触发 SMTP 发送")
 	}
 }

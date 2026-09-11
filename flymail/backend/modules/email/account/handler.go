@@ -20,6 +20,7 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	g.POST("/test", h.testConnection)
 	g.POST("/:id/enabled", h.setEnabled)
 	registerIdentityRoutes(g, h)
+	registerOAuthRoutes(g, h)
 }
 
 type handler struct{ svc *Service }

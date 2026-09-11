@@ -1,10 +1,25 @@
 package account
 
-import "flymail/internal/crypto"
+import (
+	"sync"
+
+	"flymail/internal/crypto"
+	"flymail/internal/oauth"
+)
 
 type Service struct {
 	repo *Repository
 	enc  *crypto.Encryptor
+	// oauthCfg 部署级 OAuth 客户端凭据，由 app 层注入（见 SetOAuthSettings）。
+	oauthCfg OAuthSettings
+	// tokenLocks 按账户 ID 串行化令牌刷新，防止并发刷新互相作废（见 accountLock）。
+	tokenLocks sync.Map
+	// flows 正在进行的授权流程，键为 flow_id（见 oauth_flow.go）。
+	flows sync.Map
+	// states 固定回调模式下的 state → flow_id 索引（见 HandleCallback）。
+	states sync.Map
+	// providerLookup 覆盖 OAuth 提供方端点解析，仅测试注入；nil 时走内置表。
+	providerLookup func(id, tenant string) (oauth.Provider, bool)
 	// emit 通知回调（解耦：account 包不依赖 notify 包，由 app 装配）。
 	emit func(eventType string, accountID uint, messageID uint, title, body string)
 }
@@ -25,10 +40,10 @@ func (s *Service) Create(req CreateAccountRequest) (*AccountResponse, error) {
 	}
 	a := &Account{
 		Name: req.Name, Email: req.Email, Username: req.Username,
-		AuthType: "password", PasswordEnc: encPw,
+		AuthType: AuthTypePassword, PasswordEnc: encPw,
 		IMAPHost: req.IMAPHost, IMAPPort: req.IMAPPort, IMAPSecurity: req.IMAPSecurity,
 		SMTPHost: req.SMTPHost, SMTPPort: req.SMTPPort, SMTPSecurity: req.SMTPSecurity,
-		Status:  "new",
+		Status:  StatusNew,
 		Enabled: true,
 	}
 	if err := s.applyProxy(a, req.Proxy); err != nil {

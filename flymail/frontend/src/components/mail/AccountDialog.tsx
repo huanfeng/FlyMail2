@@ -6,8 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Icon } from '@/components/ui/Icon'
 import { presetForEmail } from '@/lib/providers'
-import { useCreateAccount, useUpdateAccount, useTestConnection } from '@/lib/queries'
-import type { Account, AccountInput } from '@/lib/types'
+import { useCreateAccount, useUpdateAccount, useTestConnection, useOAuthProviders } from '@/lib/queries'
+import { OAuthPanel } from '@/components/mail/OAuthPanel'
+import { ACCOUNT_STATUS_NEEDS_REAUTH } from '@/lib/types'
+import type { Account, AccountInput, OAuthProviderInfo } from '@/lib/types'
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Types
@@ -141,6 +143,14 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
   const [advancedOpen, setAdvancedOpen] = React.useState(false)
   // 邮箱失焦后是否命中了服务商预设（命中时折叠区外显示提示，让用户放心）
   const [autoFilled, setAutoFilled] = React.useState(false)
+  // 非空时表单被 OAuth 授权面板取代（新建或重新授权）
+  const [oauthWith, setOAuthWith] = React.useState<OAuthProviderInfo | null>(null)
+
+  // OAuth 账户没有密码，服务器地址也由提供方预设决定，编辑时这些字段一律不展示。
+  const isOAuthAccount = account?.auth_type === 'oauth'
+  const needsReauth = account?.status === ACCOUNT_STATUS_NEEDS_REAUTH
+  const { data: oauthProviders } = useOAuthProviders()
+  const availableProviders = (oauthProviders ?? []).filter((p) => p.configured)
 
   // 打开时根据模式初始化表单
   React.useEffect(() => {
@@ -148,6 +158,7 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
       setForm(account ? formFromAccount(account) : defaultForm())
       setAdvancedOpen(false)
       setAutoFilled(false)
+      setOAuthWith(null)
     }
   }, [account, open])
 
@@ -327,6 +338,74 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
           {/* 表单主体（唯一滚动区） */}
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-6 py-5">
 
+            {/* ── OAuth 授权面板：进行中时完全取代表单，避免用户同时面对两条互斥的建号路径 ── */}
+            {oauthWith ? (
+              <OAuthPanel
+                provider={oauthWith}
+                accountId={account?.id}
+                hintEmail={form.email.trim() || account?.email}
+                name={form.name.trim() || undefined}
+                onDone={() => onOpenChange(false)}
+                onCancel={() => setOAuthWith(null)}
+              />
+            ) : (
+            <>
+
+            {/* ── OAuth 入口（仅新建）：Gmail / Outlook 已停用基本认证，授权登录才是主路径 ── */}
+            {!isEdit && availableProviders.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {availableProviders.map((p) => (
+                  <Button
+                    key={p.id}
+                    type="button"
+                    variant="outline"
+                    onClick={() => setOAuthWith(p)}
+                  >
+                    {t('account.oauthSignIn', { provider: p.name })}
+                  </Button>
+                ))}
+                <div className="flex items-center gap-3 py-1">
+                  <span className="h-px flex-1" style={{ background: 'var(--rule)' }} />
+                  <span className="text-xs" style={{ color: 'var(--ink-3)' }}>
+                    {t('account.oauthOr')}
+                  </span>
+                  <span className="h-px flex-1" style={{ background: 'var(--rule)' }} />
+                </div>
+              </div>
+            )}
+
+            {/* ── OAuth 账户状态条（仅编辑）：授权失效时给出可操作的恢复入口 ── */}
+            {isEdit && isOAuthAccount && (
+              <div
+                className="flex flex-col gap-2 rounded-md px-3 py-3 text-sm"
+                style={
+                  needsReauth
+                    ? { background: 'oklch(0.577 0.245 27.325 / 0.1)', color: 'var(--destructive)' }
+                    : { background: 'var(--accent-wash)', color: 'var(--accent-ink)' }
+                }
+              >
+                <span>
+                  {needsReauth
+                    ? t('account.oauthNeedsReauth')
+                    : t('account.oauthManaged', { provider: account?.oauth_provider ?? '' })}
+                </span>
+                <div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const p = (oauthProviders ?? []).find((x) => x.id === account?.oauth_provider)
+                      if (p) setOAuthWith(p)
+                    }}
+                    disabled={!(oauthProviders ?? []).some((x) => x.id === account?.oauth_provider && x.configured)}
+                  >
+                    {t('account.oauthReauthorize')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* ── 基本信息（常显）：邮箱驱动自动识别，名称留空自动取邮箱前缀 ── */}
             <Field label={t('account.email')}>
               <Input
@@ -337,14 +416,16 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
                 placeholder="user@example.com"
               />
             </Field>
-            <Field label={t('account.password')}>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={(e) => set('password', e.target.value)}
-                placeholder={isEdit ? t('account.passwordKeep') : t('account.password')}
-              />
-            </Field>
+            {!isOAuthAccount && (
+              <Field label={t('account.password')}>
+                <Input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => set('password', e.target.value)}
+                  placeholder={isEdit ? t('account.passwordKeep') : t('account.password')}
+                />
+              </Field>
+            )}
             <Field label={t('account.name')}>
               <Input
                 value={form.name}
@@ -462,22 +543,29 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
                 {validationError}
               </div>
             )}
+            </>
+            )}
           </div>
 
-          {/* 底部操作栏：测试状态内联显示在固定高度的底栏里，对话框尺寸不随测试变化 */}
+          {/* 底部操作栏：测试状态内联显示在固定高度的底栏里，对话框尺寸不随测试变化。
+              授权面板自带取消按钮，且此时既无密码可测也无内容可存，故整条隐藏。 */}
+          {!oauthWith && (
           <div
             className="flex items-center gap-3 px-6 py-4"
             style={{ borderTop: '1px solid var(--rule)' }}
           >
-            {/* 左侧：测试连接 + 单行状态（截断，详情悬停） */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTest}
-              disabled={testPending || isSaving}
-            >
-              {t('account.test')}
-            </Button>
+            {/* 左侧：测试连接 + 单行状态（截断，详情悬停）。
+                OAuth 账户没有密码可供测试，凭据有效性由授权流程本身保证，故不展示。 */}
+            {!isOAuthAccount && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTest}
+                disabled={testPending || isSaving}
+              >
+                {t('account.test')}
+              </Button>
+            )}
             <span
               className="flex-1 min-w-0 truncate text-sm"
               title={testDetail || undefined}
@@ -504,6 +592,7 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
               </Button>
             </div>
           </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

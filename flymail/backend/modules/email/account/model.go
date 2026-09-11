@@ -13,6 +13,17 @@ type Account struct {
 	Username    string
 	PasswordEnc string `json:"-"`
 
+	// OAuth 凭据（AuthType 为 oauth 时有效）。
+	// OAuthProvider 取 google / microsoft；OAuthTokenEnc 是整包令牌 JSON 的密文
+	// （access + refresh + scope 一起加密，字段增减不必改表）；OAuthExpiresAt 以明文
+	// 冗余存一份过期时间，让「哪些账户快过期了」这类诊断查询不必解密全表。
+	//
+	// 显式指定列名：GORM 的默认命名策略会把 OAuthProvider 拆成 o_auth_provider，
+	// 与按列名局部更新时手写的键对不上。
+	OAuthProvider  string     `gorm:"column:oauth_provider"`
+	OAuthTokenEnc  string     `gorm:"column:oauth_token_enc" json:"-"`
+	OAuthExpiresAt *time.Time `gorm:"column:oauth_expires_at"`
+
 	IMAPHost     string
 	IMAPPort     int
 	IMAPSecurity string
@@ -36,6 +47,23 @@ type Account struct {
 }
 
 func (Account) TableName() string { return "accounts" }
+
+// 账户状态取值。needs_reauth 专指 OAuth 刷新令牌失效（用户撤销授权、改密码、
+// 或长期未使用被服务商回收），此时任何重试都不会成功，只能引导用户重新授权。
+const (
+	StatusNew         = "new"
+	StatusOK          = "ok"
+	StatusNeedsReauth = "needs_reauth"
+)
+
+// IsOAuth 报告该账户是否使用 OAuth 认证。
+func (a *Account) IsOAuth() bool { return a.AuthType == AuthTypeOAuth }
+
+// 认证方式取值。
+const (
+	AuthTypePassword = "password"
+	AuthTypeOAuth    = "oauth"
+)
 
 // LoginName 返回 IMAP/SMTP 登录用户名（Username 为空则用 Email）。
 func (a *Account) LoginName() string {

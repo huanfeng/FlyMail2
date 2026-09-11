@@ -1,5 +1,7 @@
 {
-  "app": { "name": "FlyMail" },
+  "app": {
+    "name": "FlyMail"
+  },
   "ctx": {
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
@@ -44,17 +46,28 @@
     "logout": "Sign out"
   },
   "folder": {
-    "inbox": "Inbox", "sent": "Sent", "drafts": "Drafts",
-    "trash": "Trash", "junk": "Junk", "archive": "Archive", "custom": "Folder"
+    "inbox": "Inbox",
+    "sent": "Sent",
+    "drafts": "Drafts",
+    "trash": "Trash",
+    "junk": "Junk",
+    "archive": "Archive",
+    "custom": "Folder"
   },
   "list": {
-    "search": "Search mail", "unreadCount": "{{count}} unread",
+    "search": "Search mail",
+    "unreadCount": "{{count}} unread",
     "searchPlaceholder": "Search mail — try from: subject: is:unread …",
     "totalCount": "{{count}} messages",
     "filteredCount": "{{count}} filtered",
-    "empty": "No messages", "noSubject": "(No subject)", "filterUnread": "Unread", "filterFlagged": "Flagged",
+    "empty": "No messages",
+    "noSubject": "(No subject)",
+    "filterUnread": "Unread",
+    "filterFlagged": "Flagged",
     "filterAttachment": "Attachments",
-    "loadingMore": "Loading…", "noMore": "No more", "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "noMore": "No more",
+    "loadMore": "Load more",
     "clearSearch": "Clear search",
     "clearFilter": "Clear filters",
     "filterNoResult": "No messages match the current filters",
@@ -120,8 +133,12 @@
     }
   },
   "sync": {
-    "trigger": "Sync", "syncing": "Syncing…", "folders": "Syncing folders…",
-    "messages": "Syncing messages…", "done": "Sync complete", "error": "Sync failed: {{error}}"
+    "trigger": "Sync",
+    "syncing": "Syncing…",
+    "folders": "Syncing folders…",
+    "messages": "Syncing messages…",
+    "done": "Sync complete",
+    "error": "Sync failed: {{error}}"
   },
   "reader": {
     "welcome": "Select a message",
@@ -186,22 +203,53 @@
     }
   },
   "account": {
-    "add": "Add Account", "edit": "Edit Account", "delete": "Delete Account",
-    "name": "Name", "email": "Email", "username": "Username (optional)",
-    "password": "Password", "passwordKeep": "Leave blank to keep current",
-    "imapSection": "Incoming Server (IMAP)", "smtpSection": "Outgoing Server (SMTP)",
-    "host": "Server Host", "port": "Port", "security": "Security",
-    "test": "Test Connection", "testing": "Testing…", "save": "Save", "cancel": "Cancel",
-    "imapOk": "IMAP connection successful", "imapFail": "IMAP connection failed",
-    "smtpOk": "SMTP connection successful", "smtpFail": "SMTP connection failed",
+    "add": "Add Account",
+    "edit": "Edit Account",
+    "delete": "Delete Account",
+    "name": "Name",
+    "email": "Email",
+    "username": "Username (optional)",
+    "password": "Password",
+    "passwordKeep": "Leave blank to keep current",
+    "imapSection": "Incoming Server (IMAP)",
+    "smtpSection": "Outgoing Server (SMTP)",
+    "host": "Server Host",
+    "port": "Port",
+    "security": "Security",
+    "test": "Test Connection",
+    "testing": "Testing…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "imapOk": "IMAP connection successful",
+    "imapFail": "IMAP connection failed",
+    "smtpOk": "SMTP connection successful",
+    "smtpFail": "SMTP connection failed",
     "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
-    "nameRequired": "Name and email are required", "passwordRequired": "Password is required",
+    "nameRequired": "Name and email are required",
+    "passwordRequired": "Password is required",
     "advanced": "Server Settings",
     "testNeedsInput": "Enter email and password before testing",
     "testError": "Test request failed",
     "advancedAuto": "Server settings auto-detected from email",
     "notConfigured": "Not configured",
-    "serverRequired": "IMAP/SMTP server host is required"
+    "serverRequired": "IMAP/SMTP server host is required",
+    "oauthSignIn": "Sign in with {{provider}}",
+    "oauthOr": "or configure manually",
+    "oauthTitle": "Authorizing {{provider}}",
+    "oauthStarting": "Starting authorization…",
+    "oauthSaving": "Saving account…",
+    "oauthWaiting": "Waiting for you to finish in the browser…",
+    "oauthCodeHint": "Open the authorization page below, sign in and grant FlyMail access to your mailbox. This page continues automatically once you are done.",
+    "oauthCopyHint": "Button did nothing? Expand to copy the link",
+    "oauthDeviceHint": "Open the address below in a browser on another device and enter this code:",
+    "oauthOpen": "Open authorization page",
+    "oauthStartFailed": "Failed to start authorization",
+    "oauthCompleteFailed": "Failed to save the account",
+    "oauthFailed": "Authorization failed, please try again",
+    "oauthNeedsReauth": "This account’s authorization has expired and mail sync has stopped. Please re-authorize.",
+    "oauthManaged": "This account signs in via {{provider}}; no password is needed.",
+    "oauthReauthorize": "Re-authorize",
+    "oauthLoopbackWarning": "Heads up: the callback points at 127.0.0.1 on your own machine while FlyMail is accessed remotely, so authorization will likely fail. Ask the deployer to set oauth.redirect_base_url to FlyMail’s public address."
   },
   "compose": {
     "title": "Compose",
@@ -421,7 +469,8 @@
         "messages": "Syncing messages",
         "done": "Sync complete",
         "error": "Sync error"
-      }
+      },
+      "needsReauth": "Needs re-auth"
     },
     "notify": {
       "title": "Notification Channels",
@@ -589,8 +638,8 @@
       "sidebarWidth": "Sidebar width",
       "listWidth": "List width",
       "widthHint": "You can also drag the dividers between columns",
-    "senderColWidth": "Sender column width",
-    "senderColHint": "Compact list only; a narrower column leaves more room for subjects",
+      "senderColWidth": "Sender column width",
+      "senderColHint": "Compact list only; a narrower column leaves more room for subjects",
       "density": "List density",
       "alwaysShowSelect": "Always show checkboxes",
       "alwaysShowSelectHint": "When off, click the select button in the toolbar to reveal row checkboxes",

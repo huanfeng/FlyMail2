@@ -21,7 +21,7 @@ import {
   restoreMail,
 } from '@/lib/optimistic'
 import type { ThreadPatch } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, Alias, AliasInput, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, Signature, SignatureInput, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
+import type { Account, AccountHealth, AccountInput, AccountStats, Alias, AliasInput, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, OAuthCompleteInput, OAuthFlowStatus, OAuthProviderInfo, OAuthStartInput, OAuthStartResponse, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, Signature, SignatureInput, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
 async function fetchFolders(accountId: number): Promise<Folder[]> {
@@ -868,6 +868,75 @@ export function useDeleteAccount() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['folders'] })
+    },
+  })
+}
+
+// ---- OAuth 授权 ----
+
+/** 可用的 OAuth 提供方及其配置状态。 */
+export function useOAuthProviders() {
+  return useQuery({
+    queryKey: ['oauth-providers'],
+    queryFn: async (): Promise<OAuthProviderInfo[]> => {
+      const { data } = await api.get<OAuthProviderInfo[]>('/accounts/oauth/providers')
+      return data ?? []
+    },
+    // 部署级配置在运行期不会变，没必要反复拉。
+    staleTime: Infinity,
+  })
+}
+
+/** 发起一次授权流程，返回用户需要执行的动作。 */
+export function useStartOAuth() {
+  return useMutation({
+    mutationFn: async (input: OAuthStartInput): Promise<OAuthStartResponse> => {
+      const { data } = await api.post<OAuthStartResponse>('/accounts/oauth/start', input)
+      return data
+    },
+  })
+}
+
+/**
+ * 轮询授权进度。
+ *
+ * 后端等待浏览器回调或设备码轮询，前端无从得知何时完成，只能轮询；
+ * 流程一旦离开 pending 就停下来，避免无谓请求。
+ */
+export function useOAuthFlowStatus(flowId: string | null) {
+  return useQuery({
+    queryKey: ['oauth-flow', flowId],
+    enabled: !!flowId,
+    queryFn: async (): Promise<OAuthFlowStatus> => {
+      const { data } = await api.get<OAuthFlowStatus>(`/accounts/oauth/flows/${flowId}`)
+      return data
+    },
+    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 1500 : false),
+    // 流程失效后后端返回 404，重试没有意义。
+    retry: false,
+  })
+}
+
+/** 用授权结果建号或为既有账户续上新令牌。 */
+export function useCompleteOAuth() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: OAuthCompleteInput): Promise<Account> => {
+      const { data } = await api.post<Account>('/accounts/oauth/complete', input)
+      return data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+    },
+  })
+}
+
+/** 主动放弃一次授权流程，释放后端占用的本地回调端口。 */
+export function useCancelOAuthFlow() {
+  return useMutation({
+    mutationFn: async (flowId: string): Promise<void> => {
+      await api.delete(`/accounts/oauth/flows/${flowId}`)
     },
   })
 }

@@ -38,12 +38,38 @@ type LogConfig struct {
 	Format     string `mapstructure:"format"`       // json/console，默认 json
 }
 
+// OAuthProviderConfig 是单个 OAuth 提供方的客户端凭据。
+//
+// client_secret 允许留空：loopback + PKCE 属公共客户端，Microsoft 公共客户端不需要
+// secret，Google「桌面应用」类型虽仍签发 secret 但规范上不视其为机密。
+type OAuthProviderConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	// Tenant 仅 Microsoft 使用：common 同时接受个人与工作账户，organizations 仅工作账户，
+	// 也可填具体租户 ID 把登录限制在单一组织内。留空按 common 处理。
+	Tenant string `mapstructure:"tenant"`
+}
+
+// OAuthConfig 汇总各提供方的 OAuth 客户端凭据。留空即不启用该提供方的入口。
+type OAuthConfig struct {
+	Google    OAuthProviderConfig `mapstructure:"google"`
+	Microsoft OAuthProviderConfig `mapstructure:"microsoft"`
+	// RedirectBaseURL 是 FlyMail 对外可访问的根地址（如 https://mail.example.com）。
+	//
+	// 留空时授权回调走 loopback（127.0.0.1 的临时端口），要求后端与浏览器同机——
+	// 桌面端和本机自用的默认路径，无需在服务商后台登记任何地址。
+	// 远程部署（Docker、独立服务器）下浏览器打不到服务端的回环地址，必须在此填入公开地址，
+	// 并把 <该地址>/api/v1/accounts/oauth/callback 登记为服务商的重定向 URI。
+	RedirectBaseURL string `mapstructure:"redirect_base_url"`
+}
+
 type Config struct {
 	DataDir string       `mapstructure:"-"`
 	Server  ServerConfig `mapstructure:"server"`
 	Auth    AuthConfig   `mapstructure:"auth"`
 	Crypto  CryptoConfig `mapstructure:"crypto"`
 	Log     LogConfig    `mapstructure:"log"`
+	OAuth   OAuthConfig  `mapstructure:"oauth"`
 }
 
 func (c *Config) DBPath() string         { return filepath.Join(c.DataDir, "flymail.db") }
@@ -89,6 +115,16 @@ func Load(opts LoadOptions) (*Config, error) {
 	v.SetDefault("log.console", true)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
+
+	// OAuth 客户端凭据全部注册空串默认值：viper 的 AutomaticEnv 只对「已知的 key」
+	// 在 Unmarshal 时生效，不注册则 FLYMAIL_OAUTH_GOOGLE_CLIENT_ID 这类环境变量
+	// 不会被读取（Docker 部署下凭据只能走环境变量）。
+	v.SetDefault("oauth.google.client_id", "")
+	v.SetDefault("oauth.google.client_secret", "")
+	v.SetDefault("oauth.microsoft.client_id", "")
+	v.SetDefault("oauth.microsoft.client_secret", "")
+	v.SetDefault("oauth.microsoft.tenant", "common")
+	v.SetDefault("oauth.redirect_base_url", "")
 
 	v.SetEnvPrefix("FLYMAIL")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

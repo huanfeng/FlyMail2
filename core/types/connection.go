@@ -11,7 +11,7 @@ const (
 
 // ProxyConfig defines proxy settings for network connections.
 type ProxyConfig struct {
-	Type     string `json:"type"`               // socks5, http
+	Type     string `json:"type"` // socks5, http
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Username string `json:"username,omitempty"`
@@ -25,25 +25,27 @@ func (p *ProxyConfig) Enabled() bool {
 
 // IMAPConfig holds IMAP connection parameters.
 type IMAPConfig struct {
-	Host         string        `json:"host"`
-	Port         int           `json:"port"`
-	Username     string        `json:"username"`
-	Password     string        `json:"-"`
-	AccessToken  string        `json:"-"` // when non-empty, use XOAUTH2 instead of password
-	Security     SecurityMode  `json:"security"`
-	Proxy        *ProxyConfig  `json:"proxy,omitempty"`
-	ClientName   string        `json:"client_name,omitempty"`   // for IMAP ID extension (e.g. "Mail2IM", "FlyMail")
-	ClientVendor string        `json:"client_vendor,omitempty"` // for IMAP ID extension
+	Host         string       `json:"host"`
+	Port         int          `json:"port"`
+	Username     string       `json:"username"`
+	Password     string       `json:"-"`
+	AccessToken  string       `json:"-"` // when non-empty, use XOAUTH2 instead of password
+	Security     SecurityMode `json:"security"`
+	Proxy        *ProxyConfig `json:"proxy,omitempty"`
+	ClientName   string       `json:"client_name,omitempty"`   // for IMAP ID extension (e.g. "Mail2IM", "FlyMail")
+	ClientVendor string       `json:"client_vendor,omitempty"` // for IMAP ID extension
 }
 
 // SMTPConfig holds SMTP connection parameters.
 type SMTPConfig struct {
-	Host     string       `json:"host"`
-	Port     int          `json:"port"`
-	Username string       `json:"username"`
-	Password string       `json:"-"`
-	Security SecurityMode `json:"security"`
-	Proxy    *ProxyConfig `json:"proxy,omitempty"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"-"`
+	// AccessToken 非空时改用 XOAUTH2 认证（与 IMAPConfig 语义一致），忽略 Password。
+	AccessToken string       `json:"-"`
+	Security    SecurityMode `json:"security"`
+	Proxy       *ProxyConfig `json:"proxy,omitempty"`
 }
 
 // ConnectionTestResult reports the outcome of testing IMAP and SMTP connections.

@@ -40,27 +40,29 @@ type UpdateAccountRequest struct {
 }
 
 type AccountResponse struct {
-	ID           uint       `json:"id"`
-	Name         string     `json:"name"`
-	Email        string     `json:"email"`
-	Username     string     `json:"username,omitempty"`
-	AuthType     string     `json:"auth_type"`
-	IMAPHost     string     `json:"imap_host"`
-	IMAPPort     int        `json:"imap_port"`
-	IMAPSecurity string     `json:"imap_security"`
-	SMTPHost     string     `json:"smtp_host"`
-	SMTPPort     int        `json:"smtp_port"`
-	SMTPSecurity string     `json:"smtp_security"`
-	Proxy        *ProxyDTO  `json:"proxy,omitempty"`
-	Enabled      bool       `json:"enabled"`
-	Status       string     `json:"status"`
-	LastSyncAt   *time.Time `json:"last_sync_at,omitempty"`
+	ID       uint   `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Username string `json:"username,omitempty"`
+	AuthType string `json:"auth_type"`
+	// OAuthProvider 让前端知道该用哪个提供方发起「重新授权」。
+	OAuthProvider string     `json:"oauth_provider,omitempty"`
+	IMAPHost      string     `json:"imap_host"`
+	IMAPPort      int        `json:"imap_port"`
+	IMAPSecurity  string     `json:"imap_security"`
+	SMTPHost      string     `json:"smtp_host"`
+	SMTPPort      int        `json:"smtp_port"`
+	SMTPSecurity  string     `json:"smtp_security"`
+	Proxy         *ProxyDTO  `json:"proxy,omitempty"`
+	Enabled       bool       `json:"enabled"`
+	Status        string     `json:"status"`
+	LastSyncAt    *time.Time `json:"last_sync_at,omitempty"`
 }
 
 func toResponse(a *Account) AccountResponse {
 	resp := AccountResponse{
 		ID: a.ID, Name: a.Name, Email: a.Email, Username: a.Username,
-		AuthType: a.AuthType,
+		AuthType: a.AuthType, OAuthProvider: a.OAuthProvider,
 		IMAPHost: a.IMAPHost, IMAPPort: a.IMAPPort, IMAPSecurity: a.IMAPSecurity,
 		SMTPHost: a.SMTPHost, SMTPPort: a.SMTPPort, SMTPSecurity: a.SMTPSecurity,
 		Enabled:    a.Enabled,

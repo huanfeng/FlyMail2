@@ -36,11 +36,20 @@ func (a *tlsPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 
 // authFor 依据连接是否已加密选择认证方式：已加密（SSL 隐式 TLS 或 STARTTLS 升级）用
 // tlsPlainAuth 跳过 net/smtp 的 TLS 自检；未加密仍用标准 PlainAuth（其对非 localhost 会拒绝，保安全）。
-func (c *Client) authFor(secured bool) smtp.Auth {
-	if secured {
-		return &tlsPlainAuth{"", c.config.Username, c.config.Password, c.config.Host}
+//
+// AccessToken 非空时走 XOAUTH2；此时要求链路已加密，未加密直接报错而非降级，
+// 避免明文外发 Bearer 令牌（令牌等价于长期凭证）。
+func (c *Client) authFor(secured bool) (smtp.Auth, error) {
+	if c.config.AccessToken != "" {
+		if !secured {
+			return nil, errors.New("XOAUTH2 requires an encrypted connection")
+		}
+		return &xoauth2Auth{c.config.Username, c.config.AccessToken, c.config.Host}, nil
 	}
-	return smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host)
+	if secured {
+		return &tlsPlainAuth{"", c.config.Username, c.config.Password, c.config.Host}, nil
+	}
+	return smtp.PlainAuth("", c.config.Username, c.config.Password, c.config.Host), nil
 }
 
 // Client wraps SMTP operations with support for SSL/STARTTLS and proxy.
@@ -61,7 +70,11 @@ func (c *Client) SendEmail(from string, to, cc, bcc []string, subject, body, con
 	}
 	defer conn.Quit()
 
-	if err := conn.Auth(c.authFor(secured)); err != nil {
+	auth, err := c.authFor(secured)
+	if err != nil {
+		return err
+	}
+	if err := conn.Auth(auth); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 
@@ -106,7 +119,11 @@ func (c *Client) SendRaw(from string, recipients []string, raw []byte) error {
 	}
 	defer conn.Quit()
 
-	if err := conn.Auth(c.authFor(secured)); err != nil {
+	auth, err := c.authFor(secured)
+	if err != nil {
+		return err
+	}
+	if err := conn.Auth(auth); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 	if err := conn.Mail(from); err != nil {
@@ -135,7 +152,11 @@ func (c *Client) TestConnection() error {
 	}
 	defer conn.Quit()
 
-	if err := conn.Auth(c.authFor(secured)); err != nil {
+	auth, err := c.authFor(secured)
+	if err != nil {
+		return err
+	}
+	if err := conn.Auth(auth); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
 	return nil

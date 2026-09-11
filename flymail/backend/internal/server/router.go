@@ -92,6 +92,12 @@ func New(deps Deps) http.Handler {
 		auth.RegisterRoutes(api, deps.Auth, deps.LoginLimiter)
 	}
 
+	// OAuth 授权回调：由服务商重定向浏览器直接访问，请求里没有 Bearer，
+	// 故挂在鉴权中间件之外，来源校验由一次性 state 承担。
+	if deps.Account != nil {
+		account.RegisterOAuthCallbackRoute(api, deps.Account)
+	}
+
 	if deps.Auth != nil && deps.Account != nil {
 		protected := api.Group("")
 		protected.Use(auth.Middleware(deps.Auth))

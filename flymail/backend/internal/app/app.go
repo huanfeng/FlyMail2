@@ -100,6 +100,14 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	accountSvc := account.NewService(account.NewRepository(db), enc)
+	accountSvc.SetOAuthSettings(account.OAuthSettings{
+		GoogleClientID:        cfg.OAuth.Google.ClientID,
+		GoogleClientSecret:    cfg.OAuth.Google.ClientSecret,
+		MicrosoftClientID:     cfg.OAuth.Microsoft.ClientID,
+		MicrosoftClientSecret: cfg.OAuth.Microsoft.ClientSecret,
+		MicrosoftTenant:       cfg.OAuth.Microsoft.Tenant,
+		RedirectBaseURL:       cfg.OAuth.RedirectBaseURL,
+	})
 	folderSvc := folder.NewService(folder.NewRepository(db))
 	messageSvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	syncSvc := syncmod.NewService(accountSvc, folderSvc, messageSvc)

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useMonitoringOverview, useMonitoringAccounts, useMonitoringDiagnostics } from '@/lib/queries'
+import { ACCOUNT_STATUS_NEEDS_REAUTH } from '@/lib/types'
 import type { AccountHealth, DiagEvent } from '@/lib/types'
 
 function fmtBytes(n: number): string {
@@ -193,6 +194,12 @@ function AccountHealthRow({ a }: { a: AccountHealth }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <ModeBadge mode={a.mode} t={t} />
+          {/* OAuth 授权失效：与熔断区分开——这条重试再多次也不会好，只能由用户重新授权 */}
+          {a.status === ACCOUNT_STATUS_NEEDS_REAUTH && (
+            <span className="chip" style={{ fontSize: 11, padding: '1px 8px', color: 'var(--destructive)', borderColor: 'var(--destructive)' }}>
+              {t('settings.monitoring.needsReauth')}
+            </span>
+          )}
           {a.breaker_open && (
             <span className="chip" style={{ fontSize: 11, padding: '1px 8px', color: 'var(--destructive)', borderColor: 'var(--destructive)' }}>
               {t('settings.monitoring.breakerOpen')}

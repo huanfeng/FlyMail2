@@ -4,6 +4,8 @@ export interface Account {
   email: string
   username?: string
   auth_type: string
+  /** OAuth 账户的提供方（google / microsoft），据此发起「重新授权」 */
+  oauth_provider?: string
   imap_host: string
   imap_port: number
   imap_security: string
@@ -188,6 +190,64 @@ export interface AccountInput {
   smtp_port: number
   smtp_security: string
   proxy?: ProxyInput
+}
+
+/** 账户状态：needs_reauth 表示 OAuth 授权已失效，必须由用户重新授权 */
+export const ACCOUNT_STATUS_NEEDS_REAUTH = 'needs_reauth'
+
+/** 一个可用的 OAuth 提供方 */
+export interface OAuthProviderInfo {
+  id: string
+  name: string
+  /** 部署方是否已配置该提供方的 client_id；未配置时入口置灰 */
+  configured: boolean
+  /** 是否支持设备码流程 */
+  device_code: boolean
+  imap_host: string
+  smtp_host: string
+}
+
+/** 授权方式：授权码（浏览器回调）或设备码（另一台设备输码） */
+export type OAuthMode = 'code' | 'device'
+
+export interface OAuthStartInput {
+  provider: string
+  mode?: OAuthMode
+  /** 作为 login_hint，帮用户在账号选择页定位 */
+  email?: string
+  /** 非空表示重新授权既有账户，而不是新建 */
+  account_id?: number
+}
+
+export interface OAuthStartResponse {
+  flow_id: string
+  provider: string
+  mode: OAuthMode
+  expires_at: string
+  /** 授权码流程：需要在浏览器中打开的地址 */
+  auth_url?: string
+  /** 回调打的是本机临时端口，要求浏览器与后端同机 */
+  loopback?: boolean
+  /** 设备码流程：用户需要输入的短码与验证地址 */
+  user_code?: string
+  verification_uri?: string
+}
+
+export type OAuthFlowState = 'pending' | 'success' | 'failed'
+
+export interface OAuthFlowStatus {
+  flow_id: string
+  provider: string
+  mode: OAuthMode
+  status: OAuthFlowState
+  email?: string
+  error?: string
+}
+
+export interface OAuthCompleteInput {
+  flow_id: string
+  name?: string
+  email?: string
 }
 
 export interface ConnectionTestResult {

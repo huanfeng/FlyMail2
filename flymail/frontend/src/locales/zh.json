@@ -1,5 +1,7 @@
 {
-  "app": { "name": "FlyMail" },
+  "app": {
+    "name": "FlyMail"
+  },
   "ctx": {
     "markRead": "标为已读",
     "markUnread": "标为未读",
@@ -44,17 +46,28 @@
     "logout": "退出登录"
   },
   "folder": {
-    "inbox": "收件箱", "sent": "已发送", "drafts": "草稿",
-    "trash": "已删除", "junk": "垃圾邮件", "archive": "归档", "custom": "文件夹"
+    "inbox": "收件箱",
+    "sent": "已发送",
+    "drafts": "草稿",
+    "trash": "已删除",
+    "junk": "垃圾邮件",
+    "archive": "归档",
+    "custom": "文件夹"
   },
   "list": {
-    "search": "搜索邮件", "unreadCount": "{{count}} 封未读",
+    "search": "搜索邮件",
+    "unreadCount": "{{count}} 封未读",
     "searchPlaceholder": "搜索邮件，支持 from: subject: is:unread …",
     "totalCount": "共 {{count}} 封",
     "filteredCount": "筛选出 {{count}} 封",
-    "empty": "暂无邮件", "noSubject": "（无主题）", "filterUnread": "未读", "filterFlagged": "星标",
+    "empty": "暂无邮件",
+    "noSubject": "（无主题）",
+    "filterUnread": "未读",
+    "filterFlagged": "星标",
     "filterAttachment": "有附件",
-    "loadingMore": "加载中…", "noMore": "没有更多", "loadMore": "加载更多",
+    "loadingMore": "加载中…",
+    "noMore": "没有更多",
+    "loadMore": "加载更多",
     "clearSearch": "清除搜索",
     "clearFilter": "清除筛选",
     "filterNoResult": "没有符合筛选条件的邮件",
@@ -120,8 +133,12 @@
     }
   },
   "sync": {
-    "trigger": "同步", "syncing": "同步中…", "folders": "正在同步文件夹…",
-    "messages": "正在同步邮件…", "done": "同步完成", "error": "同步失败：{{error}}"
+    "trigger": "同步",
+    "syncing": "同步中…",
+    "folders": "正在同步文件夹…",
+    "messages": "正在同步邮件…",
+    "done": "同步完成",
+    "error": "同步失败：{{error}}"
   },
   "reader": {
     "welcome": "选择一封邮件",
@@ -186,22 +203,53 @@
     }
   },
   "account": {
-    "add": "添加账户", "edit": "编辑账户", "delete": "删除账户",
-    "name": "名称", "email": "邮箱", "username": "用户名（可选）",
-    "password": "密码", "passwordKeep": "留空则不修改",
-    "imapSection": "收件服务器 (IMAP)", "smtpSection": "发件服务器 (SMTP)",
-    "host": "服务器地址", "port": "端口", "security": "加密方式",
-    "test": "测试连接", "testing": "测试中…", "save": "保存", "cancel": "取消",
-    "imapOk": "IMAP 连接成功", "imapFail": "IMAP 连接失败",
-    "smtpOk": "SMTP 连接成功", "smtpFail": "SMTP 连接失败",
+    "add": "添加账户",
+    "edit": "编辑账户",
+    "delete": "删除账户",
+    "name": "名称",
+    "email": "邮箱",
+    "username": "用户名（可选）",
+    "password": "密码",
+    "passwordKeep": "留空则不修改",
+    "imapSection": "收件服务器 (IMAP)",
+    "smtpSection": "发件服务器 (SMTP)",
+    "host": "服务器地址",
+    "port": "端口",
+    "security": "加密方式",
+    "test": "测试连接",
+    "testing": "测试中…",
+    "save": "保存",
+    "cancel": "取消",
+    "imapOk": "IMAP 连接成功",
+    "imapFail": "IMAP 连接失败",
+    "smtpOk": "SMTP 连接成功",
+    "smtpFail": "SMTP 连接失败",
     "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
-    "nameRequired": "请填写名称和邮箱", "passwordRequired": "请填写密码",
+    "nameRequired": "请填写名称和邮箱",
+    "passwordRequired": "请填写密码",
     "advanced": "服务器设置",
     "testNeedsInput": "测试前请填写邮箱和密码",
     "testError": "测试请求失败",
     "advancedAuto": "已根据邮箱自动识别服务器",
     "notConfigured": "未配置",
-    "serverRequired": "请填写 IMAP/SMTP 服务器地址"
+    "serverRequired": "请填写 IMAP/SMTP 服务器地址",
+    "oauthSignIn": "使用 {{provider}} 授权登录",
+    "oauthOr": "或手动配置",
+    "oauthTitle": "正在授权 {{provider}}",
+    "oauthStarting": "正在发起授权…",
+    "oauthSaving": "正在保存账户…",
+    "oauthWaiting": "等待你在浏览器中完成授权…",
+    "oauthCodeHint": "点击下方按钮，在浏览器中登录并授权 FlyMail 访问你的邮箱。完成后本页会自动继续。",
+    "oauthCopyHint": "按钮没反应？展开复制链接手动打开",
+    "oauthDeviceHint": "在另一台设备的浏览器中打开下面的地址，并输入这个验证码：",
+    "oauthOpen": "打开授权页",
+    "oauthStartFailed": "发起授权失败",
+    "oauthCompleteFailed": "保存账户失败",
+    "oauthFailed": "授权失败，请重试",
+    "oauthNeedsReauth": "该账户的授权已失效，收发邮件已停止。请重新授权。",
+    "oauthManaged": "该账户通过 {{provider}} 授权登录，无需密码。",
+    "oauthReauthorize": "重新授权",
+    "oauthLoopbackWarning": "注意：当前回调地址指向你本机的 127.0.0.1，而 FlyMail 是远程访问的，授权很可能无法完成。请让部署方配置 oauth.redirect_base_url 为 FlyMail 的公开地址。"
   },
   "compose": {
     "title": "写邮件",
@@ -421,7 +469,8 @@
         "messages": "同步邮件中",
         "done": "同步完成",
         "error": "同步出错"
-      }
+      },
+      "needsReauth": "需重新授权"
     },
     "notify": {
       "title": "通知渠道",
@@ -589,8 +638,8 @@
       "sidebarWidth": "侧栏宽度",
       "listWidth": "列表宽度",
       "widthHint": "也可以直接拖拽栏目之间的分隔线",
-    "senderColWidth": "发件人列宽",
-    "senderColHint": "仅紧凑列表生效；调窄可让主题显示更多内容",
+      "senderColWidth": "发件人列宽",
+      "senderColHint": "仅紧凑列表生效；调窄可让主题显示更多内容",
       "density": "列表密度",
       "alwaysShowSelect": "始终显示选择框",
       "alwaysShowSelectHint": "关闭时，需先点工具栏的选择按钮才会出现行内选择框",

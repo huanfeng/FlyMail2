@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildReply, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
+import { buildReply, buildReplyAll, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
 import type { MessageDetail } from '@/lib/types'
 
 /** 构造最小 MessageDetail，未指定字段给合理默认值 */
@@ -150,5 +150,59 @@ describe('buildMailtoCompose', () => {
   it('不是 mailto 或内容为空时返回 null，调用方据此不开撰写器', () => {
     expect(buildMailtoCompose('https://x.com')).toBeNull()
     expect(buildMailtoCompose('mailto:')).toBeNull()
+  })
+})
+
+describe('buildReplyAll', () => {
+  it('收件人 = 原发件人 + 原收件人，抄送沿用原抄送', () => {
+    const d = makeDetail({
+      from_addr: 'sender@example.com',
+      to: [{ name: '李四', email: 'li@example.com' }],
+      cc: [{ name: '王五', email: 'wang@example.com' }],
+    })
+    const r = buildReplyAll(d)
+    expect(r.to).toEqual(['sender@example.com', 'li@example.com'])
+    expect(r.cc).toEqual(['wang@example.com'])
+  })
+
+  it('把自己从收件人与抄送里剔除', () => {
+    const d = makeDetail({
+      from_addr: 'sender@example.com',
+      to: [
+        { name: '我', email: 'me@example.com' },
+        { name: '李四', email: 'li@example.com' },
+      ],
+      cc: [{ name: '我', email: 'ME@example.com' }],
+    })
+    // 不剔除的话每次全部回复都会给自己抄送一份
+    const r = buildReplyAll(d, new Set(['me@example.com']))
+    expect(r.to).toEqual(['sender@example.com', 'li@example.com'])
+    expect(r.cc).toEqual([])
+  })
+
+  it('同一地址只保留一次，且 to 优先于 cc', () => {
+    const d = makeDetail({
+      from_addr: 'sender@example.com',
+      to: [{ name: '', email: 'dup@example.com' }],
+      cc: [{ name: '', email: 'DUP@example.com' }],
+    })
+    const r = buildReplyAll(d)
+    expect(r.to).toEqual(['sender@example.com', 'dup@example.com'])
+    expect(r.cc).toEqual([])
+  })
+
+  it('回复自己发出的信时，收件人不会空掉', () => {
+    const d = makeDetail({ from_addr: 'me@example.com', to: [], cc: [] })
+    const r = buildReplyAll(d, new Set(['me@example.com']))
+    expect(r.to).toEqual(['me@example.com'])
+  })
+
+  it('沿用 buildReply 的主题、引用与线程头', () => {
+    const d = makeDetail({ subject: '报价', message_id: '<a@x>', references: '<r@x>' })
+    const r = buildReplyAll(d)
+    expect(r.subject).toBe('Re: 报价')
+    expect(r.inReplyTo).toBe('<a@x>')
+    expect(r.references).toBe('<r@x> <a@x>')
+    expect(r.scenario).toBe('reply')
   })
 })

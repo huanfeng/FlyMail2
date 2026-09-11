@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "FlyMail"
+    "name": "FlyMail",
+    "undo": "撤销"
   },
   "ctx": {
     "markRead": "标为已读",
@@ -83,7 +84,6 @@
     "batchMove": "移动",
     "batchMoveDisabled": "跨账户邮件无法一并移动",
     "batchDelete": "删除",
-    "batchDeleteConfirm": "确认删除选中的 {{count}} 封邮件？（移至回收站；回收站内则永久删除）",
     "clearSelection": "取消选择",
     "selectMode": "选择邮件",
     "exitSelect": "退出选择",
@@ -123,14 +123,16 @@
       "filteredCount": "筛选出 {{count}} 个会话",
       "searchCount": "命中 {{count}} 个会话",
       "delete": "删除会话",
-      "deleteConfirm": "确定删除这条会话吗？其中的邮件会被移到回收站。",
-      "batchDeleteConfirm": "确定删除选中的 {{count}} 条会话吗？其中的邮件会被移到回收站。",
       "readAll": "整条标为已读",
       "unreadAll": "整条标为未读",
       "starAll": "整条加星标",
       "unstarAll": "整条取消星标",
-      "moveAll": "整条移动到"
-    }
+      "moveAll": "整条移动到",
+      "deletedToast": "已删除 {{count}} 条会话"
+    },
+    "deletedCountToast": "已删除 {{count}} 封",
+    "movedToast": "已移动",
+    "movedCountToast": "已移动 {{count}} 项"
   },
   "sync": {
     "trigger": "同步",
@@ -194,7 +196,6 @@
       "missing": "会话不存在或已被移除",
       "missingHint": "它可能已被整条删除，或在重建会话归属后并入了别的会话",
       "deleteOne": "删除这一封",
-      "deleteConfirm": "确定删除整条会话吗？其中的邮件会被移到回收站。",
       "readAll": "整条标为已读",
       "unreadAll": "整条标为未读",
       "starAll": "整条加星标",
@@ -343,7 +344,23 @@
     "reply": "回复当前邮件",
     "search": "聚焦搜索框",
     "help": "显示 / 隐藏快捷键面板",
-    "close": "返回 / 关闭"
+    "close": "返回 / 关闭",
+    "groupOrganize": "整理",
+    "groupSelect": "选择",
+    "back": "回到列表",
+    "goInbox": "跳到收件箱",
+    "goStarred": "跳到星标",
+    "goSent": "跳到已发送",
+    "goDrafts": "跳到草稿",
+    "replyAll": "全部回复",
+    "forward": "转发当前邮件",
+    "send": "发送邮件",
+    "archive": "归档",
+    "delete": "删除",
+    "star": "星标开关",
+    "markUnread": "标为未读",
+    "selectRow": "选中 / 取消选中当前行",
+    "extendSelection": "把选择扩展到相邻一条"
   },
   "settings": {
     "title": "设置",

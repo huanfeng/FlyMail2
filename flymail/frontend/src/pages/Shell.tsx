@@ -15,7 +15,7 @@ import { ComposeDialog } from '@/components/mail/ComposeDialog'
 import type { ComposeInitial } from '@/components/mail/ComposeDialog'
 import { ShortcutsCheatsheet } from '@/components/mail/ShortcutsCheatsheet'
 import { useToast } from '@/components/ui/Toast'
-import { buildReply, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
+import { buildReply, buildReplyAll, buildForward, buildMailtoCompose } from '@/lib/compose-prefill'
 import {
   useAccounts,
   useFolders,
@@ -46,6 +46,8 @@ import {
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import type { GoTarget } from '@/lib/shortcuts'
+import { useUndoable } from '@/hooks/useUndoable'
 import {
   getListStyle,
   setListStyle,
@@ -63,6 +65,14 @@ import { createAutoReadGate } from '@/lib/list-guards'
 import type { LayoutMode } from '@/lib/layout-mode'
 import api from '@/lib/api'
 import type { Account, Draft, Folder, MessageDetail, Notification, ThreadListItem } from '@/lib/types'
+
+/**
+ * 撤销窗口。删除/归档/移动的请求挂起这么久才真正发出。
+ *
+ * 5 秒是主流客户端的取值：短于此来不及看清提示，长于此则「已删除」的状态
+ * 悬空太久——切文件夹、关窗口都会强制落地，窗口越长越容易撞上这些边界。
+ */
+const UNDO_WINDOW_MS = 5000
 
 /** 校验 URL 中的 agg 参数是否为合法聚合视图 */
 function parseAgg(v: string | null): AggregateView | null {
@@ -162,19 +172,31 @@ export function ShellPage() {
   const msgSource = searching ? searchInfinite : agg ? aggInfinite : folderInfinite
   const threadSource = searching ? searchThreads : agg ? aggThreads : folderThreads
 
+  // ── 撤销窗口内「已消失但还没提交」的条目 ────────────────────────────────────
+  //
+  // 删除/归档/移动都走延迟提交（见 useUndoable）：请求在撤销窗口结束后才发出，
+  // 但列表必须立刻把它们移除，否则用户看不出操作生效了。
+  // 过滤放在这两个 useMemo 里，下游的 j/k 导航、上一封/下一封、全选、列表渲染
+  // 就都自动跟着走，不必逐处记得排除。
+  const [hiddenIds, setHiddenIds] = useState<Set<number>>(() => new Set())
+  const [hiddenThreadIds, setHiddenThreadIds] = useState<Set<string>>(() => new Set())
+  const undoable = useUndoable()
+
   // 两个列表都用 useMemo 固定引用：flatMap 每渲染都产出新数组，
   // 直接进 useMemo/useEffect 的依赖数组等于「每渲染必重算」。
   const msgPages = msgSource.data?.pages
-  const messages = useMemo(
-    () => (conversationView ? [] : (msgPages?.flatMap((p) => p.messages) ?? [])),
-    [conversationView, msgPages],
-  )
+  const messages = useMemo(() => {
+    if (conversationView) return []
+    const all = msgPages?.flatMap((p) => p.messages) ?? []
+    return hiddenIds.size === 0 ? all : all.filter((m) => !hiddenIds.has(m.id))
+  }, [conversationView, msgPages, hiddenIds])
   // null = 单封模式；MailList 据此决定渲染哪种行
   const threadPages = threadSource.data?.pages
-  const threads: ThreadListItem[] | null = useMemo(
-    () => (conversationView ? (threadPages?.flatMap((p) => p.threads) ?? []) : null),
-    [conversationView, threadPages],
-  )
+  const threads: ThreadListItem[] | null = useMemo(() => {
+    if (!conversationView) return null
+    const all = threadPages?.flatMap((p) => p.threads) ?? []
+    return hiddenThreadIds.size === 0 ? all : all.filter((th) => !hiddenThreadIds.has(th.thread_id))
+  }, [conversationView, threadPages, hiddenThreadIds])
   // 会话列表的裸数组：j/k 导航与「上一条/下一条」都要按它的顺序走，
   // 声明位置必须早于快捷键 hook。
   const threadList = threads ?? []
@@ -203,10 +225,16 @@ export function ShellPage() {
   // 两套集合互斥使用，sourceKey 变化时一并清空。
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(() => new Set())
-  // 切换数据源/样式/视图形态时清空选择，避免跨上下文误操作
+  // 切换数据源/样式/视图形态时清空选择，避免跨上下文误操作。
+  // 挂起的删除必须同时落地：撤销入口马上要随当前列表一起消失了，
+  // 留着它等于把一个再也无法撤销、也永远不会提交的操作丢在半空。
   useEffect(() => {
+    undoable.flush()
     setSelectedIds(new Set())
     setSelectedThreadIds(new Set())
+    setHiddenIds(new Set())
+    setHiddenThreadIds(new Set())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
 
   function toggleSelect(id: number) {
@@ -260,19 +288,112 @@ export function ShellPage() {
   const moveOne = useMoveMessage()
   const { toast } = useToast()
 
-  // 列表行 hover 快捷删除单封：删后若正打开该邮件则清空选中，并给 Toast 反馈
-  function onDeleteOne(id: number) {
-    deleteOne.mutate(id, {
-      onSuccess: () => {
-        if (id === messageId) setParam((p) => p.delete('message'))
-        setSelectedIds((prev) => {
-          if (!prev.has(id)) return prev
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-        toast(t('list.deletedToast'))
+  // ── 可撤销操作 ──────────────────────────────────────────────────────────────
+  //
+  // 标准客户端不拦截删除，而是删完给一个撤销入口：confirm 打断操作节奏，
+  // 而且一旦点了确认反而再也救不回来。这里请求挂起到撤销窗口结束才发出（见 useUndoable），
+  // 撤销就是取消那次发送。
+
+  /**
+   * 当前打开的邮件在 ids 之列时，把阅读区推进到下一封（没有下一封则退回上一封）。
+   *
+   * 必须在把 ids 加进 hiddenIds **之前**调用：那之后 messages 已经过滤掉它们，
+   * 就找不出"下一封是谁"了。
+   */
+  function advanceFromMessages(ids: number[]) {
+    if (messageId == null || !ids.includes(messageId)) return
+    const idx = messages.findIndex((m) => m.id === messageId)
+    if (idx === -1) return
+    // 先往后找，到底了再从当前位置往前回溯
+    const rest = [...messages.slice(idx + 1), ...messages.slice(0, idx).reverse()]
+    const next = rest.find((m) => !ids.includes(m.id))
+    if (next) selectMessage(next.id)
+    else setParam((p) => p.delete('message'))
+  }
+
+  function advanceFromThreads(ids: string[]) {
+    if (threadId == null || !ids.includes(threadId)) return
+    const idx = threadList.findIndex((th) => th.thread_id === threadId)
+    if (idx === -1) return
+    const rest = [...threadList.slice(idx + 1), ...threadList.slice(0, idx).reverse()]
+    const next = rest.find((th) => !ids.includes(th.thread_id))
+    if (next) selectThread(next.thread_id)
+    else setParam((p) => p.delete('thread'))
+  }
+
+  /** 条目先从列表消失 → 请求挂起 → 弹出带「撤销」的提示。撤销则连同阅读位置一起还原。 */
+  function runUndoable(opts: {
+    message: string
+    ids?: number[]
+    threadIds?: string[]
+    commit: () => void
+  }) {
+    const { ids = [], threadIds = [], message, commit } = opts
+    if (ids.length === 0 && threadIds.length === 0) return
+    const restoreMessageId = messageId
+    const restoreThreadId = threadId
+
+    if (ids.length > 0) advanceFromMessages(ids)
+    if (threadIds.length > 0) advanceFromThreads(threadIds)
+
+    if (ids.length > 0) setHiddenIds((prev) => new Set([...prev, ...ids]))
+    if (threadIds.length > 0) setHiddenThreadIds((prev) => new Set([...prev, ...threadIds]))
+    // 只把被操作的条目从选择里摘掉，而不是整个清空：用户可能正选着另一批，
+    // 顺手删掉一封不该让那批选择一起消失。批量删除时这两者等价。
+    if (ids.length > 0) {
+      setSelectedIds((prev) => {
+        if (prev.size === 0) return prev
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
+    }
+    if (threadIds.length > 0) {
+      setSelectedThreadIds((prev) => {
+        if (prev.size === 0) return prev
+        const next = new Set(prev)
+        for (const id of threadIds) next.delete(id)
+        return next
+      })
+    }
+
+    undoable.begin({
+      commit,
+      rollback: () => {
+        if (ids.length > 0) {
+          setHiddenIds((prev) => {
+            const next = new Set(prev)
+            for (const id of ids) next.delete(id)
+            return next
+          })
+        }
+        if (threadIds.length > 0) {
+          setHiddenThreadIds((prev) => {
+            const next = new Set(prev)
+            for (const id of threadIds) next.delete(id)
+            return next
+          })
+        }
+        // 撤销的语义是「当作没发生过」，所以阅读区也回到操作前那一封
+        if (restoreMessageId != null) setParam((p) => p.set('message', String(restoreMessageId)))
+        if (restoreThreadId != null) setParam((p) => p.set('thread', restoreThreadId))
       },
+    })
+
+    toast(message, {
+      actionLabel: t('common.undo'),
+      duration: UNDO_WINDOW_MS,
+      onAction: undoable.undo,
+      onExpire: undoable.flush,
+    })
+  }
+
+  // 列表行 hover 快捷删除单封
+  function onDeleteOne(id: number) {
+    runUndoable({
+      message: t('list.deletedToast'),
+      ids: [id],
+      commit: () => deleteOne.mutate(id),
     })
   }
 
@@ -284,21 +405,25 @@ export function ShellPage() {
    */
   const threadScope = !searching && !agg && folderId != null ? folderId : undefined
 
+  // 批量删除不再弹 confirm：改由撤销兜底（见 runUndoable 的头注释）
   function onBatchDelete() {
     if (conversationView) {
       const ids = [...selectedThreadIds]
       if (ids.length === 0) return
-      if (!window.confirm(t('list.thread.batchDeleteConfirm', { count: ids.length }))) return
-      threadDelete.mutate(
-        { threadIds: ids, inFolderId: threadScope },
-        { onSuccess: clearSelection },
-      )
+      runUndoable({
+        message: t('list.thread.deletedToast', { count: ids.length }),
+        threadIds: ids,
+        commit: () => threadDelete.mutate({ threadIds: ids, inFolderId: threadScope }),
+      })
       return
     }
     const ids = [...selectedIds]
     if (ids.length === 0) return
-    if (!window.confirm(t('list.batchDeleteConfirm', { count: ids.length }))) return
-    batchDelete.mutate(ids, { onSuccess: clearSelection })
+    runUndoable({
+      message: t('list.deletedCountToast', { count: ids.length }),
+      ids,
+      commit: () => batchDelete.mutate(ids),
+    })
   }
   function onBatchRead(read: boolean) {
     if (conversationView) {
@@ -326,35 +451,30 @@ export function ShellPage() {
     if (conversationView) {
       const ids = [...selectedThreadIds]
       if (ids.length === 0) return
-      threadMove.mutate(
-        { threadIds: ids, folderId: targetFolderId, inFolderId: threadScope },
-        { onSuccess: clearSelection },
-      )
+      runUndoable({
+        message: t('list.movedCountToast', { count: ids.length }),
+        threadIds: ids,
+        commit: () =>
+          threadMove.mutate({ threadIds: ids, folderId: targetFolderId, inFolderId: threadScope }),
+      })
       return
     }
     const ids = [...selectedIds]
     if (ids.length === 0) return
-    batchMove.mutate({ ids, folderId: targetFolderId }, { onSuccess: clearSelection })
+    runUndoable({
+      message: t('list.movedCountToast', { count: ids.length }),
+      ids,
+      commit: () => batchMove.mutate({ ids, folderId: targetFolderId }),
+    })
   }
 
   // ── 单条会话的行内操作（列表 hover 按钮与右键菜单）────────────────────────
   function onDeleteThread(item: ThreadListItem) {
-    if (!window.confirm(t('list.thread.deleteConfirm'))) return
-    threadDelete.mutate(
-      { threadIds: [item.thread_id], inFolderId: threadScope },
-      {
-        onSuccess: () => {
-          if (item.thread_id === threadId) setParam((p) => p.delete('thread'))
-          setSelectedThreadIds((prev) => {
-            if (!prev.has(item.thread_id)) return prev
-            const next = new Set(prev)
-            next.delete(item.thread_id)
-            return next
-          })
-          toast(t('list.deletedToast'))
-        },
-      },
-    )
+    runUndoable({
+      message: t('list.deletedToast'),
+      threadIds: [item.thread_id],
+      commit: () => threadDelete.mutate({ threadIds: [item.thread_id], inFolderId: threadScope }),
+    })
   }
   function onToggleFlagThread(item: ThreadListItem, flagged: boolean) {
     threadFlag.mutate({ threadIds: [item.thread_id], flagged })
@@ -363,10 +483,15 @@ export function ShellPage() {
     threadRead.mutate({ threadIds: [item.thread_id], read })
   }
   function onMoveThread(item: ThreadListItem, targetFolderId: number) {
-    threadMove.mutate({
+    runUndoable({
+      message: t('list.movedToast'),
       threadIds: [item.thread_id],
-      folderId: targetFolderId,
-      inFolderId: threadScope,
+      commit: () =>
+        threadMove.mutate({
+          threadIds: [item.thread_id],
+          folderId: targetFolderId,
+          inFolderId: threadScope,
+        }),
     })
   }
 
@@ -615,27 +740,6 @@ export function ShellPage() {
     setComposeOpen(true)
   }
 
-  // ── 全局键盘快捷键 ────────────────────────────────────────────────────────────
-  useKeyboardShortcuts({
-    onCompose,
-    // 仅当有选中邮件且其详情已缓存时才允许快捷键回复
-    onReply: activeMessageDetail != null ? () => onReply(activeMessageDetail) : null,
-    // j/k 在会话模式下按会话走，在单封模式下按邮件走——同一套导航逻辑，两种 id
-    navIds: conversationView ? threadList.map((th) => th.thread_id) : messages.map((m) => m.id),
-    activeNavId: conversationView ? threadId : messageId,
-    onNavigate: (id) => {
-      if (conversationView) selectThread(String(id))
-      else selectMessage(Number(id))
-    },
-    onCloseCompose: () => setComposeOpen(false),
-    composeOpen,
-    // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
-    onEscape: onMobileBack,
-    // ? 切换速查浮层；Esc 时优先关闭它
-    onToggleHelp: () => setHelpOpen((o) => !o),
-    onCloseHelp: () => setHelpOpen(false),
-    helpOpen,
-  })
 
   function onOpenDrafts(accId: number) {
     setParam((p) => p.set('account', String(accId)), true)
@@ -681,6 +785,192 @@ export function ShellPage() {
       : null
   // 当前会话行：ThreadReader 需要它的 latest_id（默认展开哪一封）与 account_id
   const activeThread = activeThreadIndex >= 0 ? threadList[activeThreadIndex] : null
+
+  // ── 当前条目的删除 / 归档 / 移动 ──────────────────────────────────────────
+  //
+  // 工具栏按钮与键盘快捷键都打到这里：一个动作只有一处实现，不会两边各做一套
+  // 然后慢慢漂移。三者都走 runUndoable，所以都带撤销、都会自动前进到下一封。
+  // 当前是否有打开的条目——决定删除/星标这类快捷键是否可用
+  const hasCurrent = conversationView ? threadId != null : messageId != null
+  const currentAccountId = conversationView
+    ? (activeThread?.account_id ?? null)
+    : (activeMessageDetail?.account_id ?? null)
+  const { data: currentFolders = [] } = useFolders(currentAccountId)
+  const archiveFolder = currentFolders.find((f) => f.type === 'archive' && f.selectable) ?? null
+  // 单封：已经在归档里就没有再归档一次的意义。
+  // 会话跨文件夹，「整条已经在归档里」不成立，只要账户有归档文件夹就给入口。
+  const canArchiveCurrent =
+    archiveFolder != null &&
+    (conversationView || archiveFolder.id !== activeMessageDetail?.folder_id)
+
+  function deleteCurrent() {
+    if (conversationView) {
+      if (threadId == null) return
+      runUndoable({
+        message: t('list.deletedToast'),
+        threadIds: [threadId],
+        commit: () => threadDelete.mutate({ threadIds: [threadId], inFolderId: threadScope }),
+      })
+      return
+    }
+    if (messageId == null) return
+    runUndoable({
+      message: t('list.deletedToast'),
+      ids: [messageId],
+      commit: () => deleteOne.mutate(messageId),
+    })
+  }
+
+  function moveCurrent(targetFolderId: number) {
+    if (conversationView) {
+      if (threadId == null) return
+      runUndoable({
+        message: t('list.movedToast'),
+        threadIds: [threadId],
+        commit: () =>
+          threadMove.mutate({
+            threadIds: [threadId],
+            folderId: targetFolderId,
+            inFolderId: threadScope,
+          }),
+      })
+      return
+    }
+    if (messageId == null) return
+    runUndoable({
+      message: t('list.movedToast'),
+      ids: [messageId],
+      commit: () => moveOne.mutate({ id: messageId, folderId: targetFolderId }),
+    })
+  }
+
+  function archiveCurrent() {
+    if (archiveFolder == null) return
+    const target = archiveFolder.id
+    if (conversationView) {
+      if (threadId == null) return
+      runUndoable({
+        message: t('reader.archivedToast'),
+        threadIds: [threadId],
+        commit: () =>
+          threadMove.mutate({ threadIds: [threadId], folderId: target, inFolderId: threadScope }),
+      })
+      return
+    }
+    if (messageId == null) return
+    runUndoable({
+      message: t('reader.archivedToast'),
+      ids: [messageId],
+      commit: () => moveOne.mutate({ id: messageId, folderId: target }),
+    })
+  }
+
+  /** 星标 / 标未读是即时可逆的，不进撤销窗口——再按一次就回去了。 */
+  function toggleFlagCurrent() {
+    if (conversationView) {
+      if (threadId == null) return
+      threadFlag.mutate({ threadIds: [threadId], flagged: !activeThread?.flagged })
+      return
+    }
+    if (messageId == null || activeMessageDetail == null) return
+    toggleFlag.mutate({ id: messageId, flagged: !activeMessageDetail.flagged })
+  }
+
+  function markUnreadCurrent() {
+    if (conversationView) {
+      if (threadId == null) return
+      threadRead.mutate({ threadIds: [threadId], read: false })
+      return
+    }
+    if (messageId == null) return
+    markRead.mutate({ id: messageId, read: false })
+  }
+
+  /** g + i/s/t/d：跳到收件箱 / 星标 / 已发送 / 草稿。 */
+  function goTo(target: GoTarget) {
+    if (target === 'inbox') return selectAggregate('inbox')
+    if (target === 'starred') return selectAggregate('starred')
+    if (target === 'drafts') {
+      if (accountId != null) onOpenDrafts(accountId)
+      return
+    }
+    // 已发送没有聚合视图，落到当前账户的 sent 文件夹；账户没有这个文件夹就不动
+    const sent = folders.find((f) => f.type === 'sent' && f.selectable)
+    if (sent) selectFolder(sent.id)
+  }
+
+  /** x：把当前这一条纳入/移出批量选择。 */
+  function toggleSelectCurrent() {
+    if (conversationView) {
+      if (threadId != null) toggleSelectThread(threadId)
+      return
+    }
+    if (messageId != null) toggleSelect(messageId)
+  }
+
+  /**
+   * Shift+J / Shift+K：把选择扩展到相邻一条，并把光标一起移过去。
+   *
+   * 与 j/k 的区别只在于「沿途的条目都留在选择里」——这正是批量处理一段连续
+   * 邮件时最省事的走法。
+   */
+  function extendSelection(dir: 1 | -1) {
+    if (conversationView) {
+      if (threadId == null) return
+      const idx = threadList.findIndex((th) => th.thread_id === threadId)
+      const next = threadList[idx + dir]
+      if (idx === -1 || !next) return
+      setSelectedThreadIds((prev) => new Set([...prev, threadId, next.thread_id]))
+      selectThread(next.thread_id)
+      return
+    }
+    if (messageId == null) return
+    const idx = messages.findIndex((m) => m.id === messageId)
+    const next = messages[idx + dir]
+    if (idx === -1 || !next) return
+    setSelectedIds((prev) => new Set([...prev, messageId, next.id]))
+    selectMessage(next.id)
+  }
+
+  // ── 全局键盘快捷键 ────────────────────────────────────────────────────────────
+  useKeyboardShortcuts({
+    onCompose,
+    // 仅当有选中邮件且其详情已缓存时才允许快捷键回复
+    onReply: activeMessageDetail != null ? () => onReply(activeMessageDetail) : null,
+    onReplyAll:
+      activeMessageDetail != null
+        ? () => {
+            setComposeInitial(buildReplyAll(activeMessageDetail, selfAddrs))
+            setComposeDraftId(null)
+            setComposeOpen(true)
+          }
+        : null,
+    onForward: activeMessageDetail != null ? () => onForward(activeMessageDetail) : null,
+    // j/k 在会话模式下按会话走，在单封模式下按邮件走——同一套导航逻辑，两种 id
+    navIds: conversationView ? threadList.map((th) => th.thread_id) : messages.map((m) => m.id),
+    activeNavId: conversationView ? threadId : messageId,
+    onNavigate: (id) => {
+      if (conversationView) selectThread(String(id))
+      else selectMessage(Number(id))
+    },
+    // 这四个与工具栏按钮共用同一份实现，见上面的 deleteCurrent / archiveCurrent
+    onArchive: canArchiveCurrent ? archiveCurrent : null,
+    onDelete: hasCurrent ? deleteCurrent : null,
+    onToggleStar: hasCurrent ? toggleFlagCurrent : null,
+    onMarkUnread: hasCurrent ? markUnreadCurrent : null,
+    onBack: onMobileBack,
+    onGo: goTo,
+    onToggleSelectCurrent: toggleSelectCurrent,
+    onExtendSelection: extendSelection,
+    onCloseCompose: () => setComposeOpen(false),
+    composeOpen,
+    // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
+    onEscape: onMobileBack,
+    // ? 切换速查浮层；Esc 时优先关闭它
+    onToggleHelp: () => setHelpOpen((o) => !o),
+    onCloseHelp: () => setHelpOpen(false),
+    helpOpen,
+  })
 
   // 移动端单栏：有选中邮件/会话或处于通知视图时显示阅读面板，否则显示列表面板
   // 通知已改为浮层，不再参与移动端的主面板切换——只看有没有选中条目
@@ -805,6 +1095,10 @@ export function ShellPage() {
               onToggleFilter={onToggleFilter}
               onClearFilter={() => setFilter(EMPTY_FILTER)}
               selectedIds={selectedIds}
+              onSelectRange={(ids) => setSelectedIds((prev) => new Set([...prev, ...ids]))}
+              onSelectRangeThread={(ids) =>
+                setSelectedThreadIds((prev) => new Set([...prev, ...ids]))
+              }
               onToggleSelect={toggleSelect}
               onSelectAllVisible={selectAllVisible}
               onClearSelection={clearSelection}
@@ -832,10 +1126,11 @@ export function ShellPage() {
               inFolderId={threadScope}
               onReply={onReply}
               onForward={onForward}
-              onClose={() => setParam((p) => p.delete('thread'))}
+              onDelete={deleteCurrent}
+              onArchive={canArchiveCurrent ? archiveCurrent : null}
+              onMove={moveCurrent}
               onPrev={prevThreadId != null ? () => selectThread(prevThreadId) : null}
               onNext={nextThreadId != null ? () => selectThread(nextThreadId) : null}
-              onArchived={() => toast(t('reader.archivedToast'))}
               onActiveMessageChange={setThreadActiveMessageId}
               onMailto={onMailto}
             />
@@ -844,10 +1139,11 @@ export function ShellPage() {
               messageId={messageId}
               onReply={onReply}
               onForward={onForward}
-              onClose={() => setParam((p) => p.delete('message'))}
+              onDelete={deleteCurrent}
+              onArchive={canArchiveCurrent ? archiveCurrent : null}
+              onMove={moveCurrent}
               onPrev={prevMessageId != null ? () => selectMessage(prevMessageId) : null}
               onNext={nextMessageId != null ? () => selectMessage(nextMessageId) : null}
-              onArchived={() => toast(t('reader.archivedToast'))}
               onMailto={onMailto}
             />
           )

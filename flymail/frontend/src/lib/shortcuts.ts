@@ -5,8 +5,11 @@
 //   2. components/mail/ShortcutsCheatsheet.tsx —— `?` 触发的速查浮层
 //   3. components/settings/SettingsDialog.tsx —— 设置内的键位表
 // 描述文案统一走 i18n `shortcuts.*` 键，避免多处漂移。
+//
+// 键位取自主流邮件客户端的通用集（Gmail / Outlook 网页版基本一致），
+// 使用者的肌肉记忆可以直接迁移过来，不需要重新学一套。
 
-import { searchShortcutHint } from '@/lib/platform'
+import { comboHint, searchShortcutHint } from '@/lib/platform'
 
 // ── 原始按键常量（供 hook 匹配，避免魔法字符串）────────────────────────────────
 
@@ -15,12 +18,43 @@ export const KEY = {
   composeC: 'c',
   composeN: 'n',
   reply: 'r',
+  replyAll: 'a',
+  forward: 'f',
   focusSearch: '/',
   next: 'j',
   prev: 'k',
+  archive: 'e',
+  /** # 删除（Gmail 键位）；Delete 键同义，见 KEY.delete */
+  deleteHash: '#',
+  delete: 'Delete',
+  star: 's',
+  /** u 单独按 = 回到列表；Shift+U = 标为未读。同一个键靠修饰键区分 */
+  back: 'u',
+  /** 选中/取消选中当前行 */
+  select: 'x',
+  /** 跳转前缀：g 之后再按 i/s/t/d 落到对应位置 */
+  go: 'g',
   help: '?',
   escape: 'Escape',
 } as const
+
+/** `g` 之后可接的目标键 → 跳转位置。 */
+export const GO_TARGETS = {
+  i: 'inbox',
+  s: 'starred',
+  t: 'sent',
+  d: 'drafts',
+} as const
+
+export type GoTarget = (typeof GO_TARGETS)[keyof typeof GO_TARGETS]
+
+/**
+ * `g` 前缀的等待时长（毫秒）。
+ *
+ * 超过这个时间没等到第二个键就放弃，否则一个误按的 g 会把之后随便哪次
+ * 按 i 都变成跳转。
+ */
+export const GO_TIMEOUT_MS = 1200
 
 // ── 目录数据模型 ───────────────────────────────────────────────────────────────
 
@@ -55,6 +89,11 @@ export function getShortcutGroups(): ShortcutGroup[] {
       titleKey: 'shortcuts.groupNav',
       items: [
         { id: 'next-prev', keys: ['J', 'K'], descKey: 'shortcuts.nav' },
+        { id: 'back', keys: ['U'], descKey: 'shortcuts.back' },
+        { id: 'go-inbox', keys: ['G', 'I'], descKey: 'shortcuts.goInbox' },
+        { id: 'go-starred', keys: ['G', 'S'], descKey: 'shortcuts.goStarred' },
+        { id: 'go-sent', keys: ['G', 'T'], descKey: 'shortcuts.goSent' },
+        { id: 'go-drafts', keys: ['G', 'D'], descKey: 'shortcuts.goDrafts' },
       ],
     },
     {
@@ -63,6 +102,27 @@ export function getShortcutGroups(): ShortcutGroup[] {
       items: [
         { id: 'compose', keys: ['C', 'N'], descKey: 'shortcuts.compose' },
         { id: 'reply', keys: ['R'], descKey: 'shortcuts.reply' },
+        { id: 'reply-all', keys: ['A'], descKey: 'shortcuts.replyAll' },
+        { id: 'forward', keys: ['F'], descKey: 'shortcuts.forward' },
+        { id: 'send', keys: [comboHint('Enter')], descKey: 'shortcuts.send' },
+      ],
+    },
+    {
+      id: 'organize',
+      titleKey: 'shortcuts.groupOrganize',
+      items: [
+        { id: 'archive', keys: ['E'], descKey: 'shortcuts.archive' },
+        { id: 'delete', keys: ['#', 'Del'], descKey: 'shortcuts.delete' },
+        { id: 'star', keys: ['S'], descKey: 'shortcuts.star' },
+        { id: 'unread', keys: ['Shift', 'U'], descKey: 'shortcuts.markUnread' },
+      ],
+    },
+    {
+      id: 'select',
+      titleKey: 'shortcuts.groupSelect',
+      items: [
+        { id: 'select-row', keys: ['X'], descKey: 'shortcuts.selectRow' },
+        { id: 'extend', keys: ['Shift', 'J/K'], descKey: 'shortcuts.extendSelection' },
       ],
     },
     {

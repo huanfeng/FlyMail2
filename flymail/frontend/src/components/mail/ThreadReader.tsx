@@ -28,9 +28,7 @@ import {
   useMarkRead,
   useMessageDetail,
   useMoveMessage,
-  useThreadBatchDelete,
   useThreadBatchFlag,
-  useThreadBatchMove,
   useThreadBatchRead,
   useThreadMessages,
   useToggleFlag,
@@ -247,11 +245,18 @@ interface ThreadReaderProps {
   inFolderId?: number
   onReply?: (d: MessageDetail) => void
   onForward?: (d: MessageDetail) => void
-  /** 会话被整条删除/移动后回调（Shell 用它清掉 URL 上的 thread 参数）*/
-  onClose?: () => void
+  /**
+   * 删除 / 归档 / 移动整条会话。
+   *
+   * 与 Reader 同理：这三个动作要走延迟提交与撤销，并在成功后把阅读区推进到
+   * 下一条会话，只有持有列表的 Shell 知道下一条是谁。
+   */
+  onDelete: () => void
+  /** null = 该账户没有归档文件夹 */
+  onArchive: (() => void) | null
+  onMove: (folderId: number) => void
   onPrev?: (() => void) | null
   onNext?: (() => void) | null
-  onArchived?: () => void
   /** 「当前这一封」变化时上报，供 Shell 把 r 快捷键接到正确的邮件上 */
   onActiveMessageChange?: (id: number | null) => void
   /** 正文里点到 mailto: 链接时打开撰写器 */
@@ -265,10 +270,11 @@ export function ThreadReader({
   inFolderId,
   onReply,
   onForward,
-  onClose,
+  onDelete,
+  onArchive,
+  onMove,
   onPrev,
   onNext,
-  onArchived,
   onActiveMessageChange,
   onMailto,
 }: ThreadReaderProps) {
@@ -286,8 +292,6 @@ export function ThreadReader({
   const { data: accounts = [] } = useAccounts()
   const threadRead = useThreadBatchRead()
   const threadFlag = useThreadBatchFlag()
-  const threadDelete = useThreadBatchDelete()
-  const threadMove = useThreadBatchMove()
   const batchRead = useBatchRead()
   const markRead = useMarkRead()
 
@@ -373,27 +377,6 @@ export function ThreadReader({
   // ── 会话级操作 ────────────────────────────────────────
   const ids = threadId != null ? [threadId] : []
 
-  function handleDelete() {
-    if (threadId == null) return
-    if (!window.confirm(t('reader.thread.deleteConfirm'))) return
-    threadDelete.mutate({ threadIds: ids, inFolderId }, { onSuccess: () => onClose?.() })
-  }
-
-  function handleMove(folderId: number) {
-    if (threadId == null) return
-    threadMove.mutate({ threadIds: ids, folderId, inFolderId }, { onSuccess: () => onClose?.() })
-  }
-
-  const archiveFolder = accountFolders.find((f) => f.type === 'archive' && f.selectable)
-  // 会话跨文件夹，「已经在归档里」对整条没有意义，只要账户有归档文件夹就给入口
-  function handleArchive() {
-    if (threadId == null || archiveFolder == null) return
-    threadMove.mutate(
-      { threadIds: ids, folderId: archiveFolder.id, inFolderId },
-      { onSuccess: () => { onArchived?.(); onClose?.() } },
-    )
-  }
-
   // 整条是否已全部已读 / 是否有星标成员：菜单文案据此在两个方向间切换
   const anyUnread = messages.some((m) => !m.seen)
   const anyFlagged = messages.some((m) => m.flagged)
@@ -419,12 +402,11 @@ export function ThreadReader({
       key: 'move',
       label: t('reader.thread.moveAll'),
       icon: 'folder',
-      disabled: threadMove.isPending,
       children: moveTargets.map((f) => ({
         key: `mv-${f.id}`,
         label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
         icon: 'folder',
-        onSelect: () => handleMove(f.id),
+        onSelect: () => onMove(f.id),
       })),
     })
   }
@@ -474,10 +456,8 @@ export function ThreadReader({
         onNext={onNext}
         onReply={onReply && activeDetail ? () => onReply(activeDetail) : undefined}
         onForward={onForward && activeDetail ? () => onForward(activeDetail) : undefined}
-        onArchive={archiveFolder ? handleArchive : null}
-        archiveBusy={threadMove.isPending}
-        onDelete={handleDelete}
-        deleteBusy={threadDelete.isPending}
+        onArchive={onArchive}
+        onDelete={onDelete}
         moreItems={moreItems}
       />
 

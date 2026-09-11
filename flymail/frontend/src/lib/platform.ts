@@ -9,7 +9,17 @@ export function isMac(): boolean {
 
 /** 搜索快捷键提示文本：mac 显示 ⌘K，其余显示 Ctrl K。 */
 export function searchShortcutHint(): string {
-  return isMac() ? '⌘K' : 'Ctrl K'
+  return comboHint('K')
+}
+
+/**
+ * 平台相关的组合键展示文本，如 ⌘Enter / Ctrl Enter。
+ *
+ * 只用于**展示**：实际匹配走 `e.metaKey || e.ctrlKey`，两个平台都接受，
+ * 免得 Mac 上插外接键盘的人按 Ctrl 反而没反应。
+ */
+export function comboHint(key: string): string {
+  return isMac() ? `⌘${key}` : `Ctrl ${key}`
 }
 
 /** Wails v2 运行时注入到页面上的 window.runtime（仅桌面端存在）。 */

@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "FlyMail"
+    "name": "FlyMail",
+    "undo": "Undo"
   },
   "ctx": {
     "markRead": "Mark as read",
@@ -83,7 +84,6 @@
     "batchMove": "Move",
     "batchMoveDisabled": "Cannot move messages across accounts together",
     "batchDelete": "Delete",
-    "batchDeleteConfirm": "Delete the {{count}} selected messages? (Moved to Trash; permanently deleted if already in Trash)",
     "clearSelection": "Clear selection",
     "selectMode": "Select messages",
     "exitSelect": "Exit selection",
@@ -123,14 +123,16 @@
       "filteredCount": "{{count}} conversations matched",
       "searchCount": "{{count}} conversations found",
       "delete": "Delete conversation",
-      "deleteConfirm": "Delete this conversation? Its messages will be moved to Trash.",
-      "batchDeleteConfirm": "Delete the {{count}} selected conversations? Their messages will be moved to Trash.",
       "readAll": "Mark whole conversation read",
       "unreadAll": "Mark whole conversation unread",
       "starAll": "Star whole conversation",
       "unstarAll": "Unstar whole conversation",
-      "moveAll": "Move whole conversation to"
-    }
+      "moveAll": "Move whole conversation to",
+      "deletedToast": "Deleted {{count}} conversations"
+    },
+    "deletedCountToast": "Deleted {{count}} messages",
+    "movedToast": "Moved",
+    "movedCountToast": "Moved {{count}} items"
   },
   "sync": {
     "trigger": "Sync",
@@ -194,7 +196,6 @@
       "missing": "Conversation not found",
       "missingHint": "It may have been deleted, or merged into another conversation when conversations were rebuilt",
       "deleteOne": "Delete this message",
-      "deleteConfirm": "Delete the whole conversation? Its messages will be moved to Trash.",
       "readAll": "Mark whole conversation read",
       "unreadAll": "Mark whole conversation unread",
       "starAll": "Star whole conversation",
@@ -343,7 +344,23 @@
     "reply": "Reply to current message",
     "search": "Focus search",
     "help": "Show / hide shortcuts panel",
-    "close": "Back / close"
+    "close": "Back / close",
+    "groupOrganize": "Organize",
+    "groupSelect": "Select",
+    "back": "Back to list",
+    "goInbox": "Go to inbox",
+    "goStarred": "Go to starred",
+    "goSent": "Go to sent",
+    "goDrafts": "Go to drafts",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "send": "Send message",
+    "archive": "Archive",
+    "delete": "Delete",
+    "star": "Toggle star",
+    "markUnread": "Mark as unread",
+    "selectRow": "Select / deselect current row",
+    "extendSelection": "Extend selection to the next row"
   },
   "settings": {
     "title": "Settings",

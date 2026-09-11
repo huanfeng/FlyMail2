@@ -4,7 +4,7 @@ import { MessageBody } from '@/components/mail/MessageBody'
 import { ReaderToolbar } from '@/components/mail/ReaderToolbar'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
 import { formatAddresses, formatDate, senderInitial, useDelayedFlag } from '@/lib/mail-format'
-import { useMessageDetail, useMarkRead, useToggleFlag, useDeleteMessage, useMoveMessage, useFolders, useAccounts } from '@/lib/queries'
+import { useMessageDetail, useMarkRead, useToggleFlag, useFolders, useAccounts } from '@/lib/queries'
 import type { MessageDetail } from '@/lib/types'
 
 // ── 主组件 Props ─────────────────────────────────────────
@@ -13,62 +13,49 @@ interface ReaderProps {
   messageId: number | null
   onReply?: (d: MessageDetail) => void
   onForward?: (d: MessageDetail) => void
-  /** 删除/移动成功后回调（用于清空当前选中邮件） */
-  onClose?: () => void
+  /**
+   * 删除 / 归档 / 移动当前邮件。
+   *
+   * 这三个动作不在这里实现：它们要走延迟提交与撤销，并在成功后把阅读区推进到
+   * 下一封，而"下一封是谁"只有持有列表的 Shell 知道。Reader 只负责触发，
+   * 于是工具栏按钮与键盘快捷键走的是同一条路径，不会各做各的。
+   */
+  onDelete: () => void
+  /** null = 该账户没有归档文件夹，或当前邮件已在归档里 */
+  onArchive: (() => void) | null
+  onMove: (folderId: number) => void
   /**
    * 上一封 / 下一封。null 表示已在列表边界（按钮置灰）。
    * 列表上下文在 Shell 手里，这里只负责触发——与 j/k 快捷键走同一套顺序。
    */
   onPrev?: (() => void) | null
   onNext?: (() => void) | null
-  /** 归档成功后的提示回调（Toast 由 Shell 统一发） */
-  onArchived?: () => void
   /** 正文里点到 mailto: 链接时打开撰写器（正文 iframe 已不同源，只能由它上报） */
   onMailto?: (href: string) => void
 }
 
 // ── 主组件 ───────────────────────────────────────────────
 
-export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext, onArchived, onMailto }: ReaderProps) {
+export function Reader({
+  messageId,
+  onReply,
+  onForward,
+  onPrev,
+  onNext,
+  onDelete,
+  onArchive,
+  onMove,
+  onMailto,
+}: ReaderProps) {
   const { t } = useTranslation()
 
   const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
   const toggleFlag = useToggleFlag()
   const markRead = useMarkRead()
-  const deleteMessage = useDeleteMessage()
-  const moveMessage = useMoveMessage()
   // 移动目标：当前邮件所属账户的文件夹（detail 未就绪时为 null）
   const { data: accountFolders = [] } = useFolders(detail?.account_id ?? null)
   // 账户列表：用于识别收件人中的「我」（已在别处请求过，这里命中缓存）
   const { data: accounts = [] } = useAccounts()
-
-  // 删除当前邮件（移到回收站/永久删除由后端判定），成功后清空选中
-  function handleDelete() {
-    if (messageId == null) return
-    if (!window.confirm(t('reader.deleteConfirm'))) return
-    deleteMessage.mutate(messageId, { onSuccess: () => onClose?.() })
-  }
-
-  // 移动当前邮件到目标文件夹，成功后清空选中
-  function handleMove(folderId: number) {
-    if (messageId == null) return
-    moveMessage.mutate({ id: messageId, folderId }, { onSuccess: () => onClose?.() })
-  }
-
-  // 归档 = 移动到该账户的 archive 文件夹。
-  // 独立成一个按钮而不是让用户走「移动到」下拉：归档是高频动作，
-  // 两步下拉对一个每天点几十次的操作来说太重。
-  const archiveFolder = accountFolders.find((f) => f.type === 'archive' && f.selectable)
-  // 已经在归档文件夹里就没有再归档一次的意义
-  const canArchive = archiveFolder != null && archiveFolder.id !== detail?.folder_id
-
-  function handleArchive() {
-    if (messageId == null || archiveFolder == null) return
-    moveMessage.mutate(
-      { id: messageId, folderId: archiveFolder.id },
-      { onSuccess: () => { onArchived?.(); onClose?.() } },
-    )
-  }
 
   // ── 加载态：宁可短暂留住上一封，也不要闪一帧骨架 ──────────
   // keepPreviousData 让切换瞬间仍有内容可渲染，但那是上一封邮件（id 对不上）。
@@ -118,12 +105,12 @@ export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext,
       key: 'move',
       label: t('reader.move'),
       icon: 'folder',
-      disabled: moveMessage.isPending,
+
       children: moveTargets.map((f) => ({
         key: `mv-${f.id}`,
         label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
         icon: 'folder',
-        onSelect: () => handleMove(f.id),
+        onSelect: () => onMove(f.id),
       })),
     })
   }
@@ -150,10 +137,8 @@ export function Reader({ messageId, onReply, onForward, onClose, onPrev, onNext,
         onNext={onNext}
         onReply={onReply ? () => onReply(detail) : undefined}
         onForward={onForward ? () => onForward(detail) : undefined}
-        onArchive={canArchive ? handleArchive : null}
-        archiveBusy={moveMessage.isPending}
-        onDelete={handleDelete}
-        deleteBusy={deleteMessage.isPending}
+        onArchive={onArchive}
+        onDelete={onDelete}
         moreItems={moreItems}
       />
 

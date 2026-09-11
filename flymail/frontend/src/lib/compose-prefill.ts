@@ -43,6 +43,41 @@ export function buildReply(d: MessageDetail): ComposeInitial {
   }
 }
 
+/**
+ * 全部回复：收件人 = 原发件人 + 原收件人，抄送 = 原抄送。
+ *
+ * `selfAddrs` 传本人所有邮箱地址，用于把自己从收件人里剔掉——否则每次全部回复
+ * 都会给自己抄送一份，这是这个功能最常见的实现疏漏。
+ * 同一个地址在 to 与 cc 里各出现一次时只保留 to 的那份。
+ */
+export function buildReplyAll(d: MessageDetail, selfAddrs: Set<string> = new Set()): ComposeInitial {
+  const seen = new Set<string>()
+  /** 依次收地址，跳过自己与已出现过的（大小写不敏感——邮箱本地部分理论上区分，实践中无人如此）。 */
+  function collect(list: string[]): string[] {
+    const out: string[] = []
+    for (const raw of list) {
+      const addr = raw.trim()
+      if (!addr) continue
+      const k = addr.toLowerCase()
+      if (seen.has(k) || selfAddrs.has(k)) continue
+      seen.add(k)
+      out.push(addr)
+    }
+    return out
+  }
+
+  const to = collect([d.from_addr, ...(d.to ?? []).map((a) => a.email)])
+  const cc = collect((d.cc ?? []).map((a) => a.email))
+
+  return {
+    ...buildReply(d),
+    // 回复全部至少要发回给原发件人：若原发件人就是自己（回复自己发出的信），
+    // 上面的剔除会把 to 清空，这时退回普通回复的收件人。
+    to: to.length > 0 ? to : (d.from_addr ? [d.from_addr] : []),
+    cc,
+  }
+}
+
 export function buildForward(d: MessageDetail): ComposeInitial {
   const head = `---------- 转发邮件 ----------<br>主题: ${escapeHtml(d.subject || '')}<br>发件人: ${escapeHtml(d.from_name || d.from_addr || '')}<br>日期: ${escapeHtml(d.date)}`
   return {

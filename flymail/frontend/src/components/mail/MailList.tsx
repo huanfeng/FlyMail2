@@ -101,6 +101,14 @@ interface Props {
   /** 已选邮件 id 集合（由 Shell 管理，切换数据源时清空） */
   selectedIds: Set<number>
   onToggleSelect: (id: number) => void
+  /**
+   * Shift+点击：把一段连续的条目一次纳入选择。
+   *
+   * 与 onToggleSelect 分开而不是循环调用它：范围选择的语义是「都选上」，
+   * 逐个 toggle 会把段内已选中的那些反而取消掉。
+   */
+  onSelectRange: (ids: number[]) => void
+  onSelectRangeThread: (ids: string[]) => void
   onSelectAllVisible: () => void
   onClearSelection: () => void
   onBatchRead: (read: boolean) => void
@@ -236,7 +244,8 @@ interface CardRowProps {
   selected: boolean
   /** 搜索命中词（非搜索态为空数组，高亮函数会原样返回字符串） */
   terms: string[]
-  onSelect: () => void
+  /** 带事件时按修饰键决定行为；键盘路径不传，等同普通点击 */
+  onSelect: (e?: React.MouseEvent) => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
@@ -342,7 +351,8 @@ interface CompactRowProps {
   selected: boolean
   /** 搜索命中词（非搜索态为空数组，高亮函数会原样返回字符串） */
   terms: string[]
-  onSelect: () => void
+  /** 带事件时按修饰键决定行为；键盘路径不传，等同普通点击 */
+  onSelect: (e?: React.MouseEvent) => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
@@ -451,7 +461,8 @@ interface ThreadRowProps {
   terms: string[]
   /** 本人邮箱集合（已小写），用于头像避开自己 */
   selfAddrs: Set<string>
-  onSelect: () => void
+  /** 带事件时按修饰键决定行为；键盘路径不传，等同普通点击 */
+  onSelect: (e?: React.MouseEvent) => void
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
@@ -650,6 +661,8 @@ export function MailList({
   sourceKey,
   selectedIds,
   onToggleSelect,
+  onSelectRange,
+  onSelectRangeThread,
   onSelectAllVisible,
   onClearSelection,
   onBatchRead,
@@ -666,6 +679,57 @@ export function MailList({
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // ── 修饰键多选 ──────────────────────────────────────────────────────────────
+  //
+  // 锚点 = 上一次「普通点击 / Ctrl 点击」落在哪一行；Shift+点击 选的是锚点到
+  // 当前行之间的整段。这套语义与文件管理器、主流邮件客户端一致，
+  // 用户不需要重新学。
+  const anchorRef = useRef<number | string | null>(null)
+
+  function handleMessageClick(id: number, e?: React.MouseEvent) {
+    // Ctrl/⌘+点击：只把这一行纳入/移出选择，不打开它
+    if (e && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      onToggleSelect(id)
+      anchorRef.current = id
+      return
+    }
+    if (e?.shiftKey && anchorRef.current != null) {
+      // 浏览器默认会把 Shift+点击当作选中文本，先按住
+      e.preventDefault()
+      const from = messages.findIndex((m) => m.id === anchorRef.current)
+      const to = messages.findIndex((m) => m.id === id)
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        onSelectRange(messages.slice(lo, hi + 1).map((m) => m.id))
+        return
+      }
+    }
+    anchorRef.current = id
+    onSelectMessage(id)
+  }
+
+  function handleThreadClick(item: ThreadListItem, e?: React.MouseEvent) {
+    if (e && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      onToggleSelectThread(item.thread_id)
+      anchorRef.current = item.thread_id
+      return
+    }
+    if (e?.shiftKey && anchorRef.current != null && threads) {
+      e.preventDefault()
+      const from = threads.findIndex((th) => th.thread_id === anchorRef.current)
+      const to = threads.findIndex((th) => th.thread_id === item.thread_id)
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        onSelectRangeThread(threads.slice(lo, hi + 1).map((th) => th.thread_id))
+        return
+      }
+    }
+    anchorRef.current = item.thread_id
+    onSelectThread(item)
+  }
   // 搜索框 ref：供快捷键 / 聚焦时使用
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -1368,7 +1432,7 @@ export function MailList({
                       selected={selectedThreadIds.has(row.item.thread_id)}
                       terms={highlightTerms}
                       selfAddrs={selfAddrs}
-                      onSelect={() => onSelectThread(row.item)}
+                      onSelect={(e) => handleThreadClick(row.item, e)}
                       onToggleSelect={() => onToggleSelectThread(row.item.thread_id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
@@ -1383,7 +1447,7 @@ export function MailList({
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
                       terms={highlightTerms}
-                      onSelect={() => onSelectMessage(row.msg.id)}
+                      onSelect={(e) => handleMessageClick(row.msg.id, e)}
                       onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()
@@ -1398,7 +1462,7 @@ export function MailList({
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
                       terms={highlightTerms}
-                      onSelect={() => onSelectMessage(row.msg.id)}
+                      onSelect={(e) => handleMessageClick(row.msg.id, e)}
                       onToggleSelect={() => onToggleSelect(row.msg.id)}
                       onToggleFlag={(e) => {
                         e.stopPropagation()

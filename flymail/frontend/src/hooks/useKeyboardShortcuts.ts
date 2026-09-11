@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { KEY } from '@/lib/shortcuts'
+import { useEffect, useRef } from 'react'
+import { GO_TARGETS, GO_TIMEOUT_MS, KEY, type GoTarget } from '@/lib/shortcuts'
 
 // ────────────────────────────────────────────────────────────────────────────
 // 自定义事件名：用于跨组件通信（聚焦搜索框）
@@ -17,6 +17,10 @@ interface KeyboardShortcutsOptions {
   onCompose: () => void
   /** 回复当前打开的邮件 */
   onReply: (() => void) | null
+  /** 全部回复 */
+  onReplyAll: (() => void) | null
+  /** 转发 */
+  onForward: (() => void) | null
   /**
    * j/k 导航的条目 id 序列，顺序与列表一致。
    *
@@ -28,6 +32,22 @@ interface KeyboardShortcutsOptions {
   activeNavId: number | string | null
   /** 选中条目回调（用于 j/k 导航） */
   onNavigate: (id: number | string) => void
+  /** 归档当前条目；null = 当前无可归档目标（没有归档文件夹或已在归档里） */
+  onArchive: (() => void) | null
+  /** 删除当前条目 */
+  onDelete: (() => void) | null
+  /** 星标开关 */
+  onToggleStar: (() => void) | null
+  /** 标为未读 */
+  onMarkUnread: (() => void) | null
+  /** u：从阅读区回到列表 */
+  onBack: () => void
+  /** g + i/s/t/d：跳转到收件箱 / 星标 / 已发送 / 草稿 */
+  onGo: (target: GoTarget) => void
+  /** x：选中/取消选中当前行 */
+  onToggleSelectCurrent: () => void
+  /** Shift+J / Shift+K：把选择扩展到下一条 / 上一条 */
+  onExtendSelection: (dir: 1 | -1) => void
   /** 关闭 Compose 对话框 */
   onCloseCompose: () => void
   /** Compose 是否打开中（打开时屏蔽单键，但 Esc 仍生效） */
@@ -60,40 +80,50 @@ function isInInputField(target: EventTarget | null): boolean {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 绑定全局键盘快捷键（复刻 MailMaster 键位）：
- * - c / n   : 撰写新邮件
- * - /       : 聚焦列表搜索框
- * - r       : 回复当前邮件（仅有选中邮件时生效）
- * - j / k   : 列表下一条 / 上一条（会话视图下按会话切换）
- * - ?       : 切换快捷键速查浮层
- * - Esc     : 关闭速查浮层 / 关闭 Compose / 取消选中
+ * 绑定全局键盘快捷键。键位取自主流邮件客户端的通用集：
+ * - c / n     : 撰写新邮件
+ * - r / a / f : 回复 / 全部回复 / 转发
+ * - e         : 归档          # 或 Del : 删除
+ * - s         : 星标          Shift+U  : 标为未读
+ * - j / k     : 列表下一条 / 上一条（会话视图下按会话切换）
+ * - u         : 回到列表
+ * - x         : 选中当前行    Shift+J/K : 扩展选择
+ * - g i/s/t/d : 跳收件箱 / 星标 / 已发送 / 草稿
+ * - /         : 聚焦搜索      ? : 速查浮层      Esc : 逐层返回
  *
  * 键位目录的单一真相源见 lib/shortcuts.ts（KEY 常量 + getShortcutGroups）。
  * 注意：输入框/textarea/contenteditable 聚焦时不触发单键。
  */
-export function useKeyboardShortcuts({
-  onCompose,
-  onReply,
-  navIds,
-  activeNavId,
-  onNavigate,
-  onCloseCompose,
-  composeOpen,
-  onEscape,
-  onToggleHelp,
-  onCloseHelp,
-  helpOpen,
-}: KeyboardShortcutsOptions): void {
+export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
+  // 每次渲染都把最新的回调塞进 ref，事件监听器只注册一次。
+  //
+  // 这里的选项对象每渲染都是新的（内联箭头函数、flatMap 出来的 navIds），
+  // 若直接进依赖数组，等于每次渲染都摘掉再挂上一次全局监听器——按键在这个
+  // 空窗里会丢。
+  const ref = useRef(opts)
+  // 在 effect 里赋值而不是渲染期间直接写：渲染必须是纯的，
+  // React 19 的 lint 规则会明确拦下渲染期访问 ref。
+  // 无依赖数组 = 每次渲染后都刷新，事件触发时读到的必然是最新那份。
+  useEffect(() => {
+    ref.current = opts
+  })
+
+  // `g` 前缀的等待状态：按下 g 后记一个时间戳，下一个键在窗口内到达才算组合。
+  const goAt = useRef(0)
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const o = ref.current
+
       // Esc 优先处理（无论焦点位置）：帮助浮层 > Compose > 通用返回
       if (e.key === KEY.escape) {
-        if (helpOpen) {
-          onCloseHelp()
-        } else if (composeOpen) {
-          onCloseCompose()
+        goAt.current = 0
+        if (o.helpOpen) {
+          o.onCloseHelp()
+        } else if (o.composeOpen) {
+          o.onCloseCompose()
         } else {
-          onEscape?.()
+          o.onEscape?.()
         }
         return
       }
@@ -110,24 +140,66 @@ export function useKeyboardShortcuts({
       if (e.key === KEY.help) {
         if (isInInputField(e.target)) return
         e.preventDefault()
-        onToggleHelp()
+        o.onToggleHelp()
         return
       }
 
       // 在输入型元素内 / Compose 打开 / 帮助浮层打开时，屏蔽其余单键快捷键
-      if (isInInputField(e.target) || composeOpen || helpOpen) return
+      if (isInInputField(e.target) || o.composeOpen || o.helpOpen) return
 
-      // 忽略带修饰键的组合（让浏览器原生快捷键正常工作）
+      // 忽略带 Ctrl/Meta/Alt 的组合（让浏览器原生快捷键正常工作）。
+      // Shift 不在此列：Shift+U / Shift+J / Shift+K 都是有效键位。
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
       const key = e.key.toLowerCase()
+
+      // ── g 前缀：g 之后的那个键决定跳去哪儿 ────────────────────────────
+      if (goAt.current > 0) {
+        const fresh = Date.now() - goAt.current < GO_TIMEOUT_MS
+        goAt.current = 0
+        const target = (GO_TARGETS as Record<string, GoTarget>)[key]
+        if (fresh && target) {
+          e.preventDefault()
+          o.onGo(target)
+          return
+        }
+        // 过期或不是合法目标键：落下去按普通单键处理
+      }
+      if (key === KEY.go) {
+        e.preventDefault()
+        goAt.current = Date.now()
+        return
+      }
+
+      // ── Shift 组合 ────────────────────────────────────────────────────
+      if (e.shiftKey) {
+        switch (key) {
+          case KEY.back: // Shift+U：标为未读
+            if (o.onMarkUnread) {
+              e.preventDefault()
+              o.onMarkUnread()
+            }
+            return
+          case KEY.next: // Shift+J：向下扩展选择
+            e.preventDefault()
+            o.onExtendSelection(1)
+            return
+          case KEY.prev: // Shift+K：向上扩展选择
+            e.preventDefault()
+            o.onExtendSelection(-1)
+            return
+          default:
+            break
+        }
+        // 其余带 Shift 的键继续往下走（# 就是 Shift+3 打出来的）
+      }
 
       switch (key) {
         // c 或 n：撰写新邮件
         case KEY.composeC:
         case KEY.composeN: {
           e.preventDefault()
-          onCompose()
+          o.onCompose()
           break
         }
 
@@ -138,35 +210,91 @@ export function useKeyboardShortcuts({
           break
         }
 
-        // r：回复当前邮件
+        // r / a / f：回复 / 全部回复 / 转发
         case KEY.reply: {
-          if (onReply != null) {
+          if (o.onReply != null) {
             e.preventDefault()
-            onReply()
+            o.onReply()
           }
+          break
+        }
+        case KEY.replyAll: {
+          if (o.onReplyAll != null) {
+            e.preventDefault()
+            o.onReplyAll()
+          }
+          break
+        }
+        case KEY.forward: {
+          if (o.onForward != null) {
+            e.preventDefault()
+            o.onForward()
+          }
+          break
+        }
+
+        // e：归档
+        case KEY.archive: {
+          if (o.onArchive != null) {
+            e.preventDefault()
+            o.onArchive()
+          }
+          break
+        }
+
+        // # 或 Delete：删除（KEY.delete 是 'Delete'，这里比较的是小写化之后的值）
+        case KEY.deleteHash:
+        case KEY.delete.toLowerCase(): {
+          if (o.onDelete != null) {
+            e.preventDefault()
+            o.onDelete()
+          }
+          break
+        }
+
+        // s：星标开关
+        case KEY.star: {
+          if (o.onToggleStar != null) {
+            e.preventDefault()
+            o.onToggleStar()
+          }
+          break
+        }
+
+        // u：回到列表
+        case KEY.back: {
+          e.preventDefault()
+          o.onBack()
+          break
+        }
+
+        // x：选中/取消选中当前行
+        case KEY.select: {
+          e.preventDefault()
+          o.onToggleSelectCurrent()
           break
         }
 
         // j：列表下一条
         case KEY.next: {
           e.preventDefault()
-          if (navIds.length === 0) break
-          const idx = navIds.indexOf(activeNavId as number | string)
+          if (o.navIds.length === 0) break
+          const idx = o.navIds.indexOf(o.activeNavId as number | string)
           // 未选中时选第一条；已选中则移到下一条（不超出末尾）
-          const nextIdx = idx === -1 ? 0 : Math.min(navIds.length - 1, idx + 1)
-          const next = navIds[nextIdx]
-          if (next != null) onNavigate(next)
+          const nextIdx = idx === -1 ? 0 : Math.min(o.navIds.length - 1, idx + 1)
+          const next = o.navIds[nextIdx]
+          if (next != null) o.onNavigate(next)
           break
         }
 
         // k：列表上一条
         case KEY.prev: {
           e.preventDefault()
-          if (navIds.length === 0) break
-          const idx = navIds.indexOf(activeNavId as number | string)
+          if (o.navIds.length === 0) break
+          const idx = o.navIds.indexOf(o.activeNavId as number | string)
           if (idx <= 0) break
-          const prev = navIds[idx - 1]
-          if (prev != null) onNavigate(prev)
+          const prev = o.navIds[idx - 1]
+          if (prev != null) o.onNavigate(prev)
           break
         }
 
@@ -179,17 +307,5 @@ export function useKeyboardShortcuts({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [
-    onCompose,
-    onReply,
-    navIds,
-    activeNavId,
-    onNavigate,
-    onCloseCompose,
-    composeOpen,
-    onEscape,
-    onToggleHelp,
-    onCloseHelp,
-    helpOpen,
-  ])
+  }, [])
 }

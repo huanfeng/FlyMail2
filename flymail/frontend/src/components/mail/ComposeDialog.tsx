@@ -296,6 +296,28 @@ export function ComposeDialog({
 
   const title = resolveTitle()
 
+  // 指向最新的发送逻辑（含最新的表单与忙碌状态），供下面的全局组合键监听调用。
+  const sendRef = React.useRef<() => void>(() => {})
+
+  // ⌘/Ctrl + Enter 发送。
+  //
+  // 绑在 window 而不是对话框上：焦点多半在富文本编辑器的 contenteditable 里，
+  // 而全局单键快捷键在 Compose 打开时是整体屏蔽的（见 useKeyboardShortcuts），
+  // 组合键不受那条屏蔽影响，正好留给这里。
+  React.useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        // 读 ref 而不是闭包里的 handleSend：它每渲染都是新函数，
+        // 进依赖数组会让监听器随每次按键反复摘挂。
+        sendRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
   // ── 发送 ─────────────────────────────────────────────────────────────────────
   function handleSend() {
     setValidationError(null)
@@ -356,6 +378,16 @@ export function ComposeDialog({
       },
     )
   }
+
+  // 忙碌或没有可用账户时按下组合键不应重复提交——按钮那条路径由 disabled 挡住，
+  // 键盘这条得自己挡。
+  // 写在 effect 里：渲染期间赋值 ref 会破坏渲染的纯粹性。
+  React.useEffect(() => {
+    sendRef.current = () => {
+      if (isBusy || noAccount) return
+      handleSend()
+    }
+  })
 
   // ── 存草稿 ───────────────────────────────────────────────────────────────────
   async function handleSaveDraft() {

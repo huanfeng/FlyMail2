@@ -34,6 +34,10 @@ services:
       FLYMAIL_SERVER_PORT: 8080
       TZ: ${TZ:-Asia/Shanghai}
 
+      # 允许改写客户端 IP 的反向代理（逗号分隔的 IP 或 CIDR）。默认空 = 不信任任何代理。
+      # 走 nginx/Caddy 时必须填，否则登录限流会按代理 IP 计数，一个人触发就锁住整站。
+      FLYMAIL_SERVER_TRUSTED_PROXIES: ${FLYMAIL_SERVER_TRUSTED_PROXIES:-}
+
       # ── 密钥（必填，缺失则拒绝启动）─────────────────────────────
       # JWT 签名密钥：变更会使所有已登录会话失效
       FLYMAIL_AUTH_JWT_SECRET: ${FLYMAIL_AUTH_JWT_SECRET:?请在 .env 中设置 FLYMAIL_AUTH_JWT_SECRET}

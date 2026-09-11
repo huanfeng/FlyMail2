@@ -20,7 +20,7 @@ M8 归属已完成的后端加强三部曲（结构化日志 / E2E 测试 / 同�
 | M12 | 阅读隐私与安全加固 | P1 | ✅ 完成（2026-09-07，见 [`m12-privacy.md`](m12-privacy.md)） |
 | M13 | 撰写器升级 | P2 | ✅ 完成（2026-09-09，见 [`m13-composer.md`](m13-composer.md)） |
 | M14 | OAuth2 接入 | P2 | ◐ 代码完成，真机验收待外部凭据 |
-| M15 | 分发就绪 | P2 | ☐ 未开始 |
+| M15 | 分发就绪 | P2 | ◐ 代码与文档完成，真机验收待执行 |
 | M16 | 长尾体验 | P3 | ☐ 未开始 |
 
 排序依据：可感知收益 ÷ 实现成本。每个里程碑都能独立交付、独立验收，不存在"做了一半没法用"的中间态。
@@ -255,11 +255,28 @@ M8 归属已完成的后端加强三部曲（结构化日志 / E2E 测试 / 同�
 
 ### 验收标准
 
-- [ ] `docker compose up -d` 在干净机器上一次成功启动
-- [ ] 镜像体积 < 50MB
-- [ ] 备份 → 删库 → 恢复流程验证通过
-- [ ] 桌面端安装包在干净 Windows 上可安装运行
-- [ ] README 中的部署步骤由未参与开发者复现成功
+- [ ] `docker compose up -d` 在干净机器上一次成功启动——测试服务器（develop.server:8086）
+      已长期运行，但未在一台全新机器上从零复现过
+- [ ] 镜像体积 < 50MB——本机无 Docker，未实测。`release.yml` 会把实测值打进构建日志
+- [x] 备份 → 删库 → 恢复流程验证通过——内建 `db backup`（`VACUUM INTO` 热备份）
+      与 `db restore`（integrity_check + 表结构双校验、旧库改名保留、清理 WAL 残留），
+      12 个单测覆盖含往返恢复
+- [ ] 桌面端安装包在干净 Windows 上可安装运行——`release.yml` 的 NSIS 打包已就绪，
+      **流水线未在真实 tag 上跑过**，产物也未在干净机器上装过
+- [ ] README 中的部署步骤由未参与开发者复现成功——`flymail/README.md` 已写，复现未做
+
+### 本次落地
+
+- `flymail/README.md`：面向使用者的说明（功能、三种运行方式、日常维护）
+- `docs/flymail/deployment.md` 新增「反向代理与 HTTPS」：Caddy / nginx 样例，
+  含 SSE 缓冲与可信代理两处坑；备份一节改写为热备份流程
+- `.github/workflows/ci.yml`：后端（core + flymail）、前端、E2E 三个 job
+- `.github/workflows/release.yml`：打 tag 后出 Windows NSIS 安装包 + 推 GHCR 镜像 + 建 Release
+- 修复 `server.trusted_proxies` 未注册 viper 默认值导致环境变量读不到的缺陷
+  （反代部署下会让登录限流按代理 IP 计数，一个人触发即锁全站）
+- eslint 排除 Wails 生成的 `wailsjs/`；前端存量 16 个告警
+  （`react-refresh/only-export-components`、`react-hooks/set-state-in-effect`）
+  暂设为不阻塞 CI，待单独一轮清理
 
 ---
 
@@ -286,3 +303,5 @@ M8 归属已完成的后端加强三部曲（结构化日志 / E2E 测试 / 同�
 | 2026-09-07 | M11 规则引擎 + 黑名单完成：收件箱新邮件入库后执行、动作走回写队列、rule_runs 幂等、试运行、黑名单前置短路；基线判定改为「从未同步过」 |
 | 2026-09-07 | M12 阅读隐私与安全加固完成：服务端 bluemonday 净化 + 远程占位、发件人信任名单、iframe 去同源改 postMessage、登录按 IP 原子限流、默认不信任代理、附件端点 Content-Type 白名单 |
 | 2026-09-09 | M13 撰写器升级完成：Tiptap 换内核、内联图 multipart/related、发件人别名（From 与信封发件人分离）、按账户签名、引用折叠；审查修掉别名 name-addr 落库与 In-Reply-To/References 头注入 |
+| 2026-09-11 | M14 OAuth2 接入完成（代码层）：授权码 + PKCE loopback / 设备码双流程、令牌加密持久化与过期前自动刷新、needs_reauth 状态与重新授权引导、core/smtp 补 XOAUTH2；真机验收待外部凭据 |
+| 2026-09-11 | M15 分发就绪（代码与文档层）：内建热备份/恢复命令、反向代理与 HTTPS 文档、CI 与 Release 流水线、使用者 README；修复可信代理环境变量读不到的缺陷 |

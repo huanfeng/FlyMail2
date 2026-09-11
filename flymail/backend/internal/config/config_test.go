@@ -77,3 +77,36 @@ func TestCryptoKeyDefaultAndEnv(t *testing.T) {
 		t.Errorf("env 覆盖密钥失败，得到 %q", cfg2.Crypto.EncryptionKey)
 	}
 }
+
+// TestTrustedProxiesFromEnv 覆盖 Docker + 反向代理部署：可信代理只能经环境变量注入。
+// 未注册默认值的 key 不会被 viper 的 AutomaticEnv 读取，而这项读不到的后果是
+// 登录限流按代理 IP 计数，一个人触发就锁住整站。
+func TestTrustedProxiesFromEnv(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FLYMAIL_SERVER_TRUSTED_PROXIES", "172.18.0.0/16,127.0.0.1")
+	cfg, err := Load(LoadOptions{DataDir: dir})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"172.18.0.0/16", "127.0.0.1"}
+	if len(cfg.Server.TrustedProxies) != len(want) {
+		t.Fatalf("trusted_proxies = %v，期望 %v", cfg.Server.TrustedProxies, want)
+	}
+	for i, w := range want {
+		if cfg.Server.TrustedProxies[i] != w {
+			t.Errorf("trusted_proxies[%d] = %q，期望 %q", i, cfg.Server.TrustedProxies[i], w)
+		}
+	}
+}
+
+// TestTrustedProxiesDefaultEmpty 默认必须是空：gin 默认信任所有代理，
+// 那会让任何客户端都能用 X-Forwarded-For 伪造来源 IP 绕过限流。
+func TestTrustedProxiesDefaultEmpty(t *testing.T) {
+	cfg, err := Load(LoadOptions{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Server.TrustedProxies) != 0 {
+		t.Errorf("默认应不信任任何代理，实际 %v", cfg.Server.TrustedProxies)
+	}
+}

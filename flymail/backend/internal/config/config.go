@@ -99,6 +99,11 @@ func Load(opts LoadOptions) (*Config, error) {
 	// server.host=0.0.0.0（或环境变量 FLYMAIL_SERVER_HOST=0.0.0.0，如 Docker 部署）。
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 8080)
+	// trusted_proxies 同样必须注册：不注册则 FLYMAIL_SERVER_TRUSTED_PROXIES 读不到，
+	// 反向代理部署下所有请求的客户端 IP 都是代理自身——登录限流会按代理 IP 计数，
+	// 一个人触发限流就把整站锁住，日志里的来源 IP 也全是同一个。
+	// 环境变量按逗号分隔（viper 的默认 decode hook 含 StringToSliceHookFunc(",")）。
+	v.SetDefault("server.trusted_proxies", []string{})
 	// jwt_secret 注册空串默认值：与 log.dir 同理，viper 的 AutomaticEnv 仅对「已知的 key」
 	// 在 Unmarshal 时生效，不注册则 FLYMAIL_AUTH_JWT_SECRET 不会被读取（Docker 部署必需）。
 	v.SetDefault("auth.jwt_secret", "")

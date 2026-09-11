@@ -101,26 +101,126 @@ curl -s http://127.0.0.1:8086/api/v1/healthz
 
 ### 备份与恢复
 
-数据是 SQLite 单文件加附件目录，备份即拷贝：
+数据分两部分：SQLite 单文件（`data/flymail.db`）与附件目录（`data/attachments`）。
+附件写入后不再修改，直接拷贝即可；数据库则**不能直接 `cp`**——SQLite 的一致性保证只在
+事务边界上成立，拷贝一个正在被写入的库会得到撕裂的快照。
+
+因此数据库备份走内建命令，它用 `VACUUM INTO` 在一个读事务里导出一份整理过的副本，
+**服务运行中执行也安全**，不阻塞其他读者：
 
 ```bash
-# 冷备份（推荐：停服后拷贝，保证一致性）
-docker compose stop
-tar czf flymail-$(date +%Y%m%d).tar.gz data/
-docker compose start
+# 热备份（无需停服）。默认落在 data/backups/flymail-<时间戳>.db
+docker compose exec flymail flymail db backup
 
-# 恢复
-docker compose down
-rm -rf data && tar xzf flymail-YYYYMMDD.tar.gz
-docker compose up -d
+# 指定路径
+docker compose exec flymail flymail db backup --output /data/backups/before-upgrade.db
+
+# 附件另行拷贝（普通文件，无一致性问题）
+tar czf attachments-$(date +%Y%m%d).tar.gz data/attachments/
 ```
 
-> 热备份需要 `sqlite3 .backup`，当前运行镜像里没装 `sqlite3`（只有静态二进制）。
-> 若要支持不停服备份，需在 Dockerfile 运行阶段加 `apk add sqlite`。
+恢复必须停服——运行中的进程仍持有旧文件句柄，它后续的写入会覆盖掉刚恢复的内容：
+
+```bash
+docker compose stop
+
+# 校验并恢复。现有库会先改名保留为 flymail.db.bak-<时间戳>，不会被直接删除
+docker compose run --rm --entrypoint flymail flymail \
+    db restore /data/backups/flymail-20260911-183500.db --force
+
+docker compose start
+```
+
+`restore` 在覆盖前会做两道校验：`PRAGMA integrity_check` 确认文件完好，再检查
+`admin_users` / `accounts` / `messages` 三张表是否存在，确认这确实是一个 FlyMail 库——
+任一不过就原样退出，不动现有数据。恢复后还会清理目标库的 `-wal` / `-shm` / `-journal`
+残留：那些旁文件属于被替换掉的旧库，留在原地会被 SQLite 当成新库的未提交事务重放。
+
+定期备份可以挂 cron，顺手清掉超过 30 天的旧档：
+
+```cron
+0 4 * * * cd /opt/flymail && docker compose exec -T flymail flymail db backup \
+          && find data/backups -name 'flymail-*.db' -mtime +30 -delete
+```
+
+> 若要连同附件做完整的冷备份，停服后 `tar czf flymail-$(date +%Y%m%d).tar.gz data/`
+> 仍然是最省事的办法，恢复时整个 `data/` 覆盖回去即可。
 
 ---
 
-## 5. 配置项
+## 5. 反向代理与 HTTPS
+
+对外暴露时把 `FLYMAIL_BIND` 改成 `127.0.0.1`，只让反向代理能连到容器端口，
+再由代理终止 TLS。
+
+### 必须先做的一件事：声明可信代理
+
+```bash
+# .env
+FLYMAIL_SERVER_TRUSTED_PROXIES=127.0.0.1        # 代理与容器同机
+# 或 172.16.0.0/12                               # 代理也在 Docker 网络里
+```
+
+不填的后果不是"少了个功能"：FlyMail 默认不信任任何代理（gin 的默认是信任所有，
+已显式收紧），于是**所有请求的客户端 IP 都是代理自身**。M12 的登录限流按 IP 计数，
+一个人连错 11 次密码就会把整站锁住；结构化日志里的来源 IP 也全是同一个，追查失去意义。
+
+反过来，不走反代时**必须保持为空**——信任所有代理等于让任何客户端自己伪造
+`X-Forwarded-For` 绕过限流。
+
+### Caddy（推荐）
+
+自动申请并续期证书，流式响应默认不缓冲，基本零配置：
+
+```caddyfile
+mail.example.com {
+    reverse_proxy 127.0.0.1:8086
+}
+```
+
+### nginx
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name mail.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/mail.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mail.example.com/privkey.pem;
+
+    # 附件上传。默认 1m 会让稍大的附件以 413 失败
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8086;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE 实时推送是一条长连接，默认 60s 读超时会让它每分钟断一次重连
+        proxy_read_timeout 3600s;
+    }
+}
+
+server {
+    listen 80;
+    server_name mail.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+> **关于 SSE 的缓冲**：nginx 默认 `proxy_buffering on` 会把流式响应攒着不发，
+> 实时推送表现为"过几十秒一次性涌出一批"。这里不需要额外配置——
+> `internal/sse/handler.go` 已经在响应头里发了 `X-Accel-Buffering: no`，
+> nginx 会据此对该响应关闭缓冲。**若换用其他代理**（HAProxy、Traefik、
+> 云厂商的 7 层负载均衡），先确认它是否认这个头，不认的话要在代理侧显式关掉缓冲。
+
+---
+
+## 6. 配置项
 
 全部通过环境变量注入，命名规则为 `FLYMAIL_` + 配置路径大写、`.` 换成 `_`
 （如 `auth.jwt_secret` → `FLYMAIL_AUTH_JWT_SECRET`）。
@@ -131,6 +231,7 @@ docker compose up -d
 | `FLYMAIL_CRYPTO_ENCRYPTION_KEY` | **必填** | 邮箱凭证 AES 加密密钥，**存入账户后不可再变更** |
 | `FLYMAIL_ADMIN_USER` / `_PASS` | `admin` / 必填 | 仅首次启动（数据库不存在时）生效 |
 | `FLYMAIL_BIND` / `FLYMAIL_PORT` | `0.0.0.0` / `8086` | 宿主机监听地址与端口（8080 已被占用） |
+| `FLYMAIL_SERVER_TRUSTED_PROXIES` | 空 | 可信反向代理的 IP/CIDR，逗号分隔。走反代时必填，详见第 5 节 |
 | `PUID` / `PGID` | `1000` | 容器运行身份，保证 `./data` 文件属主正常 |
 | `FLYMAIL_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `FLYMAIL_LOG_FORMAT` | `json` | `json` 便于检索，`console` 便于人读 |
@@ -141,7 +242,7 @@ docker compose up -d
 
 ---
 
-## 6. 故障排查
+## 7. 故障排查
 
 | 现象 | 原因与处理 |
 |---|---|
@@ -155,10 +256,13 @@ docker compose up -d
 
 ---
 
-## 7. 待办
+## 8. 待办
 
-- [ ] 反向代理 + HTTPS（目前是明文 HTTP，仅限内网测试）
-- [ ] 镜像推送到 registry，免去服务器上构建
+- [x] 反向代理 + HTTPS —— 配置样例见第 5 节；测试服务器仍是明文 HTTP，公网暴露前按该节配置
+- [x] 镜像推送到 registry —— `.github/workflows/release.yml` 打 tag 后推 GHCR，
+      服务器可改用 `docker compose pull` 免去本地构建（**流水线本身尚未在真实 tag 上跑过**）
 - [ ] 与 GreenMail 编排到一起，支持在服务器上跑 E2E（现有 `docker-compose.e2e.yml`）
       —— 注意它把 GreenMail 的 REST API 映射到宿主 `8080`，而服务器上该端口已被占用，
       迁移时需要改端口映射
+- [ ] 镜像体积核对（M15 目标 < 50MB）：`release.yml` 会把实测值打进日志，
+      也可在服务器上 `docker images flymail:local` 直接看

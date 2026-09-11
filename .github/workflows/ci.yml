@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新推送取消上一次仍在跑的检查，省掉排队的无效构建。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端（core + flymail）
+    runs-on: ubuntu-latest
+    env:
+      # 与镜像构建保持一致：go.work 还纳入了 mail2im，关闭 workspace 模式后
+      # 各模块走自身 go.mod 的 replace 解析 core，CI 信号不被维护态子项目干扰。
+      GOWORK: off
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # 跟着 go.mod 走，避免这里和 Dockerfile 各写一个版本号后悄悄漂移。
+          go-version-file: flymail/backend/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            flymail/backend/go.sum
+
+      - name: 编译与静态检查 core
+        working-directory: core
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: 测试 core
+        working-directory: core
+        run: go test ./... -count=1
+
+      - name: 编译与静态检查 flymail
+        working-directory: flymail/backend
+        run: |
+          go build ./...
+          go vet ./...
+
+      # 需要 GreenMail 的 E2E 由 internal/e2e/env.go 按 E2E_GREENMAIL 门控自动跳过，
+      # 这里跑的是单元与集成测试。E2E 见下面的 e2e job。
+      - name: 测试 flymail
+        working-directory: flymail/backend
+        run: go test ./... -count=1
+
+      - name: 检查格式
+        run: |
+          # 只看有没有未格式化的文件，不就地改写：在仓库根跑 gofmt -w 会把全仓
+          # CRLF 重写成 LF，污染大量无关文件。
+          #
+          # 这一步只在 Linux 上成立。仓库里 .go 按 LF 存储（.gitattributes 的 text=auto），
+          # Windows 检出会变成 CRLF，此时 gofmt -l 会把几乎所有文件都列出来——
+          # 那是换行符差异，不是格式问题，别照着去 gofmt -w。
+          unformatted=$(gofmt -l core flymail/backend)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未经 gofmt 格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+
+  frontend:
+    name: 前端
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flymail/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 与 Dockerfile 一致用 corepack，不引入第三方 action 的版本漂移。
+      - name: 启用 pnpm
+        run: corepack enable
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 暂不阻塞：存量有 16 个 react-refresh/only-export-components 与
+      # react-hooks/set-state-in-effect 告警，前者只影响开发期热更新，后者改动会
+      # 触及运行时行为，需单独一轮处理。结果仍打进日志，清完后删掉这行让它转为阻塞。
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: 单元测试
+        run: pnpm test
+
+      # build 里含 `tsc -b`，类型错误在这一步暴露。
+      - name: 构建
+        run: pnpm build
+
+  e2e:
+    name: E2E（GreenMail）
+    runs-on: ubuntu-latest
+    # E2E 要拉 GreenMail 镜像、跑完整同步往返，比单元测试慢一个量级，
+    # 只在合入 main 与手动触发时跑，PR 阶段靠上面两个 job 把关。
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: flymail/backend/go.mod
+          cache-dependency-path: flymail/backend/go.sum
+
+      - name: 运行 E2E
+        run: ./e2e.sh

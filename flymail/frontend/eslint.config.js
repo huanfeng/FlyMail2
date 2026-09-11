@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // wailsjs/ 是 Wails CLI 生成的绑定代码，每次 wails build 都会重写，
+  // 改了也留不住；它里面的 any 不该计入本项目的 lint 结果。
+  globalIgnores(['dist', 'wailsjs']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

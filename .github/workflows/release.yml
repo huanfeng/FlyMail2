@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的版本号（如 v0.2.0），手动触发时用于命名产物"
+        required: true
+
+permissions:
+  contents: write # 创建 Release
+  packages: write # 推送镜像到 GHCR
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/flymail
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # 桌面端：Windows 安装包
+  # ────────────────────────────────────────────────────────────
+  desktop:
+    name: Windows 安装包
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: flymail/backend/go.mod
+          cache-dependency-path: flymail/backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 启用 pnpm
+        run: corepack enable
+
+      # 桌面端不走 Wails 自带的前端流水线：前端由 vite 输出到 backend/web/dist
+      # 并被 web/embed.go 的 `//go:embed all:dist` 嵌入 Go 二进制，
+      # 所以必须先构建前端，再用 `wails build -s` 跳过 Wails 的前端步骤。
+      - name: 构建前端
+        working-directory: flymail/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: 安装 Wails CLI
+        # 固定版本，与 go.mod 里的 wails/v2 保持一致；用 @latest 会在主版本内漂移。
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: 安装 NSIS
+        # 打安装包所需。runner 镜像通常已自带，这里是幂等兜底。
+        run: choco install nsis -y --no-progress
+
+      - name: 版本号写入 wails.json
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          # NSIS 的 ProductVersion 只接受数字形式，去掉前缀 v 与可能的 -rc 后缀
+          $version = ($tag -replace '^v', '') -replace '-.*$', ''
+          $path = 'flymail/backend/desktop/wails.json'
+          $json = Get-Content $path -Raw | ConvertFrom-Json
+          $json.info.productVersion = $version
+          $json | ConvertTo-Json -Depth 10 | Set-Content $path -Encoding utf8
+          echo "PRODUCT_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: 构建桌面端
+        working-directory: flymail/backend/desktop
+        env:
+          CGO_ENABLED: "0"
+        run: wails build -s -nsis -trimpath
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: flymail-windows
+          path: |
+            flymail/backend/desktop/build/bin/*.exe
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────
+  # 服务端：多阶段镜像推 GHCR
+  # ────────────────────────────────────────────────────────────
+  image:
+    name: Docker 镜像
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          # 上下文必须是仓库根：backend 的 go.mod 依赖 ../../core 的源码。
+          context: .
+          file: flymail/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 记录镜像体积
+        # M15 的验收标准之一是镜像 < 50MB，这里把实测值打进日志，
+        # 免得每次都要登服务器 docker images 去看。
+        run: |
+          tag=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker pull "$tag"
+          docker image inspect "$tag" --format '镜像 {{.RepoTags}} 解压后体积：{{.Size}} 字节'
+
+  # ────────────────────────────────────────────────────────────
+  # 汇总为一个 Release
+  # ────────────────────────────────────────────────────────────
+  release:
+    name: 发布
+    needs: [desktop, image]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flymail-windows
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## 部署
+
+            **Docker**
+
+            ```bash
+            docker run -d --name flymail \
+              -p 8086:8080 -v ./data:/data \
+              -e FLYMAIL_AUTH_JWT_SECRET=$(openssl rand -hex 32) \
+              -e FLYMAIL_CRYPTO_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+              -e FLYMAIL_ADMIN_PASS=<管理员密码> \
+              ${{ env.IMAGE }}:${{ github.ref_name }}
+            ```
+
+            完整编排见仓库根的 `docker-compose.yml` 与 [部署文档](docs/flymail/deployment.md)。
+
+            **Windows 桌面端**
+
+            下载下方的 `FlyMail-amd64-installer.exe` 安装即可，数据默认落在 `%APPDATA%\FlyMail`。

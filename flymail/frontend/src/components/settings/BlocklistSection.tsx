@@ -3,6 +3,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/Toast'
@@ -13,6 +14,7 @@ import type { BlockEntry } from '@/lib/types'
 
 export function BlocklistSection() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { toast } = useToast()
   const { data: entries = [] } = useBlocklist()
   const addBlock = useAddBlock()
@@ -44,8 +46,13 @@ export function BlocklistSection() {
     )
   }
 
-  function handleDelete(e: BlockEntry) {
-    if (!window.confirm(t('settings.blocklist.deleteConfirm', { pattern: e.pattern }))) return
+  async function handleDelete(e: BlockEntry) {
+    const ok = await confirm({
+      title: t('settings.blocklist.deleteConfirm', { pattern: e.pattern }),
+      confirmLabel: t('common.confirm'),
+      danger: true,
+    })
+    if (!ok) return
     deleteBlock.mutate(e.id, {
       onError: (err) => setError(apiErrorMessage(err, t('settings.blocklist.deleteFailed'))),
     })

@@ -6,6 +6,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap'
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
@@ -20,6 +21,8 @@ import { AliasesSection } from '@/components/settings/AliasesSection'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
 import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
+import { modalLayerOpen } from '@/lib/overlay-layers'
+import { useAccountSync } from '@/hooks/useAccountSync'
 import { getRemoteImageDefault, setRemoteImageDefault } from '@/lib/privacy-prefs'
 import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
 import type { LayoutWidths } from '@/lib/layout-prefs'
@@ -29,8 +32,6 @@ import {
   useUpdateSettings,
   useDeleteAccount,
   useSetAccountEnabled,
-  useTriggerSync,
-  useSyncStatus,
   useChangePassword,
   useAccountStats,
   useMe,
@@ -41,7 +42,7 @@ import {
 import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { LayoutMode } from '@/lib/layout-mode'
-import type { Account, BodySyncMode, SyncPhase } from '@/lib/types'
+import type { Account, BodySyncMode } from '@/lib/types'
 
 // ── 常量 ─────────────────────────────────────────────────
 const SYNC_DEPTH_MIN = 100
@@ -508,23 +509,16 @@ interface AccountCardRowProps {
 
 function AccountCardRow({ account, onEdit, onDelete }: AccountCardRowProps) {
   const { t } = useTranslation()
-  const [syncing, setSyncing] = React.useState(false)
   const setEnabled = useSetAccountEnabled()
-  const triggerSync = useTriggerSync()
-  const syncStatus = useSyncStatus(account.id, syncing)
   const statsQuery = useAccountStats(account.id)
-
-  const syncPhase: SyncPhase = syncStatus.data?.phase ?? 'none'
-
-  React.useEffect(() => {
-    if (syncing && (syncPhase === 'done' || syncPhase === 'error')) {
-      setSyncing(false)
-    }
-  }, [syncing, syncPhase])
+  // 与侧栏那个同步按钮共用同一套触发/轮询/收手逻辑，见 useAccountSync 的头注释。
+  // 原先这里是自己写的第二份，同样踩了「上一轮遗留的 done 让第二次点击直接空转」
+  // 和「触发失败照样开轮询」两个坑。
+  const accountSync = useAccountSync()
+  const syncing = accountSync.syncing && accountSync.accountId === account.id
 
   function handleSync() {
-    setSyncing(true)
-    triggerSync.mutate(account.id)
+    accountSync.start(account.id)
   }
 
   function handleToggle() {
@@ -590,7 +584,7 @@ function AccountCardRow({ account, onEdit, onDelete }: AccountCardRowProps) {
           title={t('settings.account.sync')}
           aria-label={t('settings.account.sync')}
           onClick={handleSync}
-          disabled={syncing}
+          disabled={syncing || !account.enabled}
         >
           <Icon
             name="circle-dot"
@@ -632,6 +626,7 @@ function AccountCardRow({ account, onEdit, onDelete }: AccountCardRowProps) {
 
 function AccountsSection() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { data: accounts = [] } = useAccounts()
   const deleteAccount = useDeleteAccount()
 
@@ -648,10 +643,16 @@ function AccountsSection() {
     setDialogOpen(true)
   }
 
-  function handleDelete(account: Account) {
-    if (window.confirm(t('settings.account.deleteConfirm'))) {
-      deleteAccount.mutate(account.id)
-    }
+  async function handleDelete(account: Account) {
+    // 文案与侧栏那处合并到 account.*：两处说的是同一件事，此前是一字不差的两份
+    const ok = await confirm({
+      title: t('account.deleteConfirm'),
+      body: t('account.deleteConfirmBody'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+    deleteAccount.mutate(account.id)
   }
 
   return (
@@ -1225,7 +1226,15 @@ export function SettingsDialog({
   // Esc 键关闭弹框
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // 面板内弹出的 radix 浮层（账户 / 规则 / 渠道对话框、删除确认框）开着时，
+      // 这一下 Esc 是给它的。radix 只调 preventDefault 而不 stopPropagation，
+      // 事件照样冒泡到这里——不判一下就会「取消一次删除，整个设置面板跟着关掉」。
+      // 两个判据各管一头：defaultPrevented 认「那一层已经消费了这次按键」，
+      // modalLayerOpen() 认「那一层还开着」。实测任一个单独都够用，
+      // 留着两个是因为它们失效的方式不同（浮层不 preventDefault / 浮层不在 DOM 上留痕）。
+      if (e.defaultPrevented || modalLayerOpen()) return
+      onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)

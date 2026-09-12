@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
@@ -25,8 +24,6 @@ import {
   listTotalOf,
   useAggregateCounts,
   useMessageDetail,
-  useSyncStatus,
-  useTriggerSync,
   useMarkRead,
   useToggleFlag,
   useDeleteMessage,
@@ -45,6 +42,7 @@ import {
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { useAccountSync } from '@/hooks/useAccountSync'
 import { useUnreadBadge } from '@/hooks/useUnreadBadge'
 import { useKeyboardShortcuts, COMPOSE_CLOSE_EVENT } from '@/hooks/useKeyboardShortcuts'
 import type { GoTarget } from '@/lib/shortcuts'
@@ -85,7 +83,6 @@ export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
   // 未来支持多用户时需补 ownership 校验。
 
-  const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
   const { t } = useTranslation()
   const accountId = params.get('account') ? Number(params.get('account')) : null
@@ -197,7 +194,7 @@ export function ShellPage() {
   const [announce, setAnnounce] = useState<{ text: string; seq: number }>({ text: '', seq: 0 })
 
   // 订阅 SSE 实时推送：new_mail 刷新缓存，notify 走提醒（桌面通知 / 提示音 / 播报）
-  useRealtimeSync({
+  const { offline } = useRealtimeSync({
     // 必须走 openMailById 而不是 selectMessage：点通知时用户多半停在别的账户、
     // 聚合视图或搜索结果里，只写 message 参数会切不过去；会话视图下更是直接一片空白。
     onOpenMessage: (id) => void openMailById(id),
@@ -613,10 +610,15 @@ export function ShellPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageId, activeUnread])
 
-  const [syncEnabled, setSyncEnabled] = useState(false)
-  const { data: syncStatus } = useSyncStatus(accountId, syncEnabled)
-  const triggerSync = useTriggerSync()
-  const syncing = syncStatus?.phase === 'folders' || syncStatus?.phase === 'messages'
+  // 手动同步的触发与进度跟踪。整套逻辑（含「轮询跟的是哪个账户」「终态怎么判」
+  // 「触发失败怎么表达」）在 useAccountSync 里，设置面板的账户卡用的是同一个 hook。
+  //
+  // 原先这里两者混用（`useSyncStatus(accountId, syncEnabled)` + 全局布尔 syncEnabled），
+  // 于是在账户 A 上点账户 B 的同步按钮时有两处错：B 的图标不转（syncing 读的是 A 的状态），
+  // 而且轮询永不停止——A 的 phase 既不是 done 也不是 error，那个把 syncEnabled 置回 false
+  // 的 effect 永远等不到条件，每秒一个请求一直发到切账户或刷新为止。
+  const accountSync = useAccountSync()
+  const { accountId: syncingAccountId, status: syncStatus, syncing } = accountSync
 
   // ── 账户对话框 state（新增账户用）─────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -659,22 +661,6 @@ export function ShellPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, accounts])
-
-  useEffect(() => {
-    if (syncStatus?.phase === 'done' || syncStatus?.phase === 'error') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSyncEnabled(false)
-    }
-    // 同步抓完后刷新文件夹（未读数/新文件夹）、邮件列表与聚合计数缓存。
-    if (syncStatus?.phase === 'done') {
-      void qc.invalidateQueries({ queryKey: ['folders'] })
-      void qc.invalidateQueries({ queryKey: ['messages'] })
-      void qc.invalidateQueries({ queryKey: ['threads'] })
-      void qc.invalidateQueries({ queryKey: ['thread-messages'] })
-      void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncStatus?.phase])
 
   const activeFolder = useMemo(
     () => folders.find((f) => f.id === folderId) ?? null,
@@ -807,8 +793,7 @@ export function ShellPage() {
   }
 
   function onSync(id: number) {
-    setSyncEnabled(true)
-    triggerSync.mutate(id)
+    accountSync.start(id)
   }
 
   function onAddAccount() {
@@ -1155,6 +1140,8 @@ export function ShellPage() {
       activeAccountId={accountId}
       activeFolderId={folderId}
       syncing={syncing}
+      syncingAccountId={syncingAccountId}
+      syncStatus={syncStatus}
       notifOpen={notifOpen}
       settingsOpen={settingsOpen}
       activeAgg={agg}
@@ -1179,6 +1166,18 @@ export function ShellPage() {
       <div className="sr-only" role="status" aria-live="polite">
         {announce.text ? announce.text + '\u200b'.repeat(announce.seq % 2) : ''}
       </div>
+
+      {/* 实时连接断了。这条必须说出来：断开期间新邮件既不会让列表刷新也不会弹通知，
+          而「安静地不再收信」与「确实没有新邮件」在用户眼里完全一样。
+          重连是自动的（指数退避，最长 30 秒一次），所以这里只报状态、不给按钮——
+          给一个「重连」按钮反而暗示不点就不会自己好。
+          固定定位、不占布局：它可能持续几分钟，挤走内容比断线本身更烦人。 */}
+      {offline && (
+        <div className="conn-banner" role="status" aria-live="polite">
+          <span className="conn-dot" aria-hidden="true" />
+          {t('realtime.offline')}
+        </div>
+      )}
 
       <AppLayout
         sidebar={sidebar}

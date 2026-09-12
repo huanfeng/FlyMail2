@@ -6,12 +6,17 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { setNotifyPrefs, resetNotifyPrefsCache } from '@/lib/notify-prefs'
 import type { RealtimeEvent } from '@/lib/types'
 
-// 捕获 connectRealtime 注册的回调，直接把事件喂进去，不必真起一条 SSE
+// 捕获 connectRealtime 注册的两个回调，直接把事件与状态喂进去，不必真起一条 SSE
 let emit: ((ev: RealtimeEvent) => void) | null = null
+let emitState: ((s: 'connecting' | 'open') => void) | null = null
 const closeSpy = vi.fn()
 vi.mock('@/lib/sse', () => ({
-  connectRealtime: (cb: (ev: RealtimeEvent) => void) => {
+  connectRealtime: (
+    cb: (ev: RealtimeEvent) => void,
+    onState?: (s: 'connecting' | 'open') => void,
+  ) => {
     emit = cb
+    emitState = onState ?? null
     return closeSpy
   },
 }))
@@ -67,6 +72,7 @@ describe('useRealtimeSync', () => {
 
   beforeEach(() => {
     emit = null
+    emitState = null
     hidden = true
     chimeClaimed = true
     showMailNotice.mockClear()
@@ -173,5 +179,100 @@ describe('useRealtimeSync', () => {
 
     expect(showMailNotice).not.toHaveBeenCalled()
     expect(onAnnounce).not.toHaveBeenCalled()
+  })
+
+  // ── 连接状态 ───────────────────────────────────────────────────────────
+  //
+  // 断开期间**收不到任何推送**：新邮件既不会让列表刷新，也不会弹通知。
+  // 而「安静地不再收信」与「确实没有新邮件」在用户眼里完全一样——
+  // 这正是 ui-audit 第 7 条里「合盖唤醒 / 后端重启后 UI 静默停止收信」那一句。
+
+  it('刚断开时先不报——绝大多数重连一两秒就好了', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen: boolean[] = []
+      function Probe() {
+        const { offline } = useRealtimeSync()
+        seen.push(offline)
+        return null
+      }
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={qc}>
+            <Probe />
+          </QueryClientProvider>,
+        )
+      })
+      await act(async () => emitState?.('connecting'))
+      await act(async () => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(seen.at(-1), '才断了 3 秒就报离线，提示条会随着每次重连闪').toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连不上超过阈值才报离线', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen: boolean[] = []
+      function Probe() {
+        const { offline } = useRealtimeSync()
+        seen.push(offline)
+        return null
+      }
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={qc}>
+            <Probe />
+          </QueryClientProvider>,
+        )
+      })
+      await act(async () => emitState?.('connecting'))
+      await act(async () => {
+        vi.advanceTimersByTime(8000)
+      })
+      expect(seen.at(-1)).toBe(true)
+
+      // 连上了就立刻收回
+      await act(async () => emitState?.('open'))
+      expect(seen.at(-1)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('退避期间反复 connecting 不会把倒计时一直往后推', async () => {
+    // 指数退避会让 connecting 反复触发（1s、2s、4s…）。每次都重置计时器的话
+    // 阈值永远到不了，离线提示一辈子不出现——而那恰恰是断得最久的情况。
+    vi.useFakeTimers()
+    try {
+      const seen: boolean[] = []
+      function Probe() {
+        const { offline } = useRealtimeSync()
+        seen.push(offline)
+        return null
+      }
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={qc}>
+            <Probe />
+          </QueryClientProvider>,
+        )
+      })
+      for (let i = 0; i < 5; i++) {
+        await act(async () => emitState?.('connecting'))
+        await act(async () => {
+          vi.advanceTimersByTime(2000)
+        })
+      }
+      expect(seen.at(-1), '重连尝试把倒计时一直往后推了').toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

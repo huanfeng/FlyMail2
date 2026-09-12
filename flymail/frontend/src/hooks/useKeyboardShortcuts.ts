@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { GO_TARGETS, GO_TIMEOUT_MS, KEY, type GoTarget } from '@/lib/shortcuts'
+import { modalLayerOpen } from '@/lib/overlay-layers'
 
 // ────────────────────────────────────────────────────────────────────────────
 // 自定义事件名：用于跨组件通信（聚焦搜索框）
@@ -146,7 +147,9 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
           o.onCloseHelp()
         } else if (o.composeOpen) {
           o.onCloseCompose()
-        } else if (!o.overlayOpen) {
+        } else if (!o.overlayOpen && !modalLayerOpen()) {
+          // modalLayerOpen()：确认框 / 账户对话框这类 radix 浮层自己会处理这一下 Esc。
+          // 不判的话同一次按键被消费两回——取消一次删除，背后正在看的那封邮件跟着关掉。
           o.onEscape?.()
         }
         return
@@ -182,7 +185,17 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
 
       // 屏蔽其余单键快捷键：输入型元素内 / Compose / 速查浮层 / 任何其它浮层。
       // overlayOpen 漏掉过一次，后果是设置面板开着时按 # 删掉背后的邮件。
-      if (isInInputField(e.target) || o.composeOpen || o.helpOpen || o.overlayOpen) return
+      //
+      // modalLayerOpen() 补的是那几个布尔量覆盖不到的浮层：删除确认框从阅读区弹出时
+      // 三个布尔量全是 false，于是「确认要删掉这一封吗」开着的时候按 # 会删掉**另一封**。
+      if (
+        isInInputField(e.target) ||
+        o.composeOpen ||
+        o.helpOpen ||
+        o.overlayOpen ||
+        modalLayerOpen()
+      )
+        return
 
       // 忽略带 Ctrl/Meta/Alt 的组合（让浏览器原生快捷键正常工作）。
       // Shift 不在此列：Shift+U / Shift+J / Shift+K 都是有效键位。

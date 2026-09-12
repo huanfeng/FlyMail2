@@ -457,14 +457,30 @@ export interface DraftRequest {
   from_alias?: string
 }
 
-export type SyncPhase = 'none' | 'folders' | 'messages' | 'done' | 'error'
+/**
+ * 同步阶段。与后端 `modules/email/sync/service.go` 的 Phase 常量一一对应。
+ *
+ * ⚠ `queued` 曾经漏在这里：后端在等全局同步名额时就是这个阶段，而前端把
+ * 「进行中」判成 folders | messages，于是用户点了同步却排上队时，屏幕上什么都不发生。
+ * 后端那边的注释写着「前端未识别按进行中展示」——那正是没有兑现的部分。
+ */
+export type SyncPhase = 'none' | 'queued' | 'folders' | 'messages' | 'done' | 'error'
+
+/** 同步是否仍在进行（排队也算——用户按下按钮后到真正开始之间的那段同样要有表达） */
+export function isSyncActive(phase: SyncPhase | undefined): boolean {
+  return phase === 'queued' || phase === 'folders' || phase === 'messages'
+}
 
 export interface SyncStatus {
   account_id?: number
   phase: SyncPhase
+  /** 待处理的邮件总数。folders 阶段还不知道，为 0 */
   total?: number
+  /** 已处理数。与 total 一起才能算百分比，单独出现只能表达「在动」 */
   processed?: number
   error?: string
+  started_at?: string
+  updated_at?: string
 }
 
 /**

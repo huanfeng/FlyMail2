@@ -1111,10 +1111,41 @@ export function useAccountStats(accountId: number | null) {
   })
 }
 
+/**
+ * 从 axios 的上传进度事件算出 0~1 的比例；算不出来时返回 null。
+ *
+ * 抽成导出的函数是为了能被真正测到——把这三行留在 onUploadProgress 的闭包里，
+ * 测试就只能照着它再写一遍判据，那样测的是「我对自己实现的理解」而不是实现本身。
+ *
+ * `total` 在两种情况下不可用：某些代理不回 Content-Length（undefined），
+ * 以及空请求体（0，除零会得到 Infinity / NaN 并一路显示成「NaN%」）。
+ */
+export function uploadRatio(e: { loaded: number; total?: number }): number | null {
+  if (e.total == null || e.total <= 0) return null
+  return e.loaded / e.total
+}
+
 export function useSend() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ req, files, inline }: { req: SendRequest; files?: File[]; inline?: File[] }) => {
+    mutationFn: async ({
+      req,
+      files,
+      inline,
+      onProgress,
+    }: {
+      req: SendRequest
+      files?: File[]
+      inline?: File[]
+      /**
+       * 上传进度（0~1）。只有走 multipart 那一支才会调用——纯文本正文是
+       * 一次性发出去的，没有可报的中间状态。
+       *
+       * 进度留在调用方而不是这个 hook 里：mutation 的返回值是 react-query 的
+       * 追踪代理，往上面 `{...mutation, progress}` 一摊就破坏了它的按需订阅。
+       */
+      onProgress?: (p: number) => void
+    }) => {
       const hasAttach = (files?.length ?? 0) > 0
       const hasInline = (inline?.length ?? 0) > 0
       if (hasAttach || hasInline) {
@@ -1126,7 +1157,15 @@ export function useSend() {
         for (const f of files ?? []) fd.append('attachments', f, f.name)
         for (const f of inline ?? []) fd.append('inline', f, f.name)
         // 显式置空 Content-Type，让浏览器/axios 自动补全带 boundary 的 multipart 头。
-        await api.post('/send', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        await api.post('/send', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          // 10MB 附件此前零反馈：按钮变成「发送中…」然后一动不动几十秒，
+          // 与卡死在界面上完全一样。
+          onUploadProgress: (e) => {
+            const r = uploadRatio(e)
+            if (r != null) onProgress?.(r)
+          },
+        })
       } else {
         await api.post('/send', req)
       }

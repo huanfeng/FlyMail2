@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { modalLayerOpen } from '@/lib/overlay-layers'
 
 /** 能接收键盘焦点的元素选择器（排除 disabled 与显式移出 Tab 序列的） */
 const FOCUSABLE = [
@@ -56,6 +57,10 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean) {
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Tab') return
+      // 上面开着 radix 浮层时整个让位：它自带 FocusScope，而这里的判据
+      //「焦点不在 root 里就拉回来」对它恒成立（Portal 挂在 body 末尾），
+      // 会把它的每一次 Tab 都吞掉，浮层里的按钮变成键盘不可达。见 overlay-layers.ts。
+      if (modalLayerOpen()) return
       const items = focusables()
       if (items.length === 0) {
         e.preventDefault()

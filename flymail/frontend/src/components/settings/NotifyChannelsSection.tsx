@@ -3,6 +3,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { ChannelDialog } from './ChannelDialog'
@@ -24,6 +25,7 @@ const EVENT_LABEL: Record<string, string> = {
 
 export function NotifyChannelsSection() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { toast } = useToast()
   const { data: channels = [] } = useNotifyChannels()
   const { data: logs = [] } = useNotifyLogs()
@@ -45,8 +47,13 @@ export function NotifyChannelsSection() {
     setDialogOpen(true)
   }
 
-  function handleDelete(c: NotifyChannel) {
-    if (!window.confirm(t('settings.notify.deleteConfirm'))) return
+  async function handleDelete(c: NotifyChannel) {
+    const ok = await confirm({
+      title: t('settings.notify.deleteConfirm'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     deleteCh.mutate(c.id)
   }
 

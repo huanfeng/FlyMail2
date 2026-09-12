@@ -7,6 +7,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { apiErrorMessage } from '@/lib/api'
 import {
@@ -41,6 +42,7 @@ function emptyDraft(): DraftAlias {
  */
 function AliasList({ accountId }: { accountId: number }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { data: aliases = [] } = useAliases(accountId)
   const createAlias = useCreateAlias()
   const updateAlias = useUpdateAlias()
@@ -78,8 +80,13 @@ function AliasList({ accountId }: { accountId: number }) {
     else updateAlias.mutate({ accountId, aliasId: draft.id, input }, onDone)
   }
 
-  function handleDelete(a: Alias) {
-    if (!window.confirm(t('settings.aliases.removeConfirm', { email: a.email }))) return
+  async function handleDelete(a: Alias) {
+    const ok = await confirm({
+      title: t('settings.aliases.removeConfirm', { email: a.email }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     setError(null)
     deleteAlias.mutate(
       { accountId, aliasId: a.id },

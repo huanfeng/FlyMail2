@@ -1526,6 +1526,32 @@ mark.hl {
   font-size: 13px; color: var(--ink);
 }
 .compose-row .acct-dot { width: 7px; height: 7px; border-radius: 50%; }
+/* 附件上传进度。10MB 附件此前零反馈：按钮变成「发送中…」然后一动不动几十秒，
+   在界面上与卡死完全一样。 */
+.compose-upload {
+  padding: 8px 20px 0;
+}
+.compose-upload-bar {
+  height: 3px; border-radius: 2px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.compose-upload-bar > span {
+  display: block; height: 100%;
+  background: var(--accent); border-radius: 2px;
+  transition: width 0.15s linear;   /* 进度事件密集，不补间会抖 */
+}
+
+/* 校验错误 / 「草稿已存」。在 .compose-foot 之上、.compose-body 之外——
+   body 是滚动区，消息落在那里时用户点了发送会以为按钮坏了（原 ui-audit 第 13 条）。
+   常驻但空时不占高度：live region 要一直在 DOM 里才播报得出来。 */
+.compose-msg {
+  padding: 0 20px;
+  font-size: 13px; line-height: 1.4; color: var(--ink-2);
+}
+.compose-msg:not(:empty) { padding: 10px 20px 0; }
+.compose-msg .cm-danger { color: var(--danger-ink); }
+
 .compose-foot {
   padding: 12px 20px; border-top: 1px solid var(--rule);
   display: flex; align-items: center; gap: 8px;
@@ -2039,6 +2065,9 @@ mark.hl {
   .spin-anim { animation: none !important; opacity: 0.6; }
   /* 同理：滑块被压成一帧会停在随机位置，改为整条常亮表达「正在刷新」。 */
   .list-refresh-bar::before { animation: none !important; width: 100%; opacity: 0.5; }
+  .sync-bar.indeterminate::before { animation: none !important; width: 100%; opacity: 0.5; }
+  /* 同上：脉冲被压成一帧会停在随机透明度，可能正好停在几乎看不见的那一帧。 */
+  .conn-dot { animation: none !important; opacity: 1; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2383,6 +2412,67 @@ mark.hl {
 /* 键盘用户：焦点进到按钮上时必须看得见，否则 Tab 到一个隐形元素上 */
 .draft-actions:focus-within { opacity: 1; }
 
+/* 实时连接断开提示。
+   固定定位不占布局——它可能持续几分钟，挤走内容比断线本身更烦人。
+   位置在 toast 上方一档：两者可能同时出现（比如断线期间刚好删了一封信）。 */
+.conn-banner {
+  position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%);
+  z-index: 90;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; border-radius: 8px;
+  background: var(--warning-wash); color: var(--warning-ink);
+  border: 1px solid var(--rule);
+  font-size: 12.5px;
+  box-shadow: var(--shadow-sm);
+  animation: toastIn 0.2s;
+  max-width: calc(100vw - 32px);
+}
+.conn-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex: 0 0 auto;
+  animation: connPulse 1.4s ease-in-out infinite;
+}
+@keyframes connPulse {
+  0%, 100% { opacity: 1 }
+  50% { opacity: 0.3 }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   同步进度（侧栏账户行下方）
+   ────────────────────────────────────────────────────────────────────────
+   首次导入几千封是分钟级操作，此前全部反馈只有账户行右侧一个 11px 的圆点在转——
+   用户无从判断是在动、卡住了、还是快好了。后端的 Status 一直带着
+   phase / total / processed，这里把它们用上。
+   ════════════════════════════════════════════════════════════════════════ */
+.sync-progress {
+  padding: 2px 10px 6px 30px;   /* 左缩进对齐账户名，让它明显属于上面那一行 */
+  display: flex; flex-direction: column; gap: 3px;
+}
+.sync-bar {
+  height: 3px; border-radius: 2px;
+  background: var(--bg-sunk);
+  overflow: hidden; position: relative;
+}
+.sync-bar-fill {
+  display: block; height: 100%;
+  background: var(--accent); border-radius: 2px;
+  transition: width 0.25s ease-out;   /* 计数是每秒轮询来的，不补间会一跳一跳 */
+}
+/* 总数未知（queued / folders 阶段）：滑块来回跑，只表达「在动」 */
+.sync-bar.indeterminate::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 38%;
+  background: var(--accent); border-radius: 2px;
+  animation: syncBarSlide 1.1s ease-in-out infinite;
+}
+@keyframes syncBarSlide {
+  from { transform: translateX(-100%) }
+  to { transform: translateX(365%) }
+}
+.sync-progress-text {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    触摸尺度
    ────────────────────────────────────────────────────────────────────────
@@ -2436,3 +2526,43 @@ mark.hl {
      再加 12px 内边距会把里面的图标挤没（border-box 下 padding 吃的是内容区）。 */
   .chip:not(.chip-clear) { padding: 7px 12px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   确认对话框（useConfirm）
+   ────────────────────────────────────────────────────────────────────────
+   替掉八处 window.confirm。原生 confirm 在 Wails 桌面壳里是系统弹窗、
+   外观脱离应用也不跟随主题，而且它**阻塞整个 JS 线程**——弹着的时候
+   定时器、SSE 推送、React 更新全停。
+   ════════════════════════════════════════════════════════════════════════ */
+.confirm-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(20,18,14,0.38);
+  backdrop-filter: blur(3px);
+  animation: fadeIn 0.15s;
+}
+[data-mode="dark"] .confirm-backdrop { background: rgba(0,0,0,0.55); }
+.confirm-dialog {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 95;
+  width: 380px; max-width: calc(100vw - 32px);
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+  outline: none;
+  animation: pop 0.15s;
+}
+.confirm-title {
+  font-family: var(--font-display); font-size: 16px; font-weight: 500;
+  margin: 0 0 6px; line-height: 1.4;
+}
+.confirm-body {
+  font-size: 13px; color: var(--ink-3); line-height: 1.5;
+  margin: 0 0 4px;
+}
+.confirm-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 18px;
+}
+/* 确认框里的按钮比行内 pill 大一档：这是个需要停下来看一眼的决定 */
+.confirm-actions .pill-btn { padding: 7px 16px; font-size: 13px; }

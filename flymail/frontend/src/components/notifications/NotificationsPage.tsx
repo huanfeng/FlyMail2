@@ -19,6 +19,7 @@ import {
   useClearNotifications,
 } from '@/lib/queries'
 import type { Notification } from '@/lib/types'
+import { modalLayerOpen } from '@/lib/overlay-layers'
 
 interface NotificationsPageProps {
   /** 关闭浮层 */
@@ -90,10 +91,15 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
   // 焦点关在浮层里（与设置浮层一致）
   const trapRef = useFocusTrap<HTMLDivElement>(true)
 
-  // Esc 关闭（与设置浮层一致）
+  // Esc 关闭（与设置浮层一致，含「上面开着 radix 浮层时让位」那条判断）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // 两个判据各管一头：defaultPrevented 认「那一层已经消费了这次按键」，
+      // modalLayerOpen() 认「那一层还开着」。实测任一个单独都够用，
+      // 留着两个是因为它们失效的方式不同（浮层不 preventDefault / 浮层不在 DOM 上留痕）。
+      if (e.defaultPrevented || modalLayerOpen()) return
+      onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)

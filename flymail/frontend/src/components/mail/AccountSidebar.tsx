@@ -4,6 +4,7 @@
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
 import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
@@ -16,8 +17,58 @@ import {
   useDeleteAccount,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
-import type { Account, Folder } from '@/lib/types'
+import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
+
+/**
+ * 同步进度行。
+ *
+ * 三种表达，按后端给得出什么来分：
+ * - 知道总数（messages 阶段）→ 确定进度条 + 「已处理 / 总数」
+ * - 还不知道总数（queued / folders 阶段）→ 不确定进度条 + 阶段名
+ * - 后端没返回状态（刚触发、状态还没建立）→ 也走不确定那一支
+ *
+ * 刻意**不**显示百分比数字：total 是「这一轮要处理的邮件数」，
+ * 各文件夹是边发现边累加的，百分比会往回跳。计数不会有这个问题。
+ */
+function SyncProgress({ status }: { status: SyncStatus | null }) {
+  const { t } = useTranslation()
+  const total = status?.total ?? 0
+  const processed = status?.processed ?? 0
+  const determinate = total > 0
+
+  // 复用已有的 sync.* 文案，不另起一层 sync.phase.*——同一件事两套键是下一个漂移源
+  const phaseLabel =
+    status?.phase === 'queued'
+      ? t('sync.queued')
+      : status?.phase === 'folders'
+        ? t('sync.folders')
+        : t('sync.messages')
+
+  return (
+    <div className="sync-progress" role="status" aria-live="polite">
+      <div
+        className={'sync-bar' + (determinate ? '' : ' indeterminate')}
+        role="progressbar"
+        aria-valuemin={0}
+        {...(determinate
+          ? { 'aria-valuemax': total, 'aria-valuenow': processed }
+          : {})}
+        aria-label={phaseLabel}
+      >
+        {determinate && (
+          <span
+            className="sync-bar-fill"
+            style={{ width: `${Math.min(100, (processed / total) * 100)}%` }}
+          />
+        )}
+      </div>
+      <span className="sync-progress-text">
+        {determinate ? `${phaseLabel} ${processed} / ${total}` : phaseLabel}
+      </span>
+    </div>
+  )
+}
 
 /** 从名称取首字母（最多 2 个），用于头像占位 */
 function nameInitials(name: string): string {
@@ -75,6 +126,11 @@ interface Props {
   activeAccountId: number | null
   activeFolderId: number | null
   syncing: boolean
+  /** 正在同步的账户 id（null = 无）。转圈与进度只给这一个账户，
+      而不是「有同步在跑就让当前账户转」。 */
+  syncingAccountId: number | null
+  /** 那个账户的同步进度 */
+  syncStatus: SyncStatus | null
   /** 通知浮层是否打开，用于高亮铃铛 */
   notifOpen: boolean
   /** 设置浮层是否打开，用于高亮齿轮 */
@@ -143,7 +199,11 @@ interface AccountBlockProps {
   foldersError?: unknown
   onRetryFolders?: () => void
   activeFolderId: number | null
+  /** 这个账户此刻是否在同步（不是「有账户在同步」——原先传的是全局布尔，
+      于是同步账户 B 时转圈出现在 A 上） */
   syncing: boolean
+  /** 同步进度。仅正在同步的那个账户会拿到，其余为 null */
+  syncStatus: SyncStatus | null
   /** 账户级未读数（后端去重口径，见 useAccountUnread） */
   unread: number
   onToggleExpand: () => void
@@ -165,6 +225,7 @@ function AccountBlock({
   onRetryFolders,
   activeFolderId,
   syncing,
+  syncStatus,
   unread,
   onToggleExpand,
   onSync,
@@ -235,18 +296,28 @@ function AccountBlock({
             className="icon-btn compact"
             title={t('sync.trigger')}
             aria-label={t('sync.trigger')}
+            // 停用的账户后端会直接拒（500），同步中再点会 409——两种都只换来一条
+            // 错误提示。右键菜单里那一项本来就判了 acc.enabled，这个按钮漏了。
+            disabled={syncing || !acc.enabled}
             onClick={(e) => { e.stopPropagation(); onSync() }}
           >
+            {/* 判据只看「这个账户在不在同步」。原先是 `syncing && active`——
+                那个 active 让同步非当前账户时屏幕上完全没有变化。 */}
             <Icon
               name="circle-dot"
               size={11}
-              className={syncing && active ? 'spin-anim' : undefined}
+              className={syncing ? 'spin-anim' : undefined}
             />
           </button>
         </div>
           </div>
         }
       />
+
+      {/* 同步进度。首次导入几千封是分钟级操作，此前全部反馈只有上面那个 11px 的
+          圆点在转——用户无从判断是在动、卡住了、还是快好了。
+          后端的 Status 一直带着 phase/total/processed，前端一行都没用过。 */}
+      {syncing && <SyncProgress status={syncStatus} />}
 
       {/* 展开的文件夹列表 */}
       {expanded && (
@@ -304,6 +375,8 @@ export function AccountSidebar({
   activeAccountId,
   activeFolderId,
   syncing,
+  syncingAccountId,
+  syncStatus,
   notifOpen,
   settingsOpen,
   activeAgg,
@@ -319,6 +392,7 @@ export function AccountSidebar({
   onOpenDrafts,
 }: Props) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   // 站内未读通知数（铃铛角标）
   const { data: unreadNotifs = 0 } = useNotificationUnread()
   // 各账户未读（后端统一口径，非激活账户也能显示）
@@ -347,8 +421,14 @@ export function AccountSidebar({
   const setEnabled = useSetAccountEnabled()
   const deleteAccount = useDeleteAccount()
 
-  function handleDeleteAccount(acc: Account) {
-    if (!window.confirm(t('account.deleteConfirm'))) return
+  async function handleDeleteAccount(acc: Account) {
+    const ok = await confirm({
+      title: t('account.deleteConfirm'),
+      body: t('account.deleteConfirmBody'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     deleteAccount.mutate(acc.id)
   }
 
@@ -450,7 +530,8 @@ export function AccountSidebar({
             foldersError={acc.id === activeAccountId ? foldersError : undefined}
             onRetryFolders={onRetryFolders}
             activeFolderId={activeFolderId}
-            syncing={syncing}
+            syncing={syncing && acc.id === syncingAccountId}
+            syncStatus={acc.id === syncingAccountId ? syncStatus : null}
             unread={accountUnread[acc.id] ?? 0}
             onToggleExpand={() => {
               // 展开时同时切换账户选中（若点击非激活账户）

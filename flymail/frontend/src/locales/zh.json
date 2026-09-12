@@ -1,4 +1,9 @@
 {
+  "common": {
+    "cancel": "取消",
+    "confirm": "确定",
+    "delete": "删除"
+  },
   "app": {
     "name": "FlyMail",
     "undo": "撤销",
@@ -162,10 +167,16 @@
   "sync": {
     "trigger": "同步",
     "syncing": "同步中…",
+    "queued": "排队中…",
     "folders": "正在同步文件夹…",
     "messages": "正在同步邮件…",
     "done": "同步完成",
-    "error": "同步失败：{{error}}"
+    "error": "同步失败：{{error}}",
+    "triggerFailed": "无法开始同步",
+    "lost": "同步状态已丢失（服务重启或账户已删除）"
+  },
+  "realtime": {
+    "offline": "实时连接已断开，正在重连…"
   },
   "reader": {
     "welcome": "选择一封邮件",
@@ -201,7 +212,8 @@
     "delete": "删除",
     "move": "移动",
     "close": "关闭",
-    "deleteConfirm": "确认删除这封邮件？（移至回收站；若已在回收站则永久删除）",
+    "deleteConfirm": "确认删除这封邮件？",
+    "deleteConfirmBody": "移至回收站；若已在回收站则永久删除。",
     "reply": "回复",
     "replyAll": "全部回复",
     "forward": "转发",
@@ -250,7 +262,8 @@
     "imapFail": "IMAP 连接失败",
     "smtpOk": "SMTP 连接成功",
     "smtpFail": "SMTP 连接失败",
-    "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
+    "deleteConfirm": "确认删除该账户？",
+    "deleteConfirmBody": "本地缓存的邮件也会一并移除。",
     "nameRequired": "请填写名称和邮箱",
     "passwordRequired": "请填写密码",
     "advanced": "服务器设置",
@@ -292,6 +305,8 @@
     "savingDraft": "保存中…",
     "cancel": "取消",
     "sending": "发送中…",
+    "sendingPct": "发送中… {{pct}}%",
+    "uploading": "正在上传附件",
     "sent": "已发送",
     "toRequired": "请填写收件人",
     "draftSaved": "草稿已保存",
@@ -804,7 +819,6 @@
       "syncing": "同步中…",
       "syncDone": "同步完成",
       "syncError": "同步失败",
-      "deleteConfirm": "确认删除该账户？本地缓存的邮件也会一并移除。",
       "none": "暂无账户，点击「添加账户」开始"
     }
   },

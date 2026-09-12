@@ -3,6 +3,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { RuleDialog } from './RuleDialog'
@@ -13,6 +14,7 @@ import type { Rule, RuleAction, RuleCondition } from '@/lib/types'
 
 export function RulesSection() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { toast } = useToast()
   const { data: rules = [] } = useRules()
   const { data: accounts = [] } = useAccounts()
@@ -40,8 +42,13 @@ export function RulesSection() {
     return (e: unknown) => toast(apiErrorMessage(e, t(fallbackKey)))
   }
 
-  function handleDelete(r: Rule) {
-    if (!window.confirm(t('settings.rules.deleteConfirm', { name: r.name }))) return
+  async function handleDelete(r: Rule) {
+    const ok = await confirm({
+      title: t('settings.rules.deleteConfirm', { name: r.name }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     deleteRule.mutate(r.id, { onError: toastError('settings.rules.deleteFailed') })
   }
 

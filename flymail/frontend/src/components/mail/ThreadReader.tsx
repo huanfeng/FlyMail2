@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { DropMenu } from '@/components/ui/DropMenu'
 import type { CtxMenuItem } from '@/components/ui/ContextMenu'
@@ -76,6 +77,7 @@ function ThreadItem({
   onMailto,
 }: ThreadItemProps) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   // 展开时才请求正文：一条 20 封的会话若一次性全拉，本地库也要扫 20 遍附件表
   const { data: detail } = useMessageDetail(expanded ? msg.id : null)
   const markRead = useMarkRead()
@@ -120,8 +122,14 @@ function ThreadItem({
     })
   }
 
-  function handleDeleteOne() {
-    if (!window.confirm(t('reader.deleteConfirm'))) return
+  async function handleDeleteOne() {
+    const ok = await confirm({
+      title: t('reader.deleteConfirm'),
+      body: t('reader.deleteConfirmBody'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     deleteMessage.mutate(msg.id)
   }
 

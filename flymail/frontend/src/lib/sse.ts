@@ -1,6 +1,14 @@
 import api from '@/lib/api'
 import type { RealtimeEvent } from '@/lib/types'
 
+/**
+ * 连接状态。
+ *
+ * 只有两个值，因为调用方要回答的只有一个问题：**此刻还收得到推送吗**。
+ * 「正在退避等待下一次重连」与「正在取票」对用户没有区别，都归 'connecting'。
+ */
+export type RealtimeState = 'connecting' | 'open'
+
 /** 票据签发端点的响应 */
 interface StreamTicket {
   ticket: string
@@ -34,9 +42,16 @@ async function fetchTicket(): Promise<string | null> {
  * 断开后按指数退避（最长 30 秒）重连，每次重连都**重新取票**——旧票在上次握手时
  * 就已被后端核销，复用它只会换来一次 401。
  *
+ * 断开期间**收不到任何推送**——退避最长 30 秒，那段时间里新邮件既不会让列表刷新，
+ * 也不会弹通知。所以状态要能外露给界面（`onState`），否则合盖唤醒、后端重启之后
+ * UI 表现为「安静地不再收信」，与「确实没有新邮件」在用户眼里完全一样。
+ *
  * 返回关闭函数，供组件卸载时调用。
  */
-export function connectRealtime(onEvent: (ev: RealtimeEvent) => void): () => void {
+export function connectRealtime(
+  onEvent: (ev: RealtimeEvent) => void,
+  onState?: (s: RealtimeState) => void,
+): () => void {
   let es: EventSource | null = null
   let closed = false
   let backoff = 1000
@@ -44,6 +59,7 @@ export function connectRealtime(onEvent: (ev: RealtimeEvent) => void): () => voi
   /** 断开后安排下一次重连（退避后重新取票再连） */
   function scheduleReconnect() {
     if (closed) return
+    onState?.('connecting')
     setTimeout(open, backoff)
     backoff = Math.min(backoff * 2, 30000)
   }
@@ -78,10 +94,12 @@ export function connectRealtime(onEvent: (ev: RealtimeEvent) => void): () => voi
       es.onopen = () => {
         // 连接成功后重置退避时间
         backoff = 1000
+        onState?.('open')
       }
     })
   }
 
+  onState?.('connecting')
   open()
 
   return () => {

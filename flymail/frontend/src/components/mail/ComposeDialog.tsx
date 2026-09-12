@@ -112,7 +112,6 @@ export function ComposeDialog({
   const [showCc, setShowCc] = React.useState(false)
   const [showBcc, setShowBcc] = React.useState(false)
   const [validationError, setValidationError] = React.useState<string | null>(null)
-  const [infoMessage, setInfoMessage] = React.useState<string | null>(null)
 
   // ── Form state ───────────────────────────────────────────────────────────────
   const [form, setForm] = React.useState<FormState>(emptyForm)
@@ -232,7 +231,6 @@ export function ComposeDialog({
     if (!open) return
 
     setValidationError(null)
-    setInfoMessage(null)
     setMinimized(false)
     setPos(null) // 每次打开回到默认右下角
     setAttachments([]) // 附件不随草稿持久化，每次打开清空
@@ -284,6 +282,9 @@ export function ComposeDialog({
   const deleteDraft = useDeleteDraft()
 
   // ── Derived ─────────────────────────────────────────────────────────────────
+  // 上传进度（0~1）。null = 没有上传在进行，或这次发送不带附件。
+  // 与 isPending 分开：纯文本发送也 isPending，但那时没有可报的中间状态。
+  const [uploadPct, setUploadPct] = React.useState<number | null>(null)
   const isSending = sendMutation.isPending
   const isSavingDraft = createDraft.isPending || updateDraft.isPending
   const isBusy = isSending || isSavingDraft
@@ -339,7 +340,6 @@ export function ComposeDialog({
   // ── 发送 ─────────────────────────────────────────────────────────────────────
   function handleSend() {
     setValidationError(null)
-    setInfoMessage(null)
 
     const toAddrs = parseAddrs(form.toStr)
     if (toAddrs.length === 0) {
@@ -378,8 +378,11 @@ export function ComposeDialog({
         },
         files: attachments,
         inline: prepared.files,
+        onProgress: setUploadPct,
       },
       {
+        // 成功、失败、取消都要把进度清掉——留在 99% 上比没有进度更像卡死
+        onSettled: () => setUploadPct(null),
         onSuccess: () => {
           // 发送成功提示
           toast(t('compose.sent'))
@@ -440,7 +443,6 @@ export function ComposeDialog({
   // ── 存草稿 ───────────────────────────────────────────────────────────────────
   async function handleSaveDraft() {
     setValidationError(null)
-    setInfoMessage(null)
     if (noAccount) return
 
     // 草稿要自包含：blob URL 换页面就失效，内联图必须内嵌成 data: URI 存进正文
@@ -757,31 +759,35 @@ export function ComposeDialog({
           </div>
         )}
 
-        {/* 校验错误提示 */}
-        {validationError && (
-          <div
-            style={{
-              padding: '6px 0',
-              fontSize: 13,
-              color: 'var(--destructive)',
-            }}
-          >
-            {validationError}
-          </div>
-        )}
+      </div>
 
-        {/* 草稿保存成功提示 */}
-        {infoMessage && (
+      {/* ── 消息条：校验错误 / 草稿已存 ────────────────────────────────────────
+          放在这里而不是 .compose-body 末尾——body 是 overflow-y:auto 的滚动区，
+          而发送按钮在固定的 .compose-foot 里。写完长正文点发送时，错误会出现在
+          滚动区中看不见的地方，按钮表现为「点了没反应」。
+          常驻（而不是有内容才渲染）是为了 live region：区域本身和内容一起插入 DOM 时
+          多数读屏不播报——这是撤销条那一轮就学到的。 */}
+      {/* 上传进度条。与消息条一样在 .compose-body 之外——它要在整个上传期间可见，
+          而那正是用户会往下滚去看附件列表的时候。 */}
+      {uploadPct != null && (
+        <div className="compose-upload">
           <div
-            style={{
-              padding: '6px 0',
-              fontSize: 13,
-              color: 'var(--ink-2)',
-            }}
+            className="compose-upload-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(uploadPct * 100)}
+            aria-label={t('compose.uploading')}
           >
-            {infoMessage}
+            <span style={{ width: `${Math.round(uploadPct * 100)}%` }} />
           </div>
-        )}
+        </div>
+      )}
+
+      {/* 校验消息。容器**常驻**：live region 与内容一起插进 DOM 时读屏不播报，
+          而且它与发送按钮同在固定区域，写完长正文点发送也看得见（滚动区在上面）。 */}
+      <div className="compose-msg" role="status" aria-live="polite">
+        {validationError && <span className="cm-danger">{validationError}</span>}
       </div>
 
       {/* ── 底部操作栏 .compose-foot ─────────────────────────────────────────── */}
@@ -793,7 +799,11 @@ export function ComposeDialog({
           disabled={isBusy || noAccount}
           type="button"
         >
-          {isSending ? t('compose.sending') : t('compose.send')}
+          {isSending
+            ? uploadPct != null
+              ? t('compose.sendingPct', { pct: Math.round(uploadPct * 100) })
+              : t('compose.sending')
+            : t('compose.send')}
         </button>
 
         {/* 存草稿按钮 */}

@@ -7,6 +7,7 @@ import './index.css'
 import '@/lib/i18n'
 import { initTheme } from '@/lib/theme'
 import { ToastProvider } from '@/components/ui/Toast'
+import { ConfirmProvider } from '@/components/ui/Confirm'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 
 initTheme()
@@ -28,7 +29,11 @@ createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         {/* ToastProvider 包裹路由根，使所有子组件均可调用 useToast() */}
         <ToastProvider>
-          <RouterProvider router={router} />
+          {/* 同理 useConfirm()：删除类操作的确认框。在 Toast 之内，
+              使确认之后紧接着弹的「已删除 · 撤销」能正常显示。 */}
+          <ConfirmProvider>
+            <RouterProvider router={router} />
+          </ConfirmProvider>
         </ToastProvider>
       </QueryClientProvider>
     </ErrorBoundary>

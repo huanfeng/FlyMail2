@@ -1,4 +1,9 @@
 {
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete"
+  },
   "app": {
     "name": "FlyMail",
     "undo": "Undo",
@@ -162,10 +167,16 @@
   "sync": {
     "trigger": "Sync",
     "syncing": "Syncing…",
+    "queued": "Queued…",
     "folders": "Syncing folders…",
     "messages": "Syncing messages…",
     "done": "Sync complete",
-    "error": "Sync failed: {{error}}"
+    "error": "Sync failed: {{error}}",
+    "triggerFailed": "Could not start sync",
+    "lost": "Sync status lost (service restarted or account removed)"
+  },
+  "realtime": {
+    "offline": "Live connection lost, reconnecting…"
   },
   "reader": {
     "welcome": "Select a message",
@@ -201,7 +212,8 @@
     "delete": "Delete",
     "move": "Move",
     "close": "Close",
-    "deleteConfirm": "Delete this message? (Moved to Trash; permanently deleted if already in Trash)",
+    "deleteConfirm": "Delete this message?",
+    "deleteConfirmBody": "Moved to Trash; permanently deleted if already in Trash.",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -250,7 +262,8 @@
     "imapFail": "IMAP connection failed",
     "smtpOk": "SMTP connection successful",
     "smtpFail": "SMTP connection failed",
-    "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
+    "deleteConfirm": "Delete this account?",
+    "deleteConfirmBody": "Locally cached messages will also be removed.",
     "nameRequired": "Name and email are required",
     "passwordRequired": "Password is required",
     "advanced": "Server Settings",
@@ -292,6 +305,8 @@
     "savingDraft": "Saving…",
     "cancel": "Cancel",
     "sending": "Sending…",
+    "sendingPct": "Sending… {{pct}}%",
+    "uploading": "Uploading attachments",
     "sent": "Sent",
     "toRequired": "Please fill in the recipient",
     "draftSaved": "Draft saved",
@@ -804,7 +819,6 @@
       "syncing": "Syncing…",
       "syncDone": "Sync complete",
       "syncError": "Sync failed",
-      "deleteConfirm": "Delete this account? Locally cached messages will also be removed.",
       "none": "No accounts yet. Click \"Add Account\" to get started."
     }
   },

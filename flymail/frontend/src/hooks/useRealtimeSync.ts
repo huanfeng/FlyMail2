@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { connectRealtime } from '@/lib/sse'
 import { getNotifyPrefs } from '@/lib/notify-prefs'
@@ -22,7 +22,17 @@ export interface RealtimeOptions {
  * - `notify` —— 「值得打扰用户的一件事」。后端在 emit 那一侧已经过了三道闸门
  *   （文件夹类型、非基线未读、跨文件夹去重），标题正文也拼好了。
  */
-export function useRealtimeSync(opts: RealtimeOptions = {}): void {
+
+/**
+ * 连续多久连不上才告诉用户。
+ *
+ * 判据不能是「此刻是不是 connecting」——重连很频繁（合盖唤醒、切换网络、后端重启
+ * 都会断一下），而绝大多数在一两秒内就成功了，照实显示只会让提示条不停闪。
+ */
+const OFFLINE_AFTER_MS = 6000
+
+/** 订阅 SSE，并返回连接是否**看起来已经断了**（见 OFFLINE_AFTER_MS）。 */
+export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean } {
   const qc = useQueryClient()
   // 回调每次渲染都是新引用，放进依赖会让 SSE 连接反复重建（每次都要重新取票）。
   // 同步放在 effect 里而不是 render 期赋值：后者正是 react-hooks/refs 拦的东西，
@@ -32,7 +42,19 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): void {
     optsRef.current = opts
   })
 
+  const [offline, setOffline] = useState(false)
+
   useEffect(() => {
+    // 计时器在 effect 作用域内，与连接同生共死：卸载时一并清掉，
+    // 不会出现「连接没了而计时器还在把 offline 置真」。
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null
+    const clearOfflineTimer = () => {
+      if (offlineTimer != null) {
+        clearTimeout(offlineTimer)
+        offlineTimer = null
+      }
+    }
+
     const close = connectRealtime((ev) => {
       if (ev.type === 'new_mail') {
         void qc.invalidateQueries({ queryKey: ['folders'] })
@@ -73,7 +95,24 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): void {
         // 抢一次：开着多个 FlyMail 标签页时，同一批新邮件不该按窗口数叠加着响
         if (prefs.sound && claimChime()) playChime()
       }
+    },
+    (state) => {
+      if (state === 'open') {
+        clearOfflineTimer()
+        setOffline(false)
+        return
+      }
+      // connecting：可能一秒内就好了，先不报。已经在倒计时就别重置——
+      // 退避会让 connecting 反复触发，每次都重置计时器的话永远到不了阈值。
+      if (offlineTimer == null) {
+        offlineTimer = setTimeout(() => setOffline(true), OFFLINE_AFTER_MS)
+      }
     })
-    return close
+    return () => {
+      clearOfflineTimer()
+      close()
+    }
   }, [qc])
+
+  return { offline }
 }

@@ -6,6 +6,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { apiErrorMessage } from '@/lib/api'
 import { useDeleteTrustedSender, useTrustedSenders } from '@/lib/queries'
@@ -13,12 +14,18 @@ import type { TrustedSender } from '@/lib/types'
 
 export function TrustedSendersSection() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { data: senders = [] } = useTrustedSenders()
   const deleteSender = useDeleteTrustedSender()
   const [error, setError] = React.useState<string | null>(null)
 
-  function handleDelete(s: TrustedSender) {
-    if (!window.confirm(t('settings.privacy.trusted.deleteConfirm', { address: s.address }))) return
+  async function handleDelete(s: TrustedSender) {
+    const ok = await confirm({
+      title: t('settings.privacy.trusted.deleteConfirm', { address: s.address }),
+      confirmLabel: t('common.confirm'),
+      danger: true,
+    })
+    if (!ok) return
     setError(null)
     deleteSender.mutate(s.id, {
       onError: (err) => setError(apiErrorMessage(err, t('settings.privacy.trusted.deleteFailed'))),

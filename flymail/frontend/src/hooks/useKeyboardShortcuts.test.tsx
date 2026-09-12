@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { useKeyboardShortcuts, FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
+import { ConfirmProvider, useConfirm } from '@/components/ui/Confirm'
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (k: string) => k }),
+}))
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -270,5 +275,57 @@ describe('useKeyboardShortcuts', () => {
     await press('e')
     await press('#')
     expect(true).toBe(true)
+  })
+
+  // ── 确认框开着的时候 ───────────────────────────────────────────────────────
+  //
+  // composeOpen / helpOpen / overlayOpen 那三个布尔量覆盖不到从阅读区弹出的删除
+  // 确认框：三个全是 false，于是「确认要删掉这一封吗」开着的时候，单键快捷键
+  // 照样打在背后的列表上——按 # 删掉的是**另一封**邮件。
+  //
+  // 这一段用真的确认框而不是手搭一个 role="dialog"：判据要对得上 radix 实际
+  // 渲染出来的 DOM，手搭的话 radix 升级换了属性名它照样绿。
+  describe('从阅读区弹出确认框时', () => {
+    function WithConfirm() {
+      const confirm = useConfirm()
+      return (
+        <>
+          <Probe />
+          <button type="button" id="ask" onClick={() => void confirm({ title: '删掉它？' })}>
+            ask
+          </button>
+        </>
+      )
+    }
+
+    async function mountAndAsk() {
+      await act(async () => root.render(<ConfirmProvider><WithConfirm /></ConfirmProvider>))
+      await act(async () => container.querySelector<HTMLButtonElement>('#ask')?.click())
+      expect(document.querySelector('.confirm-dialog'), '前提：确认框已弹出').not.toBeNull()
+    }
+
+    it('单键快捷键不再打到背后的列表上', async () => {
+      await mountAndAsk()
+      await press('#')
+      await press('e')
+      await press('j')
+      expect(h.onDelete, '确认框开着时 # 删掉了背后的另一封邮件').not.toHaveBeenCalled()
+      expect(h.onArchive).not.toHaveBeenCalled()
+      expect(h.onNavigate).not.toHaveBeenCalled()
+    })
+
+    it('Esc 归确认框，不会顺带把正在看的那封邮件也关掉', async () => {
+      await mountAndAsk()
+      await press('Escape')
+      expect(h.onEscape, '同一次 Esc 被消费了两回').not.toHaveBeenCalled()
+    })
+
+    it('确认框关掉之后快捷键恢复', async () => {
+      await mountAndAsk()
+      const cancel = document.querySelector<HTMLButtonElement>('.confirm-dialog .confirm-actions button')
+      await act(async () => cancel?.click())
+      await press('#')
+      expect(h.onDelete).toHaveBeenCalledTimes(1)
+    })
   })
 })

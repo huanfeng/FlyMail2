@@ -67,6 +67,7 @@
 git clone git@github.com:huanfeng/FlyMail2.git
 cd FlyMail2
 
+mkdir -p data && chown $(id -u):$(id -g) data   # 首次必做，理由见下
 cp .env.example .env
 # 必填三项：
 #   FLYMAIL_AUTH_JWT_SECRET=$(openssl rand -hex 32)
@@ -77,6 +78,12 @@ docker compose up -d --build
 ```
 
 打开 `http://<主机>:8086`，用 `.env` 里的账号密码登录。
+
+> **为什么要先手工建 `data` 目录**：bind mount 的宿主目录若不存在，Docker 会以 **root**
+> 把它建出来，而容器按 `.env` 里的 `PUID:PGID`（默认 1000:1000）运行，于是写不进去。
+> 更麻烦的是 SQLite 把这个权限错误报成 `unable to open database file: out of memory (14)`
+> ——看上去与权限毫无关系。容器启动时会提前探测并给出提示，但预先建好目录可以完全避开它。
+> 若目录已经被 Docker 以 root 建出来了，用 `sudo chown -R $(id -u):$(id -g) data` 修正。
 
 > **构建上下文必须是仓库根目录**：`flymail/backend/go.mod` 里有
 > `replace flymail-core => ../../core`，编译需要 `core/` 的源码。

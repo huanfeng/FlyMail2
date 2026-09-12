@@ -148,6 +148,27 @@ docker compose start
 
 ---
 
+
+### SMTP 发信：认证相关的两个已知行为
+
+- **服务器不要求认证时不再发 AUTH**（内网 postfix 中继、本地 MTA）。
+  此前无条件发 AUTH，而明文链路上 net/smtp 的 PlainAuth 拒绝交凭证，
+  这类服务器因此一封信都发不出去。现在按 RFC 4954 先看 EHLO 的回应。
+  老式的 `AUTH=LOGIN` 形式广告也会被认出来（net/smtp 按空格切 key，精确查 "AUTH" 查不到）。
+- **安全模式选 `none` 时的凭证策略**：`none` 在本实现里是**机会式 STARTTLS**（能升就升），
+  所以它的语义是「自动」而不是「我要明文」。据此分两种情形：
+  - 服务器**没有**广告 STARTTLS（真正的明文中继）→ 按配置发送凭证，日志记一条警告
+  - 服务器广告了 STARTTLS 但升级失败 → 按**降级**处理，拒绝发送凭证。
+    那正是主动 MITM 打断 TLS 握手就能把凭证降级出来的情形，日志里会记下 TLS 失败的原因。
+
+> **已知残留风险（低）**：Go 的 `net/smtp` 存 EHLO 扩展 key 时保留原样，
+> 查询时却先转大写，所以服务器若回小写的 `250-starttls` / `250-auth login`
+> （RFC 5321 允许大小写不敏感）会被漏判。现实中的 SMTP 服务器几乎一律用大写，
+> 且 `connect()` 与认证走的是同一次判断、同样漏判，**内部是自洽的**——
+> 不存在「连接层升级了、认证层却以为没提供」这种更糟的错配。
+> 加密处境已收敛到 `connState`（`core/smtp/smtp.go`）一处，
+> 将来真要加大小写兜底也只需改那一个地方。
+
 ## 5. 反向代理与 HTTPS
 
 对外暴露时把 `FLYMAIL_BIND` 改成 `127.0.0.1`，只让反向代理能连到容器端口，
@@ -261,8 +282,13 @@ server {
 - [x] 反向代理 + HTTPS —— 配置样例见第 5 节；测试服务器仍是明文 HTTP，公网暴露前按该节配置
 - [x] 镜像推送到 registry —— `.github/workflows/release.yml` 打 tag 后推 GHCR，
       服务器可改用 `docker compose pull` 免去本地构建（**流水线本身尚未在真实 tag 上跑过**）
-- [ ] 与 GreenMail 编排到一起，支持在服务器上跑 E2E（现有 `docker-compose.e2e.yml`）
-      —— 注意它把 GreenMail 的 REST API 映射到宿主 `8080`，而服务器上该端口已被占用，
-      迁移时需要改端口映射
-- [ ] 镜像体积核对（M15 目标 < 50MB）：`release.yml` 会把实测值打进日志，
+- [x] 与 GreenMail 编排到一起，支持在服务器上跑 E2E
+      —— `docker-compose.greenmail.yml`（叠加编排）+ `scripts/greenmail-smoke.sh`。
+      与 `e2e.sh` 分工：那个跑宿主机的 `go test`（测代码，要求装 Go），
+      这个只用 HTTP 接口测**部署出来的镜像本身**（镜像缺 CA 证书、entrypoint 换行符
+      被转换、数据卷权限不对，都只有这条路能发现）。
+      —— 端口只绑 `127.0.0.1`（GreenMail 关闭了鉴权，绝不能让它对局域网可见），
+      默认 SMTP 3025 / IMAP 3143 / REST 3080，都可用环境变量覆盖
+- [x] 镜像体积核对（M15 目标 < 50MB）：2026-09-12 本机实测 **41.9MB**。
+      `release.yml` 也会把实测值打进日志，
       也可在服务器上 `docker images flymail:local` 直接看

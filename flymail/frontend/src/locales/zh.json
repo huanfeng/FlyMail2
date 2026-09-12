@@ -2,7 +2,17 @@
   "app": {
     "name": "FlyMail",
     "undo": "撤销",
-    "retry": "重试"
+    "retry": "重试",
+    "crashTitle": "界面出错了",
+    "crashHint": "页面渲染时遇到未预期的错误。可以先重试，仍然不行就重新加载。",
+    "crashReload": "重新加载"
+  },
+  "layout": {
+    "resizeSidebar": "调整侧栏宽度",
+    "resizeList": "调整列表宽度",
+    "resizeSlide": "调整阅读面板宽度",
+    "widthPx": "{{px}} 像素",
+    "resizeHint": "方向键调整，按住 Shift 加速，Home / End 到最窄或最宽"
   },
   "ctx": {
     "markRead": "标为已读",
@@ -45,7 +55,9 @@
     "allInboxes": "所有收件箱",
     "allUnread": "所有未读",
     "starred": "星标",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "accountsError": "账户列表加载失败",
+    "foldersError": "文件夹加载失败"
   },
   "folder": {
     "inbox": "收件箱",
@@ -139,7 +151,12 @@
     "loadErrorHint": "没能取到邮件列表，请检查网络或稍后重试。",
     "noAccountsTitle": "还没有邮箱账户",
     "noAccountsHint": "添加一个账户就可以开始收信了。",
-    "addAccountCta": "添加账户"
+    "addAccountCta": "添加账户",
+    "loadMoreFailed": "加载失败",
+    "selectMessage": "选择邮件：{{subject}}",
+    "selectThread": "选择会话：{{subject}}",
+    "ariaList": "邮件列表",
+    "ariaThreadList": "会话列表"
   },
   "sync": {
     "trigger": "同步",
@@ -322,7 +339,11 @@
     "closeGuardText": "关闭后未保存的内容会丢失。",
     "closeGuardSave": "保存草稿",
     "closeGuardDiscard": "丢弃",
-    "closeGuardCancel": "继续写"
+    "closeGuardCancel": "继续写",
+    "draftsLoadErrorHint": "没能取到草稿列表，请检查网络或稍后重试。",
+    "expand": "展开",
+    "discard": "丢弃",
+    "attachRemoveNamed": "移除附件 {{name}}"
   },
   "notif": {
     "title": "通知",

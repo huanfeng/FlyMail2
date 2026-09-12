@@ -53,6 +53,8 @@ export interface LoadMoreInput {
   lastLoadedCount: number
   hasNextPage: boolean
   isFetchingNextPage: boolean
+  /** 上一次翻页请求失败且尚未重试成功 */
+  nextPageError: boolean
 }
 
 /**
@@ -62,10 +64,16 @@ export interface LoadMoreInput {
  * **底层数据相比上次触发确实增长过**：unread / flagged 是前端筛选，新页里的邮件
  * 可能一封都通不过筛选，rowCount 不涨会让接近底部的条件继续成立而无限翻页。
  * 有了这条，翻页次数最多等于总页数。
+ *
+ * 失败后交给用户显式重试（nextPageError），不自动重发：这里的触发判据是
+ * 「最末可见行接近底部」，而请求失败并不会让行数变化，自动重试等于按帧重发。
+ * 底部那条「加载失败 · 重试」是失败之后唯一的翻页入口——没有它，
+ * 列表会停在第 N 页处一声不吭，看起来就是「邮件到这里就没有了」。
  */
 export function shouldLoadMore(input: LoadMoreInput): boolean {
-  const { lastIndex, rowCount, messageCount, lastLoadedCount, hasNextPage, isFetchingNextPage } = input
+  const { lastIndex, rowCount, messageCount, lastLoadedCount, hasNextPage, isFetchingNextPage, nextPageError } = input
   if (!hasNextPage || isFetchingNextPage) return false
+  if (nextPageError) return false
   if (lastIndex < rowCount - 5) return false
   // 上一轮翻页没带回任何新邮件，别再原地重试
   if (lastLoadedCount === messageCount) return false

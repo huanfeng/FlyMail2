@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   LAYOUT_EVENT,
@@ -9,6 +9,7 @@ import {
   type LayoutWidths as Widths,
 } from '@/lib/layout-prefs'
 import { Icon } from '@/components/ui/Icon'
+import { ResizeHandle } from '@/components/ui/ResizeHandle'
 
 interface AppLayoutProps {
   sidebar: ReactNode
@@ -75,109 +76,119 @@ export function AppLayout({
   const effLayout = isMobile ? 'three' : layoutMode
   const readerOpen = mobilePane === 'reader'
   const [w, setW] = useState<Widths>(loadLayoutWidths)
-  // 使用 ref 在事件回调里读取最新值（避免闭包陷阱）
-  const wRef = useRef(w)
-  wRef.current = w
 
   // 同步 CSS 变量到 :root，驱动 .col.sidebar / .col.list / .reader-slide 宽度
   useEffect(() => {
     document.documentElement.style.setProperty('--sidebar-w', `${w.sidebar}px`)
     document.documentElement.style.setProperty('--list-w', `${w.list}px`)
     document.documentElement.style.setProperty('--slide-w', `${w.slide}px`)
-    document.documentElement.style.setProperty('--sender-col-w', `${w.senderCol}px`)
+    // ⚠ 这里**不写** --sender-col-w：那一项归 MailList 管（见它的 senderCol effect）。
+    // 两边都写就是与 localStorage 那条同形的竞态——拖发件人列时 MailList 立刻把变量
+    // 写成新值而它的防抖还挂着，这时去拖侧栏，本 effect 每帧触发、把变量写回手上那份
+    // 旧的 w.senderCol，列宽在侧栏拖拽过程中一直弹回旧值，直到防抖广播出来才跳回去。
   }, [w])
+
+  // 挂载时按存盘值写一次 --sender-col-w 兜底。
+  // 不这么做的话，MailList 挂载之前 CSS 走 var(--sender-col-w, 150px) 的默认值，
+  // 存了别的宽度的用户会看到列宽先窄后宽闪一下。只写这一次，之后交给 MailList。
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--sender-col-w',
+      `${loadLayoutWidths().senderCol}px`,
+    )
+  }, [])
 
   // 监听设置弹框滑块的宽度变更，即时同步（拖拽自身写入也会触发，setW 同值为 no-op）
   useEffect(() => {
     function onLayoutChange(e: Event) {
       const detail = (e as CustomEvent<Widths>).detail
-      if (detail) setW(detail)
+      if (!detail) return
+      // 必须按值比较后再决定要不要更新：落盘 effect 依赖 [w]，而 saveLayoutWidths
+      // 会广播回这里，detail 每次都是新对象——直接 setW 就是
+      // 「落盘 → 广播 → 新引用 → 再落盘」的自激循环。返回 prev 时 React 不重渲染。
+      setW((prev) =>
+        prev.sidebar === detail.sidebar &&
+        prev.list === detail.list &&
+        prev.slide === detail.slide &&
+        prev.senderCol === detail.senderCol
+          ? prev
+          : detail,
+      )
     }
     window.addEventListener(LAYOUT_EVENT, onLayoutChange)
     return () => window.removeEventListener(LAYOUT_EVENT, onLayoutChange)
   }, [])
 
-  // 持久化到 localStorage（并广播，使设置滑块同步）
-  function persistWidths(next: Widths) {
-    saveLayoutWidths(next)
+  // 持久化到 localStorage（并广播，使设置滑块同步）。
+  // 防抖挂在宽度上而不是「松手」那一刻：拖拽每帧写盘是浪费，键盘每按一次也一样，
+  // 而挂在状态上让两条路共用同一个时机——不必为了「结束时读到最新值」
+  // 维护一个在 render 期赋值的 ref（那正是 react-hooks/refs 拦的东西）。
+  useEffect(() => {
+    // 只写自己管的三项：senderCol 归 MailList，这里手上的那份可能比它的新改动旧
+    const mine = { sidebar: w.sidebar, list: w.list, slide: w.slide }
+    // pending 让 flush 名副其实：它的本意是「把**还没到期的**改动补上」。
+    // 没有它就是「无条件再写一次」——而 visibilitychange 每次切标签页都触发
+    //（哪怕一个字节都没改），加上 pagehide，一次页面隐藏会写 4 次盘、广播 4 次，
+    // 把 LAYOUT_EVENT 变成「切标签页也会响」的事件。今天只有值比较的监听器在听，
+    // 无害；哪天有谁订阅它做实事就会收到一堆莫名其妙的唤醒。
+    let pending = true
+    const id = setTimeout(() => {
+      pending = false
+      saveLayoutWidths(mine)
+    }, 200)
+    // 卸载/关窗时把还没到期的改动补上。防抖的 cleanup 只能 clearTimeout
+    //（它每次变更都跑，在里面直接写就等于没有防抖），所以另挂一条 flush——
+    // 桌面端关窗没有第二次机会，而「拖完就关」正是常见的收尾动作。
+    //
+    // 两个事件都挂：按 Page Lifecycle 的模型，页面被丢弃/终止前唯一可以指望的是
+    // visibilitychange → hidden，pagehide 与 beforeunload 在多种终止路径上都可能不触发
+    // ——而那恰恰包括 WebView2 关窗这种最需要它的场景。多写一次 localStorage 无害，
+    // 漏写一次就是用户刚调的宽度白调了。
+    const flush = () => {
+      if (!pending) return
+      pending = false
+      saveLayoutWidths(mine)
+    }
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      clearTimeout(id)
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [w])
+
+  /**
+   * 三栏形态下侧栏/列表的动态上限：不允许把阅读区挤到 READER_MIN 以下
+   * （双栏模式第三栏是浮层，不受列宽挤压，无需此约束）。
+   */
+  function maxOf(key: PaneKey, prev: Widths): number {
+    if (effLayout !== 'three') return LIMITS[key].max
+    const other = key === 'list' ? prev.sidebar : prev.list
+    return Math.min(LIMITS[key].max, window.innerWidth - other - READER_MIN)
   }
 
-  // 构造单个 col-resize 手柄的 pointer 事件处理器
-  function makeResizeHandlers(key: PaneKey) {
-    return {
-      onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-        e.preventDefault()
-        const el = e.currentTarget
-        el.setPointerCapture(e.pointerId)
-        el.classList.add('dragging')
-        document.body.classList.add('is-resizing')
-
-        let lastX = e.clientX
-
-        function onMove(ev: PointerEvent) {
-          const dx = ev.clientX - lastX
-          lastX = ev.clientX
-          setW((prev) => {
-            // 三栏形态下动态收紧上限：不允许把阅读区挤到 READER_MIN 以下
-            // （双栏模式第三栏是浮层，不受列宽挤压，无需此约束）。
-            let max: number = LIMITS[key].max
-            if (effLayout === 'three') {
-              const other = key === 'list' ? prev.sidebar : prev.list
-              max = Math.min(max, window.innerWidth - other - READER_MIN)
-            }
-            const next = clamp(prev[key] + dx, LIMITS[key].min, max)
-            return { ...prev, [key]: next }
-          })
-        }
-
-        function onUp(ev: PointerEvent) {
-          el.releasePointerCapture(ev.pointerId)
-          el.classList.remove('dragging')
-          document.body.classList.remove('is-resizing')
-          el.removeEventListener('pointermove', onMove)
-          el.removeEventListener('pointerup', onUp)
-          el.removeEventListener('pointercancel', onUp)
-          // 拖拽结束后持久化
-          persistWidths(wRef.current)
-        }
-
-        el.addEventListener('pointermove', onMove)
-        el.addEventListener('pointerup', onUp)
-        el.addEventListener('pointercancel', onUp)
-      },
-    }
+  /** 水平位移 → 侧栏/列表宽度。两者都左锚定，向右拖即变宽。 */
+  function resizePane(key: PaneKey, dx: number) {
+    setW((prev) => ({ ...prev, [key]: clamp(prev[key] + dx, LIMITS[key].min, maxOf(key, prev)) }))
   }
 
-  // 浮动阅读/通知面板（reader-slide）左缘拖拽：面板右锚定，向左拖增宽、向右拖减窄
-  function onSlideResizeDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault()
-    const el = e.currentTarget
-    el.setPointerCapture(e.pointerId)
-    el.classList.add('dragging')
-    document.body.classList.add('is-resizing')
-    let lastX = e.clientX
-
-    function onMove(ev: PointerEvent) {
-      const dx = ev.clientX - lastX
-      lastX = ev.clientX
-      setW((prev) => ({
-        ...prev,
-        slide: clamp(prev.slide - dx, LIMITS.slide.min, LIMITS.slide.max),
-      }))
-    }
-    function onUp(ev: PointerEvent) {
-      el.releasePointerCapture(ev.pointerId)
-      el.classList.remove('dragging')
-      document.body.classList.remove('is-resizing')
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerup', onUp)
-      el.removeEventListener('pointercancel', onUp)
-      persistWidths(wRef.current)
-    }
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerup', onUp)
-    el.addEventListener('pointercancel', onUp)
+  function jumpPane(key: PaneKey, to: 'min' | 'max') {
+    setW((prev) => ({ ...prev, [key]: to === 'min' ? LIMITS[key].min : maxOf(key, prev) }))
   }
+
+  /** 浮动阅读面板右锚定：向左拖才是变宽，符号与另外两个相反。 */
+  function resizeSlide(dx: number) {
+    setW((prev) => ({ ...prev, slide: clamp(prev.slide - dx, LIMITS.slide.min, LIMITS.slide.max) }))
+  }
+
+  function jumpSlide(to: 'min' | 'max') {
+    setW((prev) => ({ ...prev, slide: to === 'min' ? LIMITS.slide.min : LIMITS.slide.max }))
+  }
+
 
   return (
     // .app：桌面三栏 flex；窄屏据 data-mobile-pane 单栏切换，drawer-open 控制侧栏抽屉
@@ -221,12 +232,16 @@ export function AppLayout({
       <div className="drawer-backdrop" onClick={() => onDrawerOpenChange(false)} />
 
       {/* 侧栏与列表之间的拖拽手柄 */}
-      <div
+      <ResizeHandle
         className="col-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整侧栏宽度"
-        {...makeResizeHandlers('sidebar')}
+        label={t('layout.resizeSidebar')}
+        value={w.sidebar}
+        min={LIMITS.sidebar.min}
+        // 用动态上限而不是 LIMITS.max：三栏形态下真正的上限由窗口宽度收紧，
+        // 而 Home/End 走的就是 maxOf——两处不一致的话，读屏被告知的最大值永远到不了
+        max={maxOf('sidebar', w)}
+        onDelta={(dx) => resizePane('sidebar', dx)}
+        onJump={(to) => jumpPane('sidebar', to)}
       />
 
       {/* 列表栏：.col.list；双栏模式加 .list-wide 占满剩余宽度 */}
@@ -237,12 +252,14 @@ export function AppLayout({
       {effLayout === 'three' ? (
         <>
           {/* 列表与阅读区之间的拖拽手柄 */}
-          <div
+          <ResizeHandle
             className="col-resize"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="调整列表宽度"
-            {...makeResizeHandlers('list')}
+            label={t('layout.resizeList')}
+            value={w.list}
+            min={LIMITS.list.min}
+            max={maxOf('list', w)}
+            onDelta={(dx) => resizePane('list', dx)}
+            onJump={(to) => jumpPane('list', to)}
           />
 
           {/* 第三栏：.col.reader（邮件视图=Reader，通知视图=通知屏）*/}
@@ -256,13 +273,17 @@ export function AppLayout({
           <div className="reader-slide">
             {readerOpen && (
               <>
-                {/* 左缘拖拽手柄：调整浮动面板宽度 */}
-                <div
+                {/* 左缘拖拽手柄：调整浮动面板宽度。
+                    这一个尤其需要键盘可用——另外三处在设置里还有滑块替代，
+                    浮动面板的宽度只有这条路。 */}
+                <ResizeHandle
                   className="slide-resize"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="调整面板宽度"
-                  onPointerDown={onSlideResizeDown}
+                  label={t('layout.resizeSlide')}
+                  value={w.slide}
+                  min={LIMITS.slide.min}
+                  max={LIMITS.slide.max}
+                  onDelta={resizeSlide}
+                  onJump={jumpSlide}
                 />
                 {/* 关闭按钮（浮于阅读面板左上角，返回方向指向左侧列表，符合操作逻辑）*/}
                 <button

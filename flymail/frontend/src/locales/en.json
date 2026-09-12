@@ -2,7 +2,17 @@
   "app": {
     "name": "FlyMail",
     "undo": "Undo",
-    "retry": "Retry"
+    "retry": "Retry",
+    "crashTitle": "Something went wrong",
+    "crashHint": "The page hit an unexpected error while rendering. Try again, or reload if it persists.",
+    "crashReload": "Reload"
+  },
+  "layout": {
+    "resizeSidebar": "Resize sidebar",
+    "resizeList": "Resize message list",
+    "resizeSlide": "Resize reading panel",
+    "widthPx": "{{px}} pixels",
+    "resizeHint": "Arrow keys to adjust, hold Shift for larger steps, Home / End for min or max"
   },
   "ctx": {
     "markRead": "Mark as read",
@@ -45,7 +55,9 @@
     "allInboxes": "All Inboxes",
     "allUnread": "All Unread",
     "starred": "Starred",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "accountsError": "Couldn't load accounts",
+    "foldersError": "Couldn't load folders"
   },
   "folder": {
     "inbox": "Inbox",
@@ -139,7 +151,12 @@
     "loadErrorHint": "Could not fetch the message list. Check your connection and try again.",
     "noAccountsTitle": "No mail accounts yet",
     "noAccountsHint": "Add an account to start receiving mail.",
-    "addAccountCta": "Add account"
+    "addAccountCta": "Add account",
+    "loadMoreFailed": "Failed to load",
+    "selectMessage": "Select message: {{subject}}",
+    "selectThread": "Select conversation: {{subject}}",
+    "ariaList": "Message list",
+    "ariaThreadList": "Conversation list"
   },
   "sync": {
     "trigger": "Sync",
@@ -322,7 +339,11 @@
     "closeGuardText": "Unsaved content will be lost if you close it.",
     "closeGuardSave": "Save draft",
     "closeGuardDiscard": "Discard",
-    "closeGuardCancel": "Keep writing"
+    "closeGuardCancel": "Keep writing",
+    "draftsLoadErrorHint": "Couldn't load drafts. Check your connection and try again.",
+    "expand": "Expand",
+    "discard": "Discard",
+    "attachRemoveNamed": "Remove attachment {{name}}"
   },
   "notif": {
     "title": "Notifications",

@@ -43,10 +43,35 @@ const FOLDER_ICON: Record<string, IconName> = {
 }
 
 
+// ── 侧栏错误行 ───────────────────────────────────────────
+//
+// 侧栏的两条链路失败时 data 都回落成空数组，界面与「一个账户都没有」
+// 「这个账户没有文件夹」完全同形。没有这一行，一次 500 就表现为一个空侧栏：
+// 既看不出是故障，也没有重试的入口。
+function SideError({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="side-error" role="status">
+      <span>{text}</span>
+      {onRetry && (
+        <button type="button" className="side-error-retry" onClick={onRetry}>
+          {t('app.retry')}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Props ────────────────────────────────────────────────
 interface Props {
   accounts: Account[]
+  /** 账户列表加载失败（与「一个账户都没有」是两回事，必须分开表达） */
+  accountsError?: unknown
+  onRetryAccounts?: () => void
   folders: Folder[]
+  /** 当前账户的文件夹加载失败 */
+  foldersError?: unknown
+  onRetryFolders?: () => void
   activeAccountId: number | null
   activeFolderId: number | null
   syncing: boolean
@@ -114,6 +139,9 @@ interface AccountBlockProps {
   expanded: boolean
   active: boolean
   folders: Folder[]
+  /** 文件夹加载失败（仅激活账户会传：非激活账户压根没发这个请求） */
+  foldersError?: unknown
+  onRetryFolders?: () => void
   activeFolderId: number | null
   syncing: boolean
   /** 账户级未读数（后端去重口径，见 useAccountUnread） */
@@ -133,6 +161,8 @@ function AccountBlock({
   expanded,
   active,
   folders,
+  foldersError,
+  onRetryFolders,
   activeFolderId,
   syncing,
   unread,
@@ -222,6 +252,9 @@ function AccountBlock({
       {/* 展开的文件夹列表 */}
       {expanded && (
         <div className="folder-list">
+          {foldersError != null && (
+            <SideError text={t('sidebar.foldersError')} onRetry={onRetryFolders} />
+          )}
           {folders
             .filter((f) => f.selectable)
             .map((f) => {
@@ -264,7 +297,11 @@ function AccountBlock({
 
 export function AccountSidebar({
   accounts,
+  accountsError,
+  onRetryAccounts,
   folders,
+  foldersError,
+  onRetryFolders,
   activeAccountId,
   activeFolderId,
   syncing,
@@ -400,6 +437,9 @@ export function AccountSidebar({
         </div>
 
         {/* 账户列表 */}
+        {accountsError != null && (
+          <SideError text={t('sidebar.accountsError')} onRetry={onRetryAccounts} />
+        )}
         {accounts.map((acc) => (
           <AccountBlock
             key={acc.id}
@@ -408,6 +448,8 @@ export function AccountSidebar({
             active={inMail && activeAgg == null && acc.id === activeAccountId}
             // 只有激活账户才传入文件夹，其余传空数组节省渲染
             folders={acc.id === activeAccountId ? folders : []}
+            foldersError={acc.id === activeAccountId ? foldersError : undefined}
+            onRetryFolders={onRetryFolders}
             activeFolderId={activeFolderId}
             syncing={syncing}
             unread={accountUnread[acc.id] ?? 0}

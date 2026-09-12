@@ -55,6 +55,7 @@ describe('shouldLoadMore()', () => {
     lastLoadedCount: -1,
     hasNextPage: true,
     isFetchingNextPage: false,
+    nextPageError: false,
   }
 
   it('接近底部且还有下一页时触发', () => {
@@ -79,6 +80,15 @@ describe('shouldLoadMore()', () => {
 
   it('底层数据增长后允许再次翻页', () => {
     expect(shouldLoadMore({ ...base, lastLoadedCount: 50, messageCount: 100 })).toBe(true)
+  })
+
+  it('翻页失败后不自动重发，等用户显式重试', () => {
+    // 失败不改变行数，而触发判据是「最末可见行接近底部」——不拦住就是按帧重发
+    expect(shouldLoadMore({ ...base, nextPageError: true })).toBe(false)
+    // 底层数据本来允许继续翻页的情形，同样让位给显式重试
+    expect(
+      shouldLoadMore({ ...base, nextPageError: true, lastLoadedCount: 50, messageCount: 100 }),
+    ).toBe(false)
   })
 
   it('未读筛选下行数极少使接近底部恒成立，但同一批数据只翻一次', () => {

@@ -12,6 +12,8 @@ interface AddressInputProps {
   placeholder?: string
   disabled?: boolean
   autoFocus?: boolean
+  /** 关联外部 <label htmlFor>。没有它，读屏只能念出 placeholder */
+  id?: string
 }
 
 /** 取最后一个分隔符（, 或 ;）的位置；返回 -1 表示没有 */
@@ -19,7 +21,7 @@ function lastSepIndex(s: string): number {
   return Math.max(s.lastIndexOf(','), s.lastIndexOf(';'))
 }
 
-export function AddressInput({ value, onChange, placeholder, disabled, autoFocus }: AddressInputProps) {
+export function AddressInput({ value, onChange, placeholder, disabled, autoFocus, id }: AddressInputProps) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
   // 防抖后的查询 token，避免每个按键都发请求
@@ -86,6 +88,7 @@ export function AddressInput({ value, onChange, placeholder, disabled, autoFocus
   return (
     <div ref={rootRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
       <input
+        id={id}
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}

@@ -3,14 +3,16 @@
 审查时间：2026-09-11
 范围：`flymail/frontend/src` 全量，两路独立审查（设计/交互维度 + 可访问性与状态覆盖维度）。
 
-共发现 41 条。本轮已处理 16 条，其余 25 条记录在此，按优先级与改动成本排期。
+共发现 41 条。第一轮处理 16 条，第二轮 3 条，第三轮 3 条，做浏览器通知时顺带修掉第 3、27 条，
+其余 17 条记录在此，按优先级与改动成本排期。
 
-行号以 `d882840`（前端操作流程优化）之后、`ui-fixes` 之前的代码为准；本轮改过的文件行号已经变了，
-正文里会标注"已处理"。
+行号以 `d882840`（前端操作流程优化）之后、`ui-fixes` 之前的代码为准；改过的文件行号已经变了，
+正文里会标注"已处理"。**编号一律不重排**：已处理的条目保留原编号并就地标注，
+免得后续讨论里"第 8 条"指向两个不同的东西。
 
 ---
 
-## 一、本轮已处理（16 条）
+## 一、第一轮已处理（16 条）
 
 ### 撤销机制的五条缺陷
 
@@ -78,50 +80,429 @@
 
 ---
 
-## 二、待处理（25 条）
+## 二、第二轮已处理（3 条）——数据状态如实反映到界面
+
+第一轮把 `MailList` 的首屏错误态补上了，但"数据状态没有如实反映到界面"这个根因
+还剩三个出口没堵：翻页失败、后台刷新、侧栏与草稿的加载失败。三条都属于
+**故障与正常状态在界面上同形**，共用同一种修法：把 query 已经知道的状态往下传，
+并让错误分支排在空态之前。
+
+### 1. 翻页失败后列表静默卡死（原第 1 条）
+
+守卫 `shouldLoadMore` 先写 `loadedLenRef.current = itemCount` 再发请求，
+第 2 页失败后 `itemCount` 没变而 ref 已推进，守卫从此恒为 false——
+用户继续下滚不再触发任何请求，底部既不显示"加载中"也不显示"没有更多"。
+
+修法与原方案（"点击时回退 ref"）不同：**把 `nextPageError` 作为守卫的一条独立输入**，
+失败期间一律不自动翻页。理由是回退 ref 之后错误仍在，而自动翻页的判据
+"最末可见行接近底部"不受失败影响，下一次滚动就会再次发请求——那是按帧重发。
+有了这条守卫，重试就不必动 ref：重试成功时 `itemCount` 增长，
+`lastLoadedCount !== messageCount` 自然放行后续翻页。
+
+- `lib/list-guards.ts`：`LoadMoreInput` 加 `nextPageError`，守卫早退
+- `MailList`：底部状态条抽成 `.list-foot`，失败分支**排在"没有更多"之前**
+  （两者都表现为列表不再增长，混在一起就是把故障说成数据的尽头）
+- `Shell`：`isFetchNextPageError` 按会话/单封两套链路取，重试复用 `loadMore`
+
+#### 这一条差点做成了负数
+
+第一版改完，代码审查指出：`nextPageError` 为真时 `error` 必然也非真空，
+于是首屏错误态会接管整个屏幕——**屏幕上那 50 封邮件被一整页"加载失败"换掉**，
+底部新写的「加载失败 · 重试」出现在一张空列表的下面。比不修更糟。
+
+用 `InfiniteQueryObserver` 实测确认（`lib/query-semantics.test.ts` 固化了这几条）：
+
+```
+翻页失败后: status='error'  isError=true  error=Error  data.pages=1(还在)
+            isFetchNextPageError=true  isLoadingError=false  isLoading=false
+```
+
+`status` 是**整个 query 的**，翻页失败、后台重取失败都会把它置为 `'error'` 并填上
+`error`，而已加载的页原样留在缓存里。判据必须是 `isLoadingError`（= `isError` 且没有数据）。
+同一个错误因此影响了四处，一并改掉：
+
+| 位置 | 原判据 | 现判据 | 不改会怎样 |
+|---|---|---|---|
+| `Shell` 的 `messagesError` | `source.error` | `isLoadingError ? error : null` | 第 2 页失败 → 整屏错误面板吃掉已加载的邮件 |
+| `DraftsList` | `isError` | `isLoadingError` | 发完信重取失败 → 好端端的草稿列表被换成错误面板 |
+| `Shell` → `MailList` 的账户错误 | `accountsQuery.error` | 同上 | 账户增删后重取失败 → 邮件列表被整页错误替掉 |
+| `AccountSidebar` 的两处 `SideError` | 裸 `error` | 同上 | `useFolders` 30 秒轮询抖一下 → 完整列表上方挂一行红色"加载失败" |
+
+`MailList` 那边还加了一道组件级不变量：整屏错误态叠加 `itemCount === 0`，
+即便将来有人又传了裸 `error` 下来，也不会掀掉已有内容。一道表达语义、一道兜住下次。
+
+**为什么第一版的测试是绿的**：`MailList.test.tsx` 构造了 `{ nextPageError: true }`
+而 `error` 留空——这个组合在真实链路里**根本不可达**。测试是照着实现写的，
+不是照着真实状态组合写的，于是完美复现了实现的错误假设。
+这和上一轮 `t('common.undo')` 悬空键是同一类失败：**绿灯来自没有被检验的前提**。
+补法是两条一起上——`query-semantics.test.ts` 把第三方状态位的真实语义钉死，
+`MailList.test.tsx` 补一条 `{ nextPageError: true, error: Error }` 断言列表容器仍在。
+
+### 2. 后台刷新完全不可见（原第 2 条）
+
+三种 loading 只区分了两种，缺 `isFetching && !isLoading`——
+而这一种恰恰最频繁：`useFolders` 30 秒轮询、SSE invalidate、同步完成后批量刷新、
+搜索防抖期间靠 `keepPreviousData` 停在上一个关键词的结果上。
+
+顺带纠正清单原文的一处事实错误：第 2 条写"搜索防抖的 300ms 同理，链路带 `keepPreviousData`"。
+核对 `lib/queries.ts` 后确认，无限查询链路（`useInfiniteMessages` / `useInfiniteSearch` /
+会话三条）**既没有 `refetchInterval` 也没有 `placeholderData`**；`keepPreviousData` 只在
+`useThreadMessages` 与 `useMessageDetail` 上，`refetchInterval: 30_000` 只在
+`useFolders` / `useAggregateCounts` / `useAccountUnread` / `useNotificationUnread` 上。
+换搜索词 = 新 queryKey = 全新查询 → `isLoading` 为真 → 走骨架屏，`refreshing` 恰恰为假。
+真正让这条 bar 亮起来的是各处 `invalidate(['messages'])`：同步完成后的批量刷新、SSE 推送、
+以及删除/移动/标记已读等 mutation 的收尾。注释与文档都按核对结果改了。
+
+→ `.list-refresh-bar`：压在标题栏下沿的 2px 不确定进度条。
+**绝对定位不占布局**是刻意的——这个应用里刷新太频繁，任何占位的指示都会让标题栏反复抖动。
+`prefers-reduced-motion` 下单独处理：全局那条规则会把无限动画压成一帧、滑块停在随机位置，
+所以改为整条常亮。
+
+### 8. 侧栏与草稿列表仍无 error 态（原第 8 条）
+
+三处请求失败时 `data` 都回落成空数组，与"一个账户都没有""这个账户没有文件夹"
+"一封草稿都没有"完全同形。
+
+- `AccountSidebar`：新增 `SideError` 行（danger 语义色 + 重试），账户列表与
+  当前账户的文件夹列表各一路；`foldersError` 只传给激活账户——其余账户压根没发这个请求
+- `DraftsList`：错误分支排在空态之前，复用 `.list-error` 版式
+- `ErrorBoundary`：新增并挂在 `main.tsx` 最外层（连 provider 自身的渲染异常也兜住）。
+  开关用独立的 `hasError` 布尔而不是 `error != null`——`throw null` / `throw undefined`
+  也是合法抛出，拿 error 当判据时那种情况回退界面不出现而子树继续抛。
+  没有它时任何组件抛异常都会让 React 卸载整棵树，而"白屏"与"网络断了""服务挂了"
+  在用户眼里无法区分。只兜渲染期异常——事件处理器与 async 里的异常 React 不会传过来，
+  那些路径各自用 toast / 错误态表达
+- `errorText()` 从 `MailList` 提到 `lib/format.ts`，列表、草稿、崩溃界面三处共用
+
+### 复审又抓出的第五处同形
+
+`noAccounts` 第一次修成 `accountsQuery.isSuccess && accounts.length === 0`，仍然是错的：
+后台重取失败时 `status` 变 `'error'`（`isSuccess` 转假）而缓存里的 `[]` 还在
+（`isLoadingError` 也就为假），于是 `noAccounts` 与 `error` **两头落空**，
+主栏落进通用空态「暂无邮件」——既没有错误也没有添加入口。
+触发路径恰恰在新手身上：0 账户的用户点「添加账户」成功 →
+`useCreateAccount` 的 onSuccess `invalidateQueries(['accounts'])` → 这次重取失败。
+
+→ 判据要与 status 无关，只问「收到过一份列表吗」：`accountsQuery.data != null && accounts.length === 0`。
+这与 `isLoadingError` 内部的 `hasData` 是同一个概念，两处口径统一。
+
+**同一个判据错了两次**（先是 `accounts.length === 0`，再是 `isSuccess && ...`），
+两次都是把"有没有数据"和"最近一次请求成不成功"混为一谈——
+react-query 的 `status` 描述的是后者，而界面要问的几乎总是前者。
+
+### 收尾时发现的第四处同形
+
+`Shell` 把 `noAccounts={accounts.length === 0}` 传给 `MailList` 驱动新手引导。
+账户请求失败时 `accounts` 同样是空数组，而此时消息链路多半处于禁用状态
+（没有 `folderId`，既不 loading 也没有 error、`itemCount` 为 0）——
+于是一次 500 在中间栏显示成「还没有邮箱账户 · 添加一个账户就可以开始收信了」。
+侧栏刚修好的错误行与它同屏，两边说的话还互相矛盾。
+
+→ `noAccounts` 改为 `accountsQuery.isSuccess && accounts.length === 0`（确实取到空列表才算），
+并把 `accountsQuery.error` 接进 `MailList` 的 `error`（账户取不到时邮件列表本来就无从谈起）。
+这条是**修完前三条之后重看 diff 才发现的**：同一个根因在第四个地方以同样的形状存在，
+而它不在两路审查的 41 条里——说明"data 回落成空数组"这个模式值得将来单独扫一遍。
+
+**未纳入**：`useAggregateCounts` / `useAccountUnread` / `useNotificationUnread` 失败时
+徽标不显示（渲染条件是 `> 0`），不会把故障说成别的东西，且它们都带 30 秒轮询会自愈，
+再加一条错误行只是噪音。
+
+### 本轮的测试
+
+- `list-guards.test.ts`：翻页失败不自动重发 / 重试成功后恢复自动翻页
+- `MailList.test.tsx`（新建）：失败态给出重试入口且压过"没有更多"、
+  真到底才说"没有更多"、刷新条随 `refreshing` 出现与消失、首屏失败不渲染空态
+- `DraftsList.test.tsx`（新建）：失败不落进空态、重试后正常显示、真空仍走空态
+- `ErrorBoundary.test.tsx`（新建）：抛错给回退界面而非白屏、重试可恢复、正常时不介入
+- `query-semantics.test.ts`（新建）：把 react-query 的错误状态位语义钉死——
+  翻页失败会把整个 query 置为 error 且数据仍在、`isLoadingError` 能分开两种失败
+- 六组都做了**正向验证**：把修复逐条回退，对应用例立刻失败（这是上一轮
+  `t('common.undo')` 悬空键的教训——读代码的审查看不出静默失败）
+- 独立代码审查跑在实现之后、提交之前，抓出了上面那条 P0。**这一轮的最大教训不是
+  某个 API 用错了，而是"我写的测试验证了我自己的假设"**：测试和实现出自同一个
+  理解，理解错了两边一起错，绿灯毫无信息量。凡是依赖第三方状态语义的判据，
+  要么实测钉死，要么让另一双眼睛看。
+
+### 复审带出的三处打磨
+
+- **进度条延迟 200ms 才出现**：同步收尾一次 invalidate 多个 key，本地接口几十毫秒返回，
+  不加阈值这条 2px 的线只会反复亮灭——比不显示更烦人。
+- **翻页失败补播报**：`.list-foot-retry` 是失败后唯一的出口，而读屏用户滚到底看不到它。
+  加了常驻的 `sr-only` live region（常驻是上一轮的教训：与内容同时插入 DOM 时读屏不播报）。
+- **侧栏错误行等重取落地再报**：gcTime 内切回一个上次取数失败过的账户，
+  refetch-on-mount 还没落地就会先闪一下红行，自愈后又消失 → 判据加 `&& !isFetching`。
+
+顺带按复审意见删掉两条**没有区分度**的测试：`ErrorBoundary` 的「子树正常时完全不介入」
+（去掉被测组件照样绿）与 `list-guards` 的「重试成功后恢复自动翻页」
+（`shouldLoadMore` 是无状态纯函数，这条与既有用例等价）。绿灯不等于证据。
+
+**需人工确认**：进度条在真实浏览器里的观感（2px 是否过细、200ms 阈值是否合适），
+以及暗色主题下 `.side-error` 与 `.list-foot-retry` 的对比度。
+
+---
+
+## 三、第三轮已处理（3 条）——a11y 的语义层
+
+第一轮补完了焦点这一层（焦点环、焦点陷阱、Esc 层级），这一轮补语义层：
+**界面对读屏说的话，要和它实际能做的事对得上**。三条各自是这句话的一个侧面——
+说了「这是列表」却说不出第几项、说了「这是可调节的分隔符」却调不动、
+说的是硬编码的另一种语言。
+
+### 6. 分栏手柄是个假承诺（原第 6 条）
+
+四个手柄（侧栏 / 列表 / 浮动面板 / 发件人列）都是 `role="separator"` 加一个
+`onPointerDown`：向读屏宣告了可调节，却不可聚焦、没有 `aria-valuenow`、不接受方向键。
+**比不加这个角色更糟**——读屏据此告诉用户这里能调，用户却调不动。
+双栏模式下浮动面板的宽度更是只有拖拽一条路（另外三个在设置里还有滑块）。
+
+→ 新增 `components/ui/ResizeHandle.tsx`，四处共用：`tabIndex=0`、
+`aria-valuenow/min/max`、`aria-valuetext`（读屏默认把 valuenow 念成百分比，
+对宽度没有意义）、方向键按 16px 调整、Shift 走 64px、Home / End 到端点。
+
+值的语义留在调用方：组件只报告**水平位移增量**，由调用方决定它如何映射到宽度——
+浮动面板右锚定，向左拖才是变宽，符号与另外三个相反。这样三栏形态下
+「按窗口宽度动态收紧上限」那条规则不必挤进组件里。顺带删掉了 AppLayout 里
+两套几乎相同的 pointer 样板。
+
+**落盘时机跟着换了一次**：原来是「松手时读 `wRef.current`」，而键盘没有「松手」
+这个时刻——按一次键就落盘的话，ref 还没跟上，写进去的是上一个值。
+改成对宽度状态挂防抖 effect，拖拽与键盘两条路共用同一个时机，
+那个在 render 期赋值的 `wRef` 也一并删掉（它正是 `react-hooks/refs` 拦的东西）。
+
+⚠ 这个改法带进来一个新的自激风险：落盘 effect 依赖 `[w]`，而 `saveLayoutWidths`
+会把值广播回 `LAYOUT_EVENT` 监听器，`detail` 每次都是新对象——直接 `setW(detail)`
+就是「落盘 → 广播 → 新引用 → 再落盘」转个不停。监听器改为按值比较后返回 `prev`
+（React 对同一引用不重渲染）。`AppLayout.test.tsx` 专门钉住了这一条。
+
+### 4. 列表缺 ARIA 语义（原第 4 条）
+
+每行是孤立的 `role="button"`，外层容器没有列表角色；读屏读不出「第 12 项，共 340 项」，
+也读不出列表边界。虚拟化让问题更重一层：DOM 里只有视口内那十几行，
+**读屏据 DOM 推断出的计数必然是错的**。
+
+- `.mail-rows` 容器加 `role="list"` + 名称；每个条目行的定位层是 `listitem`，
+  带显式的 `aria-posinset` / `aria-setsize`——这正是这两个属性存在的理由
+- 行模型 `RowItem` 带上 `pos`（跳过分组标题的条目序号）
+- 分组标题行让位给 `role="presentation"` + 内部 `role="heading"`，
+  读屏可以把「今天 / 更早」当标题跳转（严格说 list 的直接子元素都该是 listitem，
+  这里用可导航性换了一点规范洁癖）
+- **roving tabindex**：原先每行 `tabIndex=0`，Tab 序列只含视口内那十几行、
+  还随滚动变化——键盘用户穿过列表要按几十次，穿过什么取决于他滚到了哪。
+  改为整份列表只占一个停留点（落在当前打开的那封，没有则第一条），
+  进去之后方向键走，Home / End 到首尾，行为与既有的 j / k 一致
+- 焦点跟随停留点，但**只在焦点本来就在列表里时才动**——否则 j / k 会把焦点
+  从搜索框抢过来；等一帧让虚拟化把目标行渲染出来再聚焦
+- 行内复选框的 `aria-label` 原是写死的英文 `"select"`，改为点出具体哪一封
+
+批量选中态没有另加 `aria-selected`：`aria-selected` 在 `role="button"` 上无效，
+而选中与否本来就由行内复选框的 `checked` 表达，只要它说得出选的是哪一封。
+
+### 5. aria-label 缺失 / 硬编码（原第 5 条）
+
+- `AppLayout` 三个手柄的 `aria-label` 是**硬编码中文**（英文界面下读屏念中文）→ 走 i18n
+- `MailList` 星标按钮写死 `'Star'` / `'Unstar'` → 复用已有的 `ctx.star` / `ctx.unstar`
+- `ComposeDialog` 的纯图标按钮只有 `title`（部分读屏配置下不作为可访问名），
+  **丢弃按钮连 `title` 都没有** → 四个图标按钮 + 附件移除 + 附件 + 丢弃全部补齐
+- From/To/Cc/Bcc/主题的 `<label>` 没有 `htmlFor`、控件没有 `id` → 用 `useId` 生成前缀关联
+  （From 行在单账户时渲染的是只读 `span`，那种情况不给 `htmlFor`——
+  指向不存在的 id 等于没关联）
+
+顺手修掉清单第 25 条里的两项：最小化条的展开按钮 `title` 写的是
+`compose.minimize`（方向正好相反），以及那处手画的内联 `<svg>`（图标集里本就有 `chevron-up`）。
+
+### 本轮的测试
+
+- `ResizeHandle.test.tsx`（新建）：可聚焦 + 值语义、方向键步长与 Shift 加速、
+  Home / End、无关按键不拦截
+- `AppLayout.test.tsx`（新建）：同值广播不再落盘（自激循环）、变更走防抖
+- `MailList.test.tsx` 新增一组：虚拟化下每行仍说得出「第几项，共几项」、
+  整份列表只占一个 Tab 停留点、停留点跟着当前打开的那封走、
+  方向键与 Home / End、行内按钮的键盘语义不被抢
+- 全部做了正向验证（逐条回退修复，对应用例立刻失败）
+
+**这一轮的测试写起来先撞了一堵墙**：`@tanstack/virtual` 量滚动容器用的是
+`offsetWidth / offsetHeight` 而不是 `getBoundingClientRect`，jsdom 里前者恒为 0，
+于是虚拟列表一行都不渲染——所有关于行的断言都会落空成「没有行所以没问题」。
+先 stub 了 `getBoundingClientRect`，测试照样绿，但绿得没有意义；
+读了 virtual-core 的 `getRect` 才找对地方。**又一次印证：绿灯本身不是证据。**
+
+### 复审抓出的六条
+
+这一轮的独立审查收获比前两轮都大，其中第一条是真错。
+
+**1（P1）两套编号体系被当成一套。** `pos` 数的是 `groupByDate` 的**输出**顺序，
+而 `rovingPos` 与 `moveRoving` 回 `filtered` / `threads` 数的是**输入**顺序。
+两者相等的前提是「分组是输入的保序展平」——这个前提会破：`date-group.ts` 把日期
+解析不出来的条目归进 `earlier` 组，而该组不在 `fixedKinds` 里、是在固定分组之后
+按 Map 插入顺序发出的；后端返回顺序不是严格日期降序时（跨页游标遇到同一时刻、
+聚合视图跨账户归并）同样会破。后果是方向键**打开 A 而焦点落到 B**，
+Tab 停留点也落在别的行上。
+→ 序号一律从 `itemRows`（rows 里的条目行）数，`moveRoving` 连 payload 都从同一个
+数组取，不再回输入数组取第二次。整类消除，而不是补一个特例。
+
+**2（P2）带焦点的行被移除时焦点掉到 body。** 焦点跟随的守卫原本是「提交后读
+`document.activeElement` 还在不在列表里」，而删除当前邮件时那个节点在同一次提交里
+就被摘掉、焦点已经回到 body——于是补不上焦点，用户按一次删除就被踢回页面顶端，
+正是 roving tabindex 要解决的问题的反面。
+→ 改为在容器上用 focus / blur 维护一个 ref。`blur` 的 `relatedTarget` 为 `null` 时
+**保持原值**：它既可能是焦点真的去了 body，也可能是带焦点的行刚被删掉，
+后者必须保住状态。
+（写这条的测试时先踩了个坑：删**中间**一封复现不出来——虚拟行的 key 是索引，
+React 复用了同一个 DOM 节点，焦点根本没离开过。删最后一封才会真的摘掉节点。
+先写的那版测试回退修复后照样绿，等于没测。）
+
+**3（P2 次要）跳跃移动时目标行还没渲染。** 方向键那条路自己 `scrollToIndex`，
+但 j / k 与「删除后自动前进跨过多行」不经过 `moveRoving`，目标行超出 overscan 时
+查不到 → 焦点原地不动。→ 焦点跟随 effect 里也先滚再聚焦。
+
+**4 方向键拦截判据有盲区。** 原判据实际含义是「焦点正落在当前 roving 行上」，
+焦点意外落到非 roving 行时方向键完全失效且毫无反馈。
+→ 改为「容器本身或任意一行」，仍不误伤行内按钮（按钮不是行）。
+（审查同时确认了 `CtxMenu` 用 `Trigger asChild` 不插包裹层，
+`role="listitem"` 仍是 `role="list"` 的直接子元素。）
+
+**5 落盘的读-改-写竞态。** `saveLayoutWidths` 原本接整份对象，而 MailList 是
+`{...loadLayoutWidths(), senderCol}`——按 localStorage 快照写整份。
+先拖发件人列、在它的 200ms 防抖到期前去拖侧栏：拖拽期间 AppLayout 每帧重置自己的
+计时器、永远不落盘，而 MailList 的计时器照常到期，广播里带着**旧的 sidebar** →
+侧栏在拖拽中途弹回旧宽度。
+→ `saveLayoutWidths` 改收 `Partial<LayoutWidths>` 并在函数内部合并，
+两个所有者各写各的那份。审查同时确认除了已加的值比较外没有别的循环路径，
+`SettingsDialog` 只写不听、不成环。
+
+**6 卸载丢最后 200ms。** 两个 effect 的 cleanup 只 `clearTimeout`，桌面端（Wails）
+关窗没有第二次机会，而「拖完就关」正是常见的收尾动作。
+→ 另挂 `pagehide` flush（在 cleanup 里直接写不行：它每次变更都跑，等于废掉防抖）。
+
+**另外两条 P3**：`aria-valuemax` 传的是静态上限，而 Home / End 走的是按窗口宽度
+收紧后的 `maxOf`——读屏被告知「最大 420」，按 End 却停在别处，`aria-valuenow`
+永远够不到 `aria-valuemax`，已改为传 `maxOf`。两个悬空文案键：
+`list.ariaDateGroup` 加了没用（分组标题最后用的是 `role="heading"`）已删，
+`layout.resizeHint` 挂成了 `aria-describedby`——手柄可聚焦了，
+但用户没有任何途径知道方向键能调它。
+
+补的测试：`layout-prefs.test.ts`（新建，各写各份 / 广播合并后的完整宽度 / 夹紧 /
+损坏回落）、`AppLayout.test.tsx` 加上限一致性、`MailList.test.tsx` 加「分组打乱顺序后
+停留点与方向键仍对得上」「带焦点的行被移除后焦点跟到新停留点」「焦点不在列表里时不抢」。
+同样逐条做了正向验证。
+
+### 复审的第二轮：同一个竞态还剩一条通路
+
+把落盘的读-改-写堵住之后，**CSS 变量 `--sender-col-w` 上还有同形的一条**：
+`AppLayout` 的 `[w]` effect 与 `MailList` 的 `[senderCol]` effect 都在写它。
+复现与落盘那条一模一样——先拖发件人列（MailList 立刻写新值、防抖挂起，AppLayout 手上
+那份还是旧的），在防抖到期前去拖侧栏 → AppLayout 的 effect 每帧触发、把变量写回旧值 →
+列宽在侧栏拖拽过程中一直弹回去。
+→ AppLayout 只写自己管的三个变量；`--sender-col-w` 保留**挂载时**按存盘值写一次兜底
+（否则 MailList 挂载前 CSS 走 `var(--sender-col-w, 150px)`，存了别的宽度的用户会看到
+列宽先窄后宽闪一下），之后交给 MailList。
+
+**教训**：「一个值两个所有者」修的时候要把**所有通路**一起数一遍。
+我只堵了 localStorage 那条，CSS 变量这条原样留着——同一个根因，同一个形状，
+少走一步就等于没修。
+
+### `role="list"` 里夹 `presentation` 的取舍：推翻重做
+
+第一版把分组标题行设成 `role="presentation"`，想用「规范洁癖」换「标题可导航」。
+复审指出这笔交易不划算：`presentation` 只移除该元素本身、**不移除子树**，
+于是 `heading` 在可访问性树里成了 `list` 的直接子元素，而 ARIA 1.2 规定 `list` 的
+required owned element 只能是 `listitem`（或 `group`）——这是确凿违例，
+各家读屏对「list 里混进非 listitem」的规整策略不一致，有丢掉整个列表语义的先例。
+
+→ 改成 `listitem > heading`（完全合法）。计数不受影响：条目的「第几项、共几项」
+靠显式的 `posinset`/`setsize`，不靠读屏数 DOM；分组标题那个 listitem 不带这两个属性，
+因此不占条目编号。测试也跟着改成断言「带 posinset 的那些 listitem」——
+更准确地表达了意图。
+
+### `pagehide` 不是可靠的最后一次回调
+
+按 Page Lifecycle 的模型，页面被丢弃/终止前唯一可以指望的是
+`visibilitychange` → `hidden`；`pagehide` 与 `beforeunload` 在多种终止路径上都可能不触发
+——而那恰恰包括 WebView2 关窗，正是我加它时想覆盖的那个场景。
+→ 两个事件都挂。多写一次 localStorage 无害，漏写一次就是用户刚调的宽度白调了。
+
+### 复审第三轮：我那个「折中」自己就是个缺陷
+
+焦点归属原先用 `blur` 判断，`relatedTarget` 为 null 时**保持原值**——当时的理由是
+「它既可能是焦点真去了 body，也可能是带焦点的行刚被删掉，后者必须保住」，
+并顺手写了一句「前者残留 true 无害」。**那句是错的**：点一下阅读区正文这类不可聚焦的
+空白之后，下一次 j / k 或删除前进会把焦点**连同滚动位置**一起拽回列表，
+而用户正在那边读信。j/k 与「删除后自动前进」恰恰就是改变 active 的那两件事。
+
+→ 换成 document 上捕获阶段的 `pointerdown`：点空白一定有一次落在列表外的 pointerdown，
+行被删除则一次都没有——**两种来源从此不再同形**，不必在 blur 时猜。
+Tab 进入列表那条路仍由容器的 `onFocus` 负责，两者互补。
+
+这是个通用教训：**当两种情况在某个信号上同形时，正确做法是换一个能分开它们的信号，
+而不是在那个信号上选一边押注。** 押注的那一边总有代价，只是当时没看见。
+
+### `pagehide` + `visibilitychange` 的代价
+
+两个都挂之后，一次页面隐藏会写 4 次盘、广播 4 次；而且 `visibilitychange`
+**每次切标签页都触发**，哪怕宽度一个字节都没改。开销可忽略，但它把 `LAYOUT_EVENT`
+变成了「切标签页也会响」的事件——今天只有做值比较的监听器在听，无害；
+哪天有谁订阅它做实事，就会收到一堆莫名其妙的唤醒。
+
+→ 加一个 `pending` 标志，让 flush 名副其实：它的本意是「把**还没到期的**改动补上」，
+而不是「无条件再写一次」。依赖变化时 effect 重跑、`pending` 自然复位。
+
+### 第四轮：pointerdown 只堵住了一半
+
+换成 `pointerdown` 之后还剩一个入口，而且是读信时**最常点的地方**：
+阅读区正文是**非同源沙箱 iframe**（M12 去掉 `allow-same-origin` 之后），
+事件不跨文档边界——点邮件正文时顶层 document 一次 `pointerdown` 都不会触发，
+`focusInListRef` 原样保持 true。容器的 `onFocus` 也救不了：
+焦点移到的是 `<iframe>` 元素本身，那在列表外，不会冒泡成容器的 focusin。
+
+→ 在焦点跟随 effect 里加一条**不依赖任何事件形状**的现实核对：
+
+```ts
+const active = document.activeElement
+if (active && active !== document.body && !rowsRef.current?.contains(active)) return
+```
+
+放行 `body` 是关键：行被删除时 `activeElement` 正是回落到 body，那一路必须补焦点。
+三条路径因此各归其位——删除行走 body 分支放行，点空白由 pointerdown 置 false，
+点 iframe / 别栏控件由这条守卫拦住。
+
+**这条与前一轮是同一个教训的下一层**：换信号解决了「blur 分不开两种来源」，
+但新信号自己也有盲区（跨文档边界）。真正整类关闭问题的，是那个在**判断发生的那一刻**
+去问「现实到底是什么样」的守卫——它不关心用户是怎么把焦点移走的。
+
+顺带把标题层级补齐：`.list-title` 加 `role="heading" aria-level={2}`，
+分组标题的 level 3 从此有了上一级。**用属性而不是换成 `<h2>`**——
+后者会带进 UA 的默认 margin / font-size，那套 `font-display / 20px` 得再重置一遍。
+
+### 按现状接受的两处
+
+- **分组标题的 listitem 不带 posinset/setsize**：AT 会按 DOM 中的兄弟位置自己算，
+  虚拟化下于是可能念成「列表项 4，共 15」，与相邻条目的「第 300 项，共 5000」并排。
+  信息没丢（标题文本照念），只是数字不连贯。给标题也编号本身也是将就，不再折腾。
+- **焦点落在非 roving 行时方向键按 `rovingPos ± 1` 算**，而不是按脚下那一行。
+  窗口很窄（点一行就会让它变成 active 从而变成 roving），且比从前「整个哑掉」好得多。
+
+**需人工确认**：读屏（NVDA / VoiceOver）实际念出的列表计数与分组标题；
+方向键导航在长列表里的滚动跟随观感；手柄聚焦态在明暗两套主题下是否够显眼。
+
+---
+
+## 四、待处理（17 条）
 
 ### P1 — 建议下一轮
 
-**1. 翻页失败后列表静默卡死**
-`MailList` 的 `shouldLoadMore` 守卫先写 `loadedLenRef.current = itemCount` 再发请求，
-第 2 页失败后 `itemCount` 没变而 ref 已推进，守卫从此恒为 false。
-用户继续下滚不再触发任何请求，底部既不显示"加载中"也不显示"没有更多"，
-列表看起来就是在第 50 封处戛然而止。
-→ 读 `isFetchNextPageError`，底部渲染「加载失败 · 重试」，点击时回退 ref 再 `fetchNextPage()`。
+**1. 翻页失败后列表静默卡死** — ✅ 已于第二轮处理，见第二节。
 
-**2. 后台刷新完全不可见**
-三种 loading 只区分了两种：首次加载（`isLoading`）与翻页（`isFetchingNextPage`），
-缺 `isFetching && !isLoading`。而后台刷新在这个应用里非常频繁——
-`useFolders` 带 30 秒轮询、SSE 推送会 invalidate、同步完成后一次性 invalidate 五个 key。
-用户会在毫无预期的时刻看到列表整体换内容。
-搜索防抖的 300ms 同理：链路带 `keepPreviousData`，换关键词时列表停在上一个关键词的结果上，
-用户可能对着旧结果做操作。
-→ 标题栏副标题旁加细进度指示。
+**2. 后台刷新完全不可见** — ✅ 已于第二轮处理，见第二节。
 
-**3. 新邮件到达无播报**
-`useRealtimeSync` 收到 SSE 后只 invalidate 缓存。视觉用户能看到未读徽标跳变，
-读屏用户完全无感知。→ 复用本轮已修好的常驻 live region。
+**3. 新邮件到达无播报** — ✅ 已随浏览器通知一并处理（见 `docs/flymail/browser-notify.md`）。
+Shell 里加了常驻的 sr-only live region，收到 `notify` 事件即播报，
+且**不跟随桌面通知开关**——播报不弹窗不出声，没有理由被那个开关关掉。
 
-**4. 列表缺 ARIA 语义**
-每行是孤立的 `role="button"`，外层容器没有 `role="list"`/`"listbox"`。
-读屏读不出"第 12 项，共 340 项"，也读不出列表边界。
-批量选中态只有 CSS class 没有 `aria-selected`；行内复选框的 `aria-label` 写死英文 `"select"`，
-读出来是"select 复选框"，不说明选的是哪封邮件（同时违反 i18n 规则）。
-附带：虚拟化 + 每行 `tabIndex={0}`，Tab 序列只含视口内已渲染的 5~20 行且随滚动变化。
+**4. 列表缺 ARIA 语义** — ✅ 已于第三轮处理，见第三节。
 
-**5. aria-label 缺失 / 硬编码**
-`AppLayout` 三个分栏手柄的 `aria-label` 是**硬编码中文**，英文界面下读屏念中文；
-`MailList` 星标按钮写死 `'Star'`/`'Unstar'`；
-`ComposeDialog` 多个纯图标按钮只有 `title`（部分读屏配置下不作为可访问名），
-丢弃按钮连 `title` 都没有；From/To/Cc/Bcc/主题行的 `<label>` 没有 `htmlFor`，
-`<select>`/`<input>` 没有 `id`，两者未关联。
-→ 样板是 `composer/EditorToolbar.tsx` 的 `ToolButton`（`title` + `aria-label` + `aria-pressed`）。
+**5. aria-label 缺失 / 硬编码** — ✅ 已于第三轮处理，见第三节。
 
-**6. 分栏手柄是个假承诺**
-`AppLayout` 与 `MailList` 的四个手柄都有 `role="separator" aria-orientation="vertical"`，
-却只挂了 `onPointerDown`：不可聚焦、无 `aria-valuenow`、无方向键处理。
-向读屏宣告了"这是可调节的分隔符"却无法操作，比不加更糟。
-侧栏/列表/发件人列宽在设置里有滑块替代，但**双栏模式浮动面板宽度只有拖拽一条路**。
+**6. 分栏手柄是个假承诺** — ✅ 已于第三轮处理，见第三节。
 
 **7. 长操作没有进度表达**
 首次同步几千封是分钟级操作，全部反馈是账户行里一个 11px 的圆点在转，
@@ -130,9 +511,7 @@
 SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后端重启后 UI 静默停止收信。
 发送与 10MB 附件上传同样零进度。
 
-**8. 侧栏与草稿列表仍无 error 态**
-本轮只修了 `MailList`。`useAccounts` / `useFolders` / `useAggregateCounts` / `useDrafts`
-都只解构 `data = []`，请求失败 = 一个账户都没有的界面。全项目也没有 ErrorBoundary。
+**8. 侧栏与草稿列表仍无 error 态** — ✅ 已于第二轮处理，见第二节。
 
 **9. 设置页 8 处 window.confirm 仍在**
 删账户 / 别名 / 黑名单 / 通知渠道 / 规则 / 信任发件人，以及会话内删单封。
@@ -191,11 +570,12 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 **24.** 主题色板有三份副本：`index.css` 的权威定义、`SettingsDialog` 预览卡里的 54 个 hex、`lib/theme.ts` 的 `TONES.swatch`。改一次主题要改三处，必然漂移。→ 预览卡改为挂 `data-theme`/`data-mode` 让它自己继承令牌。
 
-**25.** 撰写器细节：最小化条的展开箭头是手画的内联 `<svg>`（图标集里有 `chevron-up`，这是全项目唯一一处绕开图标组件的地方）；**展开按钮的 `title` 写成了 `t('compose.minimize')`，文案是反的**；From 下拉带 14 行内联样式而 `.settings-field > select` 是现成的。
+**25.** 撰写器细节：~~最小化条的展开箭头是手画的内联 `<svg>`~~、~~展开按钮的 `title` 文案是反的~~ —— 这两项已随第三轮修掉；仍开着的是 From 下拉带 14 行内联样式而 `.settings-field > select` 是现成的。
 
 **26.** 列表底部恒挂 12px 空白条（`hasNextPage && !isFetchingNextPage` 时渲染 `null` 但外层 padding 照常生效），滚到底时像"还有一行没加载出来"；翻页加载态是纯文字而首屏有完整骨架，同一列表两种表达强度。
 
-**27.** 应用外壳收尾：favicon 仍是 Vite 脚手架默认的 `/vite.svg`；`<title>` 是静态的，未读数没反映到标签页标题（桌面端已有托盘角标，浏览器端缺这一层）。
+**27.** 应用外壳收尾 — ✅ 已随浏览器通知一并处理：`index.html` 换成内联的 FlyMail 图标
+（首屏就不再是脚手架默认图，也少一次请求），未读数写进标签页标题并用 canvas 画进站点图标。
 
 **28.** 正文 iframe 强制白底（刻意为之，邮件 HTML 假定白底，合理），但暗色下阅读等于盯一块白板。设置页已有隐私分区，可加一个「暗化正文」开关。
 
@@ -203,7 +583,25 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 ---
 
-## 三、两条贯穿性的根因
+## 五、三条真缺陷的共同形状（2026-09-12 补）
+
+三、四轮的代码审查抓出三条我的测试全部放行了的真缺陷。把它们并排看，是同一件事的三个面：
+
+| 缺陷 | 形状 |
+|---|---|
+| 两套编号体系（`pos` 与 `rovingPos`） | 用了**两个数据源**却假设它们同序 |
+| `blur` 的折中 | **一个信号承载两种含义**时选了一边押注 |
+| iframe 盲区 | 换了信号，但**新信号自己有覆盖不到的边界** |
+
+三次的正解都不是把条件写得更细，而是**换一个本身就没有歧义的依据**——
+同一个数组、事件的源头、判断那一刻的现实。
+
+补条件是在已知的歧义上打补丁，下一个未知的入口照样漏；换依据是把歧义本身消掉。
+每次想给判据加一个 `&&` 的时候，先问一句：是这个判据不够细，还是它根本就不该由这个信号来做。
+
+---
+
+## 六、两条贯穿性的根因
 
 审查是两路独立进行的，却得出了同一个判断：**项目不缺设计体系，缺的是贯彻**。
 18 组色调令牌 + shadcn 桥接是完整的，`AccountDialog` 用 radix 做对了对话框，
@@ -223,12 +621,11 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 ---
 
-## 四、建议的推进顺序
+## 七、建议的推进顺序
 
-1. **P1 第 1、2、8 条**（翻页失败、后台刷新不可见、侧栏/草稿 error 态）
-   ——都是"数据状态没有如实反映到界面"，改动面集中在几个 query 消费点。
-2. **P1 第 4、5、6 条**（ARIA 语义、aria-label、分栏手柄）
-   ——本轮补完了焦点这一层，这三条补完语义那一层，a11y 才算成体系。
+1. ~~**P1 第 1、2、8 条**（翻页失败、后台刷新不可见、侧栏/草稿 error 态）~~
+   ——✅ 第二轮完成。
+2. ~~**P1 第 4、5、6 条**（ARIA 语义、aria-label、分栏手柄）~~ ——✅ 第三轮完成。
 3. **P2 第 23、24 条**打包做（死 CSS + 色板三合一）
    ——加起来能删约 200 行并消除主题漂移的结构性风险，只碰两个文件、不动交互逻辑，回归成本最低。
 4. **P1 第 11、12 条**（登录页视觉统一、触摸尺度）

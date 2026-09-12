@@ -451,6 +451,9 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
 .col-resize:hover, .col-resize.dragging {
   background: var(--accent);
 }
+/* 手柄现在可聚焦（方向键可调宽度），焦点态要和 hover 一样看得见：
+   3px 宽的元素只靠全局那圈 outline 很难注意到。 */
+.col-resize:focus-visible { background: var(--accent); }
 .col-resize::after {
   content: ""; position: absolute;
   left: -3px; right: -3px; top: 0; bottom: 0;
@@ -508,6 +511,19 @@ body.is-resizing * { cursor: col-resize !important; }
   display: grid; place-items: center; color: var(--ink-3);
 }
 .side-section-label .add:hover { background: var(--bg-hover); color: var(--ink); }
+
+/* 侧栏错误行（账户列表 / 文件夹列表）。用 danger 语义色与普通行拉开：
+   请求失败时两者的 data 都回落成空数组，界面与「没有内容」完全同形。 */
+.side-error {
+  margin: 2px 8px; padding: 7px 10px; border-radius: 6px;
+  background: var(--danger-wash); color: var(--danger-ink);
+  font-size: 12px; line-height: 1.45;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.side-error-retry {
+  flex-shrink: 0; border: 0; background: transparent; cursor: pointer;
+  color: inherit; font-size: 12px; text-decoration: underline; padding: 0;
+}
 
 .account-row {
   display: flex; align-items: center; gap: 10px;
@@ -598,6 +614,24 @@ body.is-resizing * { cursor: col-resize !important; }
   padding: 12px 20px; height: 56px;
   display: flex; align-items: center; gap: 12px;
   border-bottom: 1px solid var(--rule);
+  /* 后台刷新指示条的定位基准 */
+  position: relative;
+}
+/* 后台刷新指示：压在标题栏下沿的不确定进度条。
+   绝对定位使它不占布局——同步收尾会一次 invalidate 多个 key，加上 SSE 推送与
+   各种 mutation 的收尾，刷新相当频繁，任何占位的指示都会让标题栏反复抖动。 */
+.list-refresh-bar {
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  overflow: hidden; pointer-events: none;
+}
+.list-refresh-bar::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 38%;
+  background: var(--accent); border-radius: 1px;
+  animation: listRefreshSlide 1.1s ease-in-out infinite;
+}
+@keyframes listRefreshSlide {
+  from { transform: translateX(-100%) }
+  to { transform: translateX(365%) }
 }
 .list-title {
   font-family: var(--font-display); font-size: 20px; font-weight: 500;
@@ -767,7 +801,8 @@ mark.hl {
   transition: background 0.12s;
 }
 .list-col-resize:hover::after,
-.list-col-resize.dragging::after { background: var(--accent); }
+.list-col-resize.dragging::after,
+.list-col-resize:focus-visible::after { background: var(--accent); }
 
 /* ⚠ 行高是与 MailList.tsx 的 estimateSize 绑定的硬契约：
    虚拟列表按 estimateSize 的间隔用 translateY 排布行槽位，行若比槽位高就会压到下一行头上，
@@ -1359,6 +1394,7 @@ mark.hl {
   background: transparent; transition: background 0.15s;
 }
 .slide-resize:hover, .slide-resize.dragging { background: var(--accent); }
+.slide-resize:focus-visible { background: var(--accent); }
 
 /* ── 右键菜单（radix ContextMenu 主题化） ────────────────────────────── */
 .ctx-menu {
@@ -1746,6 +1782,20 @@ mark.hl {
   color: var(--ink-4); word-break: break-all;
 }
 
+/* 列表底部状态条：加载中 / 加载失败 · 重试 / 没有更多 */
+.list-foot {
+  padding: 12px 0; text-align: center; font-size: 12px; color: var(--ink-3);
+}
+.list-foot-retry {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border: 0; border-radius: 4px;
+  background: transparent; cursor: pointer;
+  font-size: 12px; color: var(--danger-ink);
+}
+.list-foot-retry:hover { background: var(--danger-wash); }
+/* 常驻下划线：这是失败态里唯一的出口，不能只靠颜色表达「可点」 */
+.list-foot-retry-cta { text-decoration: underline; }
+
 /* 只给读屏的文本：不可见但不脱离无障碍树（display:none / visibility:hidden 会） */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
@@ -2129,6 +2179,8 @@ mark.hl {
   /* 同步指示器是无限旋转的，动效敏感用户会被持续干扰。
      上面的规则把它压成一帧，这里让它保持静止但仍然可见。 */
   .spin-anim { animation: none !important; opacity: 0.6; }
+  /* 同理：滑块被压成一帧会停在随机位置，改为整条常亮表达「正在刷新」。 */
+  .list-refresh-bar::before { animation: none !important; width: 100%; opacity: 0.5; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Send, Trash2 } from 'lucide-react'
 import { useDrafts, useDeleteDraft, useSendDraft } from '@/lib/queries'
+import { errorText } from '@/lib/format'
 import type { Draft } from '@/lib/types'
 
 interface Props {
@@ -10,9 +11,35 @@ interface Props {
 
 export function DraftsList({ accountId, onOpenDraft }: Props) {
   const { t } = useTranslation()
-  const { data: drafts = [] } = useDrafts(accountId)
+  const draftsQuery = useDrafts(accountId)
+  const drafts = draftsQuery.data ?? []
   const deleteDraft = useDeleteDraft()
   const sendDraft = useSendDraft()
+
+  // 错误分支必须排在空态之前：请求失败时 data 回落成空数组，
+  // 与「一封草稿都没有」同形——把故障显示成一个空草稿箱。
+  //
+  // 判据是 isLoadingError（= isError && 没有数据）而不是 isError：
+  // 发信/删草稿都会 invalidate ['drafts']，用 isError 的话一次后台重取失败
+  // 就会把缓存里好端端的草稿整列换成错误面板。
+  if (draftsQuery.isLoadingError) {
+    const detail = errorText(draftsQuery.error)
+    return (
+      <div className="list-error">
+        <div className="list-error-title">{t('list.loadErrorTitle')}</div>
+        <div>{t('compose.draftsLoadErrorHint')}</div>
+        {detail && <div className="list-error-detail">{detail}</div>}
+        <button
+          type="button"
+          className="pill-btn"
+          style={{ marginTop: 14 }}
+          onClick={() => void draftsQuery.refetch()}
+        >
+          {t('app.retry')}
+        </button>
+      </div>
+    )
+  }
 
   if (drafts.length === 0) {
     return (

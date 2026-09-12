@@ -22,7 +22,9 @@ import { highlightText } from '@/components/ui/Highlight'
 import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
 import { RemoteSearchButton } from '@/components/mail/RemoteSearchButton'
 import { extractHighlightTerms } from '@/lib/search-terms'
+import { errorText } from '@/lib/format'
 import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
+import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { useAddBlock } from '@/lib/queries'
@@ -34,11 +36,17 @@ import { searchShortcutHint } from '@/lib/platform'
 // 类型定义
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 虚拟化行模型：分组标题 / 单封邮件 / 会话（两种条目互斥，由 threads 是否为 null 决定） */
+/**
+ * 虚拟化行模型：分组标题 / 单封邮件 / 会话（两种条目互斥，由 threads 是否为 null 决定）。
+ *
+ * `pos` 是该条目在**整个列表**里的序号（从 1 起，跳过分组标题）。虚拟化让 DOM 里
+ * 只剩视口内的十几行，读屏据 DOM 推断出的「第几项、共几项」必然是错的，
+ * 只能由 aria-posinset / aria-setsize 显式给出——这正是这两个属性存在的理由。
+ */
 type RowItem =
   | { type: 'header'; label: string }
-  | { type: 'item'; msg: MessageListItem }
-  | { type: 'thread'; item: ThreadListItem }
+  | { type: 'item'; msg: MessageListItem; pos: number }
+  | { type: 'thread'; item: ThreadListItem; pos: number }
 
 interface Props {
   folder: Folder | null
@@ -65,15 +73,28 @@ interface Props {
   selfAddrs: Set<string>
   loading: boolean
   /**
-   * 列表数据加载失败时的错误。
+   * **首屏**加载失败时的错误（没有任何内容可显示的那种）。
    *
    * 必须有这一路：只看 loading 的话，后端 500 / 断网 / 令牌失效全都会落进
    * itemCount === 0 的空态分支，界面显示「这个文件夹里还没有邮件」——
    * 把服务故障谎报成一个空收件箱，用户既判断不出真相也没有重试的入口。
+   *
+   * ⚠ 调用方请传 `isLoadingError` 派生的值，别传裸 `error`：react-query 的
+   * status 是整个 query 的，翻页失败与后台重取失败同样会填上 error 而数据还在。
+   * 组件这边也不会拿它掀掉已有内容（渲染时叠加了 itemCount === 0），
+   * 两道都留着——一道表达语义，一道兜住下次有人传错。
    */
   error?: unknown
   /** 重试当前列表请求（错误态里的「重试」按钮） */
   onRetry?: () => void
+  /**
+   * 后台刷新中（首屏已有内容，但正在重新取数）。
+   *
+   * 这个应用里后台刷新非常频繁：同步完成后一次性 invalidate 多个 key、SSE 推送，
+   * 以及删除/移动/标记已读等 mutation 的收尾。不外露的话，用户会在毫无预期的
+   * 时刻看到列表整体换内容。
+   */
+  refreshing?: boolean
   /**
    * 一个邮箱账户都还没有。
    *
@@ -95,7 +116,18 @@ interface Props {
   listStyle: ListStyle
   hasNextPage: boolean
   isFetchingNextPage: boolean
+  /**
+   * 翻页请求失败（首屏成功、第 N 页失败）。
+   *
+   * 必须单独一路：失败不会改变行数，自动翻页的判据「最末可见行接近底部」
+   * 仍然成立，若不拦住就是按帧重发；而拦住之后若不给重试入口，列表就停在
+   * 第 N 页处一声不吭——底部既不显示「加载中」也不显示「没有更多」，
+   * 看起来像是邮件到这里就没有了。
+   */
+  nextPageError?: boolean
   onLoadMore: () => void
+  /** 重试失败的翻页请求 */
+  onRetryNextPage?: () => void
   /** 标题覆盖：聚合视图（无 folder）时使用 */
   titleOverride?: string
   /** 副标题覆盖：聚合视图时使用 */
@@ -211,14 +243,16 @@ function relTime(isoStr: string, lang: string): string {
 // 选择复选框：行首独立一列（仅选择模式下由 CSS 显示），点击不触发打开邮件
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 把未知形状的错误取成一行可展示的文本；取不出就返回空串（不显示细节行）。 */
-function errorText(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
-  return ''
-}
-
-function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+function SelectBox({
+  checked,
+  onToggle,
+  label,
+}: {
+  checked: boolean
+  onToggle: () => void
+  /** 无障碍名称。必须点出是哪一封——读屏念「复选框」而看不到旁边那行内容 */
+  label: string
+}) {
   // 用 <label> 包裹原生 checkbox：点击整块都可靠切换（label 原生联动 input → onChange），
   // label 上 stopPropagation 阻止冒泡到行（避免误打开邮件）。
   return (
@@ -227,7 +261,7 @@ function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => vo
         type="checkbox"
         checked={checked}
         onChange={onToggle}
-        aria-label="select"
+        aria-label={label}
       />
     </label>
   )
@@ -283,15 +317,24 @@ interface CardRowProps {
   onDelete: () => void
   /** 账户识别色；null = 单账户上下文，不必区分 */
   acctColor: string | null
+  /**
+   * 这一行是否是 Tab 序列里的停留点（roving tabindex）。
+   *
+   * 虚拟化下每行都 tabIndex=0 的话，Tab 序列只含视口里那十几行、还随滚动变化——
+   * 键盘用户按 Tab 穿过列表要按几十次，而且穿过的内容取决于他滚到了哪。
+   * 整份列表只留一个停留点，进去之后用方向键走。
+   */
+  rovingTab: boolean
 }
 
-function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab }: CardRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={rovingTab ? 0 : -1}
+      data-roving={rovingTab ? 'true' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -309,7 +352,11 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
       <span className="mi-unread-dot" />
 
       {/* 选择复选框（独立列，仅选择模式下显示）*/}
-      <SelectBox checked={selected} onToggle={onToggleSelect} />
+      <SelectBox
+        checked={selected}
+        onToggle={onToggleSelect}
+        label={t('list.selectMessage', { subject: msg.subject || t('list.noSubject') })}
+      />
 
       {/* 方形头像。聚合/搜索视图下右下角点一个账户识别色，
           否则一列邮件全是同一个底色，看不出哪封属于哪个邮箱。 */}
@@ -366,7 +413,7 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
         type="button"
         className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
         onClick={onToggleFlag}
-        aria-label={msg.flagged ? 'Unstar' : 'Star'}
+        aria-label={msg.flagged ? t('ctx.unstar') : t('ctx.star')}
         style={{ position: 'absolute', right: 14, top: 14, opacity: msg.flagged ? 1 : undefined }}
       >
         <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
@@ -381,6 +428,8 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CompactRowProps {
+  /** 见 CardRowProps.rovingTab */
+  rovingTab: boolean
   msg: MessageListItem
   active: boolean
   lang: string
@@ -396,13 +445,14 @@ interface CompactRowProps {
   acctColor: string | null
 }
 
-function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab }: CompactRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={rovingTab ? 0 : -1}
+      data-roving={rovingTab ? 'true' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -420,7 +470,11 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
       <span className="mi-unread-dot" />
 
       {/* 选择复选框（独立列，仅选择模式下显示）*/}
-      <SelectBox checked={selected} onToggle={onToggleSelect} />
+      <SelectBox
+        checked={selected}
+        onToggle={onToggleSelect}
+        label={t('list.selectMessage', { subject: msg.subject || t('list.noSubject') })}
+      />
 
       {/* 方形头像（小）*/}
       <span className="mi-avatar-wrap">
@@ -476,7 +530,7 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
           type="button"
           className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
           onClick={onToggleFlag}
-          aria-label={msg.flagged ? 'Unstar' : 'Star'}
+          aria-label={msg.flagged ? t('ctx.unstar') : t('ctx.star')}
           style={{ position: 'static', opacity: msg.flagged ? 1 : undefined }}
         >
           <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
@@ -491,6 +545,8 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ThreadRowProps {
+  /** 见 CardRowProps.rovingTab */
+  rovingTab: boolean
   item: ThreadListItem
   active: boolean
   lang: string
@@ -536,6 +592,7 @@ function ThreadRow({
   onToggleSelect,
   onToggleFlag,
   onDelete,
+  rovingTab,
 }: ThreadRowProps) {
   const { t } = useTranslation()
   const isUnread = item.unread > 0
@@ -553,7 +610,8 @@ function ThreadRow({
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={rovingTab ? 0 : -1}
+      data-roving={rovingTab ? 'true' : undefined}
       aria-current={active ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -568,7 +626,11 @@ function ThreadRow({
       }
     >
       <span className="mi-unread-dot" />
-      <SelectBox checked={selected} onToggle={onToggleSelect} />
+      <SelectBox
+        checked={selected}
+        onToggle={onToggleSelect}
+        label={t('list.selectThread', { subject: item.subject || t('list.noSubject') })}
+      />
 
       <span className="mi-avatar-wrap">
         <div className="avatar-sq" style={{ background: 'var(--accent)' }}>
@@ -614,7 +676,7 @@ function ThreadRow({
               type="button"
               className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
               onClick={onToggleFlag}
-              aria-label={item.flagged ? 'Unstar' : 'Star'}
+              aria-label={item.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll')}
               style={{ position: 'static', opacity: item.flagged ? 1 : undefined }}
             >
               <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
@@ -653,7 +715,7 @@ function ThreadRow({
             type="button"
             className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
             onClick={onToggleFlag}
-            aria-label={item.flagged ? 'Unstar' : 'Star'}
+            aria-label={item.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll')}
             style={{ position: 'absolute', right: 14, top: 14, opacity: item.flagged ? 1 : undefined }}
           >
             <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
@@ -684,6 +746,7 @@ export function MailList({
   loading,
   error,
   onRetry,
+  refreshing,
   noAccounts,
   onAddAccount,
   acctColorOf,
@@ -693,7 +756,9 @@ export function MailList({
   listStyle,
   hasNextPage,
   isFetchingNextPage,
+  nextPageError,
   onLoadMore,
+  onRetryNextPage,
   titleOverride,
   subtitleOverride,
   searchValue,
@@ -900,38 +965,44 @@ export function MailList({
    * 手柄按下：拖拽期间直接改 CSS 变量让列宽跟手，松手才落盘并广播。
    * 每帧写 localStorage 既无必要也会拖慢拖拽手感（与 AppLayout 分栏拖拽同款处理）。
    */
-  function onSenderResizeDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault()
-    const el = e.currentTarget
-    el.setPointerCapture(e.pointerId)
-    el.classList.add('dragging')
-    document.body.classList.add('is-resizing')
-
-    let lastX = e.clientX
-    // 用局部变量跟踪当前值：setState 是异步的，闭包里读 senderCol 会拿到陈旧值
-    let cur = senderCol
-
-    function onMove(ev: PointerEvent) {
-      const dx = ev.clientX - lastX
-      lastX = ev.clientX
-      cur = clampWidth(cur + dx, LAYOUT_LIMITS.senderCol.min, LAYOUT_LIMITS.senderCol.max)
-      setSenderCol(cur)
-      document.documentElement.style.setProperty('--sender-col-w', `${cur}px`)
-    }
-    function onUp(ev: PointerEvent) {
-      el.releasePointerCapture(ev.pointerId)
-      el.classList.remove('dragging')
-      document.body.classList.remove('is-resizing')
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerup', onUp)
-      el.removeEventListener('pointercancel', onUp)
-      // 落盘并广播，让设置里的滑块同步到新值
-      saveLayoutWidths({ ...loadLayoutWidths(), senderCol: cur })
-    }
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerup', onUp)
-    el.addEventListener('pointercancel', onUp)
+  /** 发件人列宽：列左锚定，向右拖即变宽。 */
+  function resizeSenderCol(dx: number) {
+    setSenderCol((cur) =>
+      clampWidth(cur + dx, LAYOUT_LIMITS.senderCol.min, LAYOUT_LIMITS.senderCol.max),
+    )
   }
+
+  // 列宽同步到 CSS 变量 + 防抖落盘（广播让设置里的滑块跟上）。
+  // 拖拽期间必须由这里写变量：AppLayout 那边要等广播才知道新值，
+  // 不自己写的话列边界会滞后于手柄。
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sender-col-w', `${senderCol}px`)
+    // 只写自己管的这一项（合并交给 saveLayoutWidths），并在关窗时补上未到期的改动。
+    // pagehide 与 visibilitychange 都挂，理由同 AppLayout：前者在多种页面终止路径上
+    // 并不保证触发，而后者是 Page Lifecycle 里唯一可以指望的那个。
+    // pending 见 AppLayout 里同一处的注释：flush 只补「还没到期的」那次，
+    // 否则 visibilitychange 每次切标签页都会白写一次盘、白广播一次
+    let pending = true
+    const id = setTimeout(() => {
+      pending = false
+      saveLayoutWidths({ senderCol })
+    }, 200)
+    const flush = () => {
+      if (!pending) return
+      pending = false
+      saveLayoutWidths({ senderCol })
+    }
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      clearTimeout(id)
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [senderCol])
 
   // 会话模式：threads 非 null 即以会话为条目，两种模式共用下面的分组/虚拟化/翻页逻辑。
   const threadMode = threads != null
@@ -945,19 +1016,161 @@ export function MailList({
   // 否则一屏五六张卡片糊成一片，反而比紧凑模式更难扫读。
   const rows: RowItem[] = (() => {
     const result: RowItem[] = []
+    let pos = 0
     if (threadMode) {
       for (const group of groupByDate(threads, (th) => th.date, undefined, groupLabel)) {
         result.push({ type: 'header', label: group.label })
-        for (const item of group.items) result.push({ type: 'thread', item })
+        for (const item of group.items) result.push({ type: 'thread', item, pos: ++pos })
       }
       return result
     }
     for (const group of groupByDate(filtered, (m) => m.date, undefined, groupLabel)) {
       result.push({ type: 'header', label: group.label })
-      for (const msg of group.items) result.push({ type: 'item', msg })
+      for (const msg of group.items) result.push({ type: 'item', msg, pos: ++pos })
     }
     return result
   })()
+
+  /**
+   * rows 里的条目行（跳过分组标题），顺序即渲染顺序。
+   *
+   * ⚠ 序号必须一律从这里数，不能回 `filtered` / `threads` 去数：
+   * 那是 groupByDate 的**输入**，而 `pos` 数的是**输出**，两者只在
+   * 「分组是输入的保序展平」时才相等——这个前提会破。`date-group.ts` 把日期解析
+   * 不出来的条目归进 `earlier` 组，而该组不在 fixedKinds 里，是在固定分组之后
+   * 按 Map 插入顺序发出的；后端返回顺序不是严格日期降序时（跨页游标遇到同一时刻、
+   * 聚合视图跨账户归并）同样会破。错位的后果是方向键打开 A、焦点落到 B。
+   */
+  const itemRows = rows.filter(
+    (r): r is Extract<RowItem, { type: 'item' } | { type: 'thread' }> => r.type !== 'header',
+  )
+
+  /** 列表里条目的总数（不含分组标题）。aria-setsize 用它，而不是 rows.length。 */
+  const rowItemCount = itemRows.length
+
+  /**
+   * Tab 序列里那个唯一停留点的序号（1 起）。
+   *
+   * 默认落在当前打开的那一封；没有打开任何一封时落在第一条——
+   * 否则整份列表都是 tabIndex=-1，键盘根本进不来。
+   */
+  const rovingPos = (() => {
+    const i = itemRows.findIndex((r) =>
+      r.type === 'thread' ? r.item.thread_id === activeThreadId : r.msg.id === activeMessageId,
+    )
+    return i >= 0 ? i + 1 : 1
+  })()
+
+  const rowsRef = useRef<HTMLDivElement>(null)
+  /**
+   * 焦点是否落在列表里。
+   *
+   * 为什么不在 effect 里读 `document.activeElement`：删除/归档当前邮件时
+   * （第二轮加的「处理后自动前进」），带焦点的那个行节点在同一次提交里就被摘掉，
+   * 焦点已经回到 body——等 effect 跑时看到的是「焦点不在列表里」于是不补焦点，
+   * 用户按一次删除就被踢回页面顶端。那正是 roving tabindex 要解决的问题的反面。
+   *
+   * 为什么用 pointerdown 而不是 blur：`blur` 的 `relatedTarget` 为 null 有两种来源
+   * ——焦点真的去了 body（点了阅读区正文这类不可聚焦的空白），或者带焦点的行刚被删掉。
+   * 两者同形，靠 blur 分不开；曾经的折中是「为 null 就保持原值」，
+   * 代价是点一下阅读区空白之后，下一次 j / k 或删除前进会把焦点**和滚动位置**
+   * 一起拽回列表，而用户正在那边读信。
+   * pointerdown 从源头消歧：点空白一定有一次落在列表外的 pointerdown，
+   * 行被删除则一次都没有。用捕获阶段，免得被谁 stopPropagation 掉。
+   */
+  const focusInListRef = useRef(false)
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      const el = rowsRef.current
+      focusInListRef.current = el != null && el.contains(e.target as Node)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [])
+
+  /**
+   * 方向键在列表内移动（ARIA 列表的标准交互，补上 roving tabindex 的另一半）。
+   *
+   * 行为与既有的 j / k 一致：移动即打开。差别只在 j / k 是全局快捷键、
+   * 不动 DOM 焦点，而这里是焦点已经落在列表里时的导航。
+   */
+  function moveRoving(to: number | 'first' | 'last') {
+    if (rowItemCount === 0) return
+    const next =
+      to === 'first' ? 1
+      : to === 'last' ? rowItemCount
+      : Math.min(rowItemCount, Math.max(1, to))
+    if (next === rovingPos) return
+    // 选中哪一条与滚到哪一行都从同一个数组取，不存在两套编号对不上的可能
+    const target = itemRows[next - 1]
+    if (!target) return
+    if (target.type === 'thread') onSelectThread(target.item)
+    else onSelectMessage(target.msg.id)
+    // 目标行可能还在视口之外（虚拟化没渲染它），不滚过去焦点就无处可落
+    const rowIndex = rows.indexOf(target)
+    if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex)
+  }
+
+  function onRowsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    // 行内的按钮（星标/删除/复选框）有自己的键盘语义，别抢。
+    // 判据是「焦点在容器本身或任意一行上」而不是「在当前 roving 行上」：
+    // 后者在焦点意外落到非 roving 行时会让方向键整个哑掉，且毫无反馈。
+    const el = e.target as HTMLElement
+    if (el !== e.currentTarget && !el.classList.contains('mail-item')) return
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        moveRoving(rovingPos + 1)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        moveRoving(rovingPos - 1)
+        break
+      case 'Home':
+        e.preventDefault()
+        moveRoving('first')
+        break
+      case 'End':
+        e.preventDefault()
+        moveRoving('last')
+        break
+      default:
+        break
+    }
+  }
+
+  // 焦点跟随停留点。只在焦点本来就在列表里时才动，否则 j / k 会把焦点从
+  // 搜索框或工具栏抢过来。
+  useEffect(() => {
+    if (!focusInListRef.current) return
+    // 再对现实核对一次：焦点此刻明确落在列表外的某个元素上就别抢。
+    //
+    // pointerdown 那条堵不住阅读区——正文是**非同源沙箱 iframe**，事件不跨文档边界，
+    // 点邮件正文（读信时最常点的地方）顶层一次 pointerdown 都不会触发，
+    // ref 于是原样保持 true。容器的 onFocus 也救不了：焦点移到的是 <iframe> 元素本身，
+    // 那在列表外，不会冒泡成容器的 focusin。
+    //
+    // 这一条用的是 effect 运行时唯一无歧义的事实，不依赖任何事件的具体形状，
+    // 因此是整类关闭而不是再堵一个入口。
+    // **必须放行 body**：行被删除时 activeElement 正是回落到 body，那一路要补焦点。
+    const active = document.activeElement
+    if (active && active !== document.body && !rowsRef.current?.contains(active)) return
+    // 先把目标行滚进视口：j / k 和「删除后自动前进跨过多行」不经过 moveRoving，
+    // 目标行超出 overscan 时虚拟化根本没渲染它，查不到就无处落焦点。
+    const rowIndex = rows.findIndex(
+      (r) =>
+        r.type !== 'header' &&
+        (r.type === 'thread' ? r.item.thread_id === activeThreadId : r.msg.id === activeMessageId),
+    )
+    if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex)
+    // 等一帧让虚拟化把目标行渲染出来
+    const id = requestAnimationFrame(() => {
+      const target = rowsRef.current?.querySelector<HTMLElement>('[data-roving="true"]')
+      if (target && target !== document.activeElement) target.focus()
+    })
+    return () => cancelAnimationFrame(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMessageId, activeThreadId])
 
   // ── 行高 ─────────────────────────────────────────────────────────────────
   // ⚠ 这不是"估算"而是硬契约：没有接 measureElement，虚拟列表就完全按这里的数值
@@ -983,6 +1196,19 @@ export function MailList({
     estimateSize,
     overscan: 5,
   })
+
+  // 后台刷新指示延迟出现：同步收尾会一次 invalidate 多个 key，本地接口几十毫秒
+  // 就返回，不加阈值这条 2px 的线只会反复亮灭——比不显示更烦人。
+  // 复位放在 cleanup 里：refreshing 转假时 cleanup 先跑，指示随之收起。
+  const [showRefresh, setShowRefresh] = useState(false)
+  useEffect(() => {
+    if (!refreshing) return
+    const id = setTimeout(() => setShowRefresh(true), 200)
+    return () => {
+      clearTimeout(id)
+      setShowRefresh(false)
+    }
+  }, [refreshing])
 
   // 上一次触发翻页时的底层邮件条数（判据见 list-guards.ts 的 shouldLoadMore）
   const loadedLenRef = useRef(-1)
@@ -1019,11 +1245,12 @@ export function MailList({
       lastLoadedCount: loadedLenRef.current,
       hasNextPage,
       isFetchingNextPage,
+      nextPageError: nextPageError ?? false,
     })
     if (!go) return
     loadedLenRef.current = itemCount
     onLoadMoreRef.current()
-  }, [lastIndex, rows.length, itemCount, hasNextPage, isFetchingNextPage])
+  }, [lastIndex, rows.length, itemCount, hasNextPage, isFetchingNextPage, nextPageError])
 
   // ── 批量选择派生状态 ──────────────────────────────────────────────────────
   const selectedCount = threadMode ? selectedThreadIds.size : selectedIds.size
@@ -1048,10 +1275,23 @@ export function MailList({
   return (
     <div className="flex h-full flex-col">
 
+      {/* 常驻的播报区。必须常驻：上一轮的教训是 live region 与内容同时插入 DOM 时
+          读屏不播报。底部那条「加载失败 · 重试」是翻页失败后唯一的出口，
+          读屏用户滚到底不会看到它，只能靠这里说出来。 */}
+      <div className="sr-only" role="status">
+        {nextPageError ? t('list.loadMoreFailed') : ''}
+      </div>
+
       {/* ── 顶部标题栏：标题占固定宽度，搜索框紧随其后（位置不随标题长短抖动）── */}
       <div className="list-head">
+        {/* 后台刷新：贴在标题栏下沿的细进度条。放这里而不是列表里，是因为刷新期间
+            列表显示的仍是旧数据，指示必须在内容之外、且不占布局（否则每次轮询都抖一下）。*/}
+        {showRefresh && <div className="list-refresh-bar" aria-hidden="true" />}
         <div className="title-wrap">
-          <div className="list-title">{title}</div>
+          {/* 用 role + aria-level 而不是换成 <h2>：后者会带进 UA 的默认 margin /
+              font-size，.list-title 那套 font-display / 20px 得再重置一遍。
+              属性路线零样式风险。分组标题是 level 3，这里是它们的上一级。 */}
+          <div className="list-title" role="heading" aria-level={2}>{title}</div>
           {showSub && (
             <div className="list-sub">{subLabel}</div>
           )}
@@ -1268,13 +1508,19 @@ export function MailList({
           基准 = 行 padding-left(20) + 头像列(28) + gap(14) [+ 选择模式的 20+14]，
           再加半个 gap(7) 落到两列正中，最后减半个手柄宽(4.5)。 */}
       {listStyle === 'compact' && (
-        <div
+        <ResizeHandle
           className="list-col-resize"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t('settings.page.senderColWidth')}
+          label={t('settings.page.senderColWidth')}
+          value={senderCol}
+          min={LAYOUT_LIMITS.senderCol.min}
+          max={LAYOUT_LIMITS.senderCol.max}
+          onDelta={resizeSenderCol}
+          onJump={(to) =>
+            setSenderCol(
+              to === 'min' ? LAYOUT_LIMITS.senderCol.min : LAYOUT_LIMITS.senderCol.max,
+            )
+          }
           style={{ left: `calc(${selecting ? 96 : 62}px + var(--sender-col-w, 150px) + 2.5px)` }}
-          onPointerDown={onSenderResizeDown}
         />
       )}
 
@@ -1284,8 +1530,11 @@ export function MailList({
         {loading && <SkeletonList />}
 
         {/* 错误态。排在空态之前：请求失败时 itemCount 同样是 0，
-            先判错误才不会把故障渲染成「这里什么都没有」。 */}
-        {!loading && error != null && (
+            先判错误才不会把故障渲染成「这里什么都没有」。
+            但**只在没有内容可显示时**接管屏幕：react-query 的 status 是整个 query 的，
+            翻页失败、后台重取失败都会让 error 非空而已加载的页还在缓存里，
+            那时掀掉整张列表比不报错更糟（见 lib/query-semantics.test.ts）。 */}
+        {!loading && error != null && itemCount === 0 && (
           <div className="list-error">
             <div className="list-error-title">{t('list.loadErrorTitle')}</div>
             <div>{t('list.loadErrorHint')}</div>
@@ -1357,9 +1606,22 @@ export function MailList({
           </div>
         )}
 
-        {/* 虚拟化列表 */}
-        {!loading && error == null && rows.length > 0 && (
-          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+        {/* 虚拟化列表。role="list" + 每行显式的 posinset / setsize 是虚拟化列表
+            唯一能让读屏说对「第几项，共几项」的方式——DOM 里只有视口内那十几行。 */}
+        {!loading && rows.length > 0 && (
+          <div
+            ref={rowsRef}
+            className="mail-rows"
+            role="list"
+            aria-label={threadMode ? t('list.ariaThreadList') : t('list.ariaList')}
+            onKeyDown={onRowsKeyDown}
+            // 键盘进入列表（Tab）也要算「焦点在列表里」；鼠标那条路由上面的
+            // pointerdown 监听负责，两者互不冲突。
+            onFocus={() => {
+              focusInListRef.current = true
+            }}
+            style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
+          >
             {virtualItems.map((vItem) => {
               const row = rows[vItem.index]
               if (!row) return null
@@ -1481,6 +1743,18 @@ export function MailList({
                 <div
                   key={vItem.key}
                   data-index={vItem.index}
+                  // 分组标题行也是 listitem，内部再放 heading。
+                  //
+                  // 先前用的是 role="presentation"：它只移除该元素本身、不移除子树，
+                  // 于是 heading 在可访问性树里成了 list 的直接子元素——而 ARIA 1.2 规定
+                  // list 的 required owned element 只能是 listitem（或 group）。
+                  // 那是一处确凿的违例，各家读屏对「list 里混进非 listitem」的规整策略不一致，
+                  // 有丢掉整个列表语义的先例。listitem > heading 则完全合法。
+                  // 计数不受影响：条目的「第几项、共几项」靠下面显式的 posinset/setsize，
+                  // 不靠读屏去数 DOM。
+                  role="listitem"
+                  aria-posinset={row.type === 'header' ? undefined : row.pos}
+                  aria-setsize={row.type === 'header' ? undefined : rowItemCount}
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -1491,9 +1765,11 @@ export function MailList({
                   }}
                 >
                   {row.type === 'header' ? (
-                    /* 分组标题行（compact 模式专属）*/
+                    /* 日期分组标题行（两种列表样式都会分组）*/
                     <div
                       className="side-section-label"
+                      role="heading"
+                      aria-level={3}
                       style={{
                         padding: '4px 16px',
                         fontSize: 11,
@@ -1512,6 +1788,7 @@ export function MailList({
                     <ThreadRow
                       item={row.item}
                       active={row.item.thread_id === activeThreadId}
+                      rovingTab={row.pos === rovingPos}
                       lang={lang}
                       listStyle={listStyle}
                       selected={selectedThreadIds.has(row.item.thread_id)}
@@ -1529,6 +1806,7 @@ export function MailList({
                     <CompactRow
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
+                      rovingTab={row.pos === rovingPos}
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
                       terms={highlightTerms}
@@ -1545,6 +1823,7 @@ export function MailList({
                     <CardRow
                       msg={row.msg}
                       active={row.msg.id === activeMessageId}
+                      rovingTab={row.pos === rovingPos}
                       lang={lang}
                       selected={selectedIds.has(row.msg.id)}
                       terms={highlightTerms}
@@ -1573,16 +1852,24 @@ export function MailList({
           </div>
         )}
 
-        {/* 底部加载状态 */}
+        {/* 底部加载状态。失败态排在「没有更多」之前：两者都表现为列表不再增长，
+            但一个是到头了、一个是出错了，混在一起就是把故障谎报成数据的尽头。 */}
         {!loading && itemCount > 0 && (
-          <div
-            style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-3)' }}
-          >
-            {isFetchingNextPage
-              ? t('list.loadingMore')
-              : !hasNextPage
-                ? t('list.noMore')
-                : null}
+          <div className="list-foot">
+            {isFetchingNextPage ? (
+              t('list.loadingMore')
+            ) : nextPageError ? (
+              <button
+                type="button"
+                className="list-foot-retry"
+                onClick={() => onRetryNextPage?.()}
+              >
+                <span>{t('list.loadMoreFailed')}</span>
+                <span className="list-foot-retry-cta">{t('app.retry')}</span>
+              </button>
+            ) : !hasNextPage ? (
+              t('list.noMore')
+            ) : null}
           </div>
         )}
 

@@ -129,8 +129,26 @@ export function ShellPage() {
     setLayoutModeState(mode)
   }
 
-  const { data: accounts = [] } = useAccounts()
-  const { data: folders = [] } = useFolders(accountId)
+  // 侧栏的两条主链路都要往下传 error：请求失败时 data 回落成空数组，
+  // 界面与「一个账户都没有」「这个账户没有文件夹」完全同形——
+  // 用户看到的是一个空侧栏，既判断不出是故障也没有重试的入口。
+  const accountsQuery = useAccounts()
+  const foldersQuery = useFolders(accountId)
+  // useMemo 固定住空数组的引用：请求未完成时每渲染新建一个 []，
+  // 会让下游依赖它的 useMemo 每渲染必重算。
+  const accountsData = accountsQuery.data
+  const accounts = useMemo(() => accountsData ?? [], [accountsData])
+  const foldersData = foldersQuery.data
+  const folders = useMemo(() => foldersData ?? [], [foldersData])
+  // 同样只认「没有数据可显示」的失败。useFolders 带 30 秒轮询、账户增删会
+  // invalidate ['accounts']——用裸 error 的话，一次后台重取失败就会在一份
+  // 完整的列表上方挂一行「加载失败」，直到下次轮询成功才消失。
+  // 重取在途时先不报错：gcTime 内切回一个上次取数失败过的账户，
+  // refetch-on-mount 还没落地就先闪一下红色错误行，自愈之后又消失。
+  const accountsError =
+    accountsQuery.isLoadingError && !accountsQuery.isFetching ? accountsQuery.error : null
+  const foldersError =
+    foldersQuery.isLoadingError && !foldersQuery.isFetching ? foldersQuery.error : null
   // 账户识别色：聚合/搜索视图把多个账户的邮件混在一列里，
   // 全用同一个 accent 底色就看不出哪封属于哪个邮箱。
   const acctColors = useMemo(() => accountColorMap(accounts), [accounts])
@@ -211,12 +229,35 @@ export function ShellPage() {
   const messagesLoading = conversationView ? threadSource.isLoading : msgSource.isLoading
   // 错误必须与 loading 一起往下传：只传 loading 的话，请求失败时列表走的是
   // itemCount === 0 的空态，把后端故障显示成「这个文件夹里还没有邮件」。
-  const messagesError = conversationView ? threadSource.error : msgSource.error
+  //
+  // ⚠ 必须用 isLoadingError（= isError && 没有数据）而不是裸 error：
+  // react-query 的 status 是整个 query 的，**翻页失败同样会把它置为 'error'**
+  // 并填上 error（已加载的页原样保留）。传裸 error 下去，第 2 页一失败
+  // 就会让整屏错误态吃掉屏幕上那 50 封邮件——比不修更糟。
+  // 翻页失败由下面的 nextPageError 单独表达，落在列表底部那一行。
+  // 同理，有数据时的后台重取失败（isRefetchError）也不该掀掉整个列表。
+  // 这套状态位的语义有 lib/query-semantics.test.ts 固定住。
+  const messagesError = conversationView
+    ? (threadSource.isLoadingError ? threadSource.error : null)
+    : (msgSource.isLoadingError ? msgSource.error : null)
   const refetchMessages = conversationView ? threadSource.refetch : msgSource.refetch
   const hasNextPage = (conversationView ? threadSource.hasNextPage : msgSource.hasNextPage) ?? false
   const isFetchingNextPage = conversationView
     ? threadSource.isFetchingNextPage
     : msgSource.isFetchingNextPage
+  // 翻页失败与首屏失败是两回事：首屏失败整列表走错误态，翻页失败时前几页还在屏幕上，
+  // 只有底部那一行能表达「后面还有，但这次没取到」。
+  const nextPageError = conversationView
+    ? threadSource.isFetchNextPageError
+    : msgSource.isFetchNextPageError
+  // 后台刷新：已有内容的前提下又在取数。三种 loading 里唯独这一种此前没有出口。
+  // 触发来源核对过：无限查询链路自身既没有 refetchInterval 也没有 placeholderData，
+  // 让它亮起来的是各处的 invalidate ['messages'] / ['threads']——同步完成后的批量刷新
+  //（见下方 syncStatus 那段）、SSE 推送，以及删除/移动/标记已读等 mutation 的收尾。
+  // 换搜索词不在此列：queryKey 变了就是一个全新查询，走 isLoading 的骨架屏。
+  const refreshing = conversationView
+    ? threadSource.isFetching && !threadSource.isLoading && !threadSource.isFetchingNextPage
+    : msgSource.isFetching && !msgSource.isLoading && !msgSource.isFetchingNextPage
   function loadMore() {
     if (conversationView) void threadSource.fetchNextPage()
     else void msgSource.fetchNextPage()
@@ -1075,7 +1116,11 @@ export function ShellPage() {
   const sidebar = (
     <AccountSidebar
       accounts={accounts}
+      accountsError={accountsError}
+      onRetryAccounts={() => void accountsQuery.refetch()}
       folders={folders}
+      foldersError={foldersError}
+      onRetryFolders={() => void foldersQuery.refetch()}
       activeAccountId={accountId}
       activeFolderId={folderId}
       syncing={syncing}
@@ -1127,8 +1172,19 @@ export function ShellPage() {
               onToggleSelectThread={toggleSelectThread}
               selfAddrs={selfAddrs}
               loading={messagesLoading}
-              error={messagesError}
-              noAccounts={accounts.length === 0}
+              // 账户取不到时邮件列表无从谈起：此时消息链路多半是禁用状态
+              // （没有 folderId），既不 loading 也没有 error，itemCount 为 0——
+              // 不把账户的错误接进来，中间栏就会用空态谎报一次账户请求失败。
+              error={messagesError ?? accountsError}
+              refreshing={refreshing}
+              // 只有确实取到了一个空账户列表才说「还没有邮箱账户」。
+              // 判据问的是「收到过一份列表吗」而不是 status：后台重取失败时
+              // status 变 error（isSuccess 转假）而缓存里的 [] 还在，
+              // 用 isSuccess 会让 noAccounts 与 error 两头落空，
+              // 主栏落进通用空态「暂无邮件」——新手刚添加完账户碰上重取失败，
+              // 看到的就是既没有错误也没有添加入口的一片空白。
+              // 这里的 data != null 与 isLoadingError 内部的 hasData 是同一个概念。
+              noAccounts={accountsQuery.data != null && accounts.length === 0}
               acctColorOf={
                 // 单文件夹视图里所有邮件同属一个账户，点色点只是噪声
                 (agg != null || searching) && accounts.length > 1
@@ -1136,14 +1192,19 @@ export function ShellPage() {
                   : undefined
               }
               onAddAccount={() => { setEditingAccount(null); setDialogOpen(true) }}
-              onRetry={() => void refetchMessages()}
+              onRetry={() => {
+                if (accountsError != null) void accountsQuery.refetch()
+                void refetchMessages()
+              }}
               activeMessageId={messageId}
               onSelectMessage={selectMessage}
               onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
               listStyle={listStyle}
               hasNextPage={hasNextPage}
               isFetchingNextPage={isFetchingNextPage}
+              nextPageError={nextPageError}
               onLoadMore={loadMore}
+              onRetryNextPage={loadMore}
               searchValue={searchQuery}
               onSearchChange={setSearchQuery}
               searching={searching}

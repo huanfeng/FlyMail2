@@ -103,6 +103,9 @@ export function ComposeDialog({
   const { t } = useTranslation()
   const { toast } = useToast()
   const { data: accounts = [] } = useAccounts()
+  // 表单控件的 id 前缀：<label htmlFor> 要有东西可指。用 useId 而不是写死，
+  // 免得将来同屏出现第二个撰写窗口时 id 撞车（撞了以后点标签会聚焦到另一个窗口的输入框）。
+  const fid = React.useId()
 
   // ── UI state ─────────────────────────────────────────────────────────────────
   const [minimized, setMinimized] = React.useState(false)
@@ -497,21 +500,22 @@ export function ComposeDialog({
         <span className="cb-title">{form.subject || title}</span>
         {/* spacer */}
         <div style={{ flex: 1, minWidth: 0 }} />
-        {/* 展开按钮 */}
+        {/* 展开按钮。文案原先写的是 compose.minimize——方向正好相反 */}
         <button
+          type="button"
           className="icon-btn"
-          title={t('compose.minimize')}
+          title={t('compose.expand')}
+          aria-label={t('compose.expand')}
           onClick={handleToggleMinimize}
         >
-          {/* 向上箭头（展开） */}
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M4 10l4-4 4 4" />
-          </svg>
+          <Icon name="chevron-up" size={12} />
         </button>
         {/* 关闭按钮 */}
         <button
+          type="button"
           className="icon-btn"
           title={t('compose.cancel')}
+          aria-label={t('compose.cancel')}
           onClick={(e) => { e.stopPropagation(); requestClose() }}
         >
           <Icon name="close" size={12} />
@@ -583,16 +587,20 @@ export function ComposeDialog({
         <div style={{ flex: 1 }} />
         {/* 最小化 */}
         <button
+          type="button"
           className="icon-btn"
           title={t('compose.minimize')}
+          aria-label={t('compose.minimize')}
           onClick={handleToggleMinimize}
         >
           <Icon name="minus" size={12} />
         </button>
         {/* 关闭 */}
         <button
+          type="button"
           className="icon-btn"
           title={t('compose.cancel')}
+          aria-label={t('compose.cancel')}
           onClick={requestClose}
         >
           <Icon name="close" size={14} />
@@ -604,9 +612,10 @@ export function ComposeDialog({
 
         {/* From 行：账户 × 别名的扁平列表 */}
         <div className="compose-row">
-          <label>{t('compose.from')}</label>
+          <label htmlFor={multiFrom ? `${fid}-from` : undefined}>{t('compose.from')}</label>
           {multiFrom ? (
             <select
+              id={`${fid}-from`}
               value={fromOption?.key ?? ''}
               onChange={(e) => set('fromOverride', e.target.value)}
               disabled={isBusy}
@@ -639,9 +648,10 @@ export function ComposeDialog({
 
         {/* To 行 */}
         <div className="compose-row">
-          <label>{t('compose.to')}</label>
+          <label htmlFor={`${fid}-to`}>{t('compose.to')}</label>
           <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
             <AddressInput
+              id={`${fid}-to`}
               value={form.toStr}
               onChange={(v) => set('toStr', v)}
               placeholder="name@example.com"
@@ -676,8 +686,9 @@ export function ComposeDialog({
         {/* Cc 行（可折叠） */}
         {showCc && (
           <div className="compose-row">
-            <label>{t('compose.cc')}</label>
+            <label htmlFor={`${fid}-cc`}>{t('compose.cc')}</label>
             <AddressInput
+              id={`${fid}-cc`}
               value={form.ccStr}
               onChange={(v) => set('ccStr', v)}
               placeholder="cc@example.com"
@@ -689,8 +700,9 @@ export function ComposeDialog({
         {/* Bcc 行（可折叠） */}
         {showBcc && (
           <div className="compose-row">
-            <label>{t('compose.bcc')}</label>
+            <label htmlFor={`${fid}-bcc`}>{t('compose.bcc')}</label>
             <AddressInput
+              id={`${fid}-bcc`}
               value={form.bccStr}
               onChange={(v) => set('bccStr', v)}
               placeholder="bcc@example.com"
@@ -701,8 +713,9 @@ export function ComposeDialog({
 
         {/* 主题行 */}
         <div className="compose-row">
-          <label>{t('compose.subject')}</label>
+          <label htmlFor={`${fid}-subject`}>{t('compose.subject')}</label>
           <input
+            id={`${fid}-subject`}
             value={form.subject}
             onChange={(e) => set('subject', e.target.value)}
             placeholder={t('compose.subject')}
@@ -732,6 +745,7 @@ export function ComposeDialog({
                   className="ac-remove"
                   type="button"
                   title={t('compose.attachRemove')}
+                  aria-label={t('compose.attachRemoveNamed', { name: f.name })}
                   onClick={() => removeAttachment(i)}
                   disabled={isBusy}
                 >
@@ -798,6 +812,7 @@ export function ComposeDialog({
           onClick={() => fileInputRef.current?.click()}
           disabled={isBusy}
           title={t('compose.attach')}
+          aria-label={t('compose.attach')}
           type="button"
         >
           <Icon name="attach" size={12} />
@@ -829,6 +844,8 @@ export function ComposeDialog({
           className="pill-btn"
           onClick={requestClose}
           disabled={isBusy}
+          title={t('compose.discard')}
+          aria-label={t('compose.discard')}
           type="button"
         >
           <Icon name="trash" size={12} />

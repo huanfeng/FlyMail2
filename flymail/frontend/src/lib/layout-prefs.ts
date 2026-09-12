@@ -52,12 +52,21 @@ export function loadLayoutWidths(): LayoutWidths {
   return { ...LAYOUT_DEFAULTS }
 }
 
-/** 写入 localStorage 并广播变更事件（供另一处监听同步）。 */
-export function saveLayoutWidths(w: LayoutWidths): void {
+/**
+ * 写入 localStorage 并广播变更事件（供另一处监听同步）。
+ *
+ * 只接受**要改的那几项**，其余从已存的值补齐。这几个宽度有两个所有者
+ * （AppLayout 管 sidebar/list/slide，MailList 管 senderCol），各自带防抖：
+ * 谁要是按自己手上的快照写整份对象，就会把另一方在这段窗口里的改动覆盖掉。
+ * 可复现的路径是先拖发件人列、在它的防抖到期前去拖侧栏——
+ * 侧栏会在拖拽中途弹回旧宽度。合并放在这里，两个调用方就都只需关心自己那份。
+ */
+export function saveLayoutWidths(patch: Partial<LayoutWidths>): void {
+  const next: LayoutWidths = { ...loadLayoutWidths(), ...patch }
   try {
-    localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(w))
+    localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(next))
   } catch {
     /* ignore */
   }
-  window.dispatchEvent(new CustomEvent<LayoutWidths>(LAYOUT_EVENT, { detail: w }))
+  window.dispatchEvent(new CustomEvent<LayoutWidths>(LAYOUT_EVENT, { detail: next }))
 }

@@ -120,6 +120,21 @@ describe('useConfirm', () => {
     expect(results).toEqual([false, true])
   })
 
+  it('body 通过 aria-describedby 连上对话框，读屏打开时会念', async () => {
+    // 拆成 title + body 的全部理由就是那句补充说明（「本地缓存的邮件也会一并
+    // 移除」「移至回收站；若已在回收站则永久删除」）。它若没被 aria-describedby
+    // 连上，读屏用户打开对话框只听得到标题——等于没拆。
+    const results: (boolean | string)[] = []
+    await act(async () => root.render(harness(results)))
+    await ask()
+
+    const box = dialog()!
+    const describedBy = box.getAttribute('aria-describedby')
+    expect(describedBy, '对话框没有 aria-describedby').toBeTruthy()
+    const desc = document.getElementById(describedBy!)
+    expect(desc?.textContent, 'aria-describedby 指向的不是那段补充说明').toBe('这一步不可逆')
+  })
+
   it('danger 的确认键用 danger 语义色', async () => {
     const results: (boolean | string)[] = []
     await act(async () => root.render(harness(results)))

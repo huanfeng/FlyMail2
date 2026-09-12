@@ -146,6 +146,10 @@ export function ComposeDialog({
 
   function removeAttachment(index: number) {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
+    // 与 onPickFiles 成功那一支一致：附件变了就把消息清掉。
+    // 不清的话「附件过大」会在用户删掉那个附件之后继续挂着，
+    // 直到他再点一次发送或存草稿——而他刚做的正是消除那个错误的动作。
+    setValidationError(null)
   }
 
   // 便捷 setter
@@ -535,6 +539,11 @@ export function ComposeDialog({
       ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
       : undefined
 
+  // axios 的 loaded 偶尔会略大于 total（分块边界），不夹取就会出现 width: 101%
+  // 与 aria-valuenow > aria-valuemax。SyncProgress 那边夹了、这边原先没夹——
+  // 同一件事两套判据，迟早分叉。
+  const uploadShownPct = uploadPct == null ? 0 : Math.min(100, Math.round(uploadPct * 100))
+
   return (
     <div
       ref={winRef}
@@ -776,10 +785,10 @@ export function ComposeDialog({
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={Math.round(uploadPct * 100)}
+            aria-valuenow={uploadShownPct}
             aria-label={t('compose.uploading')}
           >
-            <span style={{ width: `${Math.round(uploadPct * 100)}%` }} />
+            <span style={{ width: `${uploadShownPct}%` }} />
           </div>
         </div>
       )}
@@ -800,9 +809,13 @@ export function ComposeDialog({
           type="button"
         >
           {isSending
-            ? uploadPct != null
-              ? t('compose.sendingPct', { pct: Math.round(uploadPct * 100) })
-              : t('compose.sending')
+            ? uploadPct != null && uploadPct < 1
+              ? t('compose.sendingPct', { pct: uploadShownPct })
+              : // 满格之后换回「发送中…」：onUploadProgress 量的是请求体上传，
+                // 不含服务端把信投出去。局域网里 10MB 附件一两秒就到 100%，
+                // 后面几十秒的 SMTP 中继里数字一动不动——停在「发送中… 100%」
+                // 与停在「发送中…」一样像卡死，而且还多了一层「明明满了」的误导。
+                t('compose.sending')
             : t('compose.send')}
         </button>
 

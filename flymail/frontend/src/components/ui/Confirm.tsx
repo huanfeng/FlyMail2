@@ -50,9 +50,7 @@ export function useConfirm(): ConfirmFn {
   return fn
 }
 
-interface PendingConfirm extends ConfirmOptions {
-  resolve: (ok: boolean) => void
-}
+type PendingConfirm = ConfirmOptions
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
@@ -66,7 +64,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       // 而未兑现的 Promise 会让调用方永远卡在 await 上。
       resolveRef.current?.(false)
       resolveRef.current = resolve
-      setPending({ ...opts, resolve })
+      setPending({ ...opts })
     })
   }, [])
 
@@ -88,9 +86,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="confirm-backdrop" />
-          <Dialog.Content className="confirm-dialog" aria-describedby={undefined}>
+          <Dialog.Content
+            className="confirm-dialog"
+            // 没有 body 时显式把 aria-describedby 置空：radix 默认指向一个
+            // Description 元素，找不到就在控制台报警告。有 body 时不要传这个，
+            // 让它正常连上下面那个 Dialog.Description。
+            {...(pending?.body == null ? { 'aria-describedby': undefined } : {})}
+          >
             <Dialog.Title className="confirm-title">{pending?.title ?? ''}</Dialog.Title>
-            {pending?.body != null && <p className="confirm-body">{pending.body}</p>}
+            {/* body 必须走 Dialog.Description 而不是裸 <p>：radix 靠它连上
+                aria-describedby，读屏打开对话框时才会把这句念出来。
+                而拆成 title + body 的全部理由就是那句「本地缓存的邮件也会一并
+                移除」——不念出来等于没拆。没有 body 时显式给 undefined，
+                否则 radix 会因为找不到 description 而在控制台报警告。 */}
+            {pending?.body != null ? (
+              <Dialog.Description className="confirm-body">{pending.body}</Dialog.Description>
+            ) : null}
             <div className="confirm-actions">
               {/* 取消排在前面：确认框多半用于不可逆操作，默认落点应当是
                   「什么都不做」——连按两下回车不该删掉东西。

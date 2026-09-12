@@ -145,4 +145,63 @@ describe('connectRealtime', () => {
     await settle(60000)
     expect(FakeEventSource.instances).toHaveLength(1)
   })
+
+  // ── 连接状态外露（onState）────────────────────────────────────────────────
+  //
+  // 这一层此前只在 useRealtimeSync 的测试里出现，而那边把整个 connectRealtime
+  // mock 掉手动喂状态——等于只测了「拿到状态之后怎么办」，没测「状态是怎么来的」。
+  // 实测把 sse.ts 里两处 onState?.('connecting') 删掉，那边照样全绿。
+  describe('onState', () => {
+    it('建连前先报 connecting，握手成功后报 open', async () => {
+      post.mockResolvedValue({ data: { ticket: 'TK-1', expires_in: 60 } })
+      const states: string[] = []
+      const close = connectRealtime(() => {}, (s) => states.push(s))
+
+      // 取票是异步的：这一声必须在**发起**时就报，而不是等票回来。
+      // 否则后端挂掉时 fetchTicket 一直挂着，界面上什么都不会变。
+      expect(states).toEqual(['connecting'])
+
+      await settle()
+      FakeEventSource.instances[0].onopen?.()
+      expect(states).toEqual(['connecting', 'open'])
+      close()
+    })
+
+    it('断线后重新报 connecting', async () => {
+      post.mockResolvedValue({ data: { ticket: 'TK-1', expires_in: 60 } })
+      const states: string[] = []
+      const close = connectRealtime(() => {}, (s) => states.push(s))
+      await settle()
+      FakeEventSource.instances[0].onopen?.()
+
+      FakeEventSource.instances[0].onerror?.()
+      expect(states).toEqual(['connecting', 'open', 'connecting'])
+
+      await settle(1000)
+      FakeEventSource.instances[1].onopen?.()
+      expect(states).toEqual(['connecting', 'open', 'connecting', 'open'])
+      close()
+    })
+
+    it('取票失败也算 connecting——它和连不上是同一回事', async () => {
+      post.mockRejectedValue(new Error('401'))
+      const states: string[] = []
+      const close = connectRealtime(() => {}, (s) => states.push(s))
+      await settle()
+      // 首次那一声 + 取票失败后安排重连时那一声
+      expect(states).toEqual(['connecting', 'connecting'])
+      close()
+    })
+
+    it('不传 onState 时不报错（它是可选的）', async () => {
+      post.mockResolvedValue({ data: { ticket: 'TK-1', expires_in: 60 } })
+      const close = connectRealtime(() => {})
+      await settle()
+      FakeEventSource.instances[0].onopen?.()
+      FakeEventSource.instances[0].onerror?.()
+      await settle(1000)
+      expect(FakeEventSource.instances).toHaveLength(2)
+      close()
+    })
+  })
 })

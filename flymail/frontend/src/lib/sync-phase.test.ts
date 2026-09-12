@@ -41,11 +41,23 @@ describe('isSyncActive', () => {
 
   it('覆盖了 SyncPhase 的每一个取值', () => {
     // 后端加了新阶段而这里忘了跟进时，新值会落进「不算进行中」那一支——
-    // 症状是同步跑着而界面上毫无表示，正是第 7 条本身。
-    // 这条测试不能自动发现新值（联合类型在运行时不存在），但把清单摆在这里，
-    // 改 SyncPhase 时 tsc 会因为这个数组的类型标注而要求同步更新。
-    const all: SyncPhase[] = ['none', 'queued', 'folders', 'messages', 'done', 'error']
-    const active = all.filter(isSyncActive)
-    expect(active).toEqual(['queued', 'folders', 'messages'])
+    // 症状是同步跑着而界面上毫无表示，正是审查清单第 7 条本身。
+    //
+    // ⚠ 用 Record<SyncPhase, …> 而不是 `SyncPhase[]`：**数组字面量对联合类型
+    //   没有穷尽性检查**，往 SyncPhase 加一个新值，`const all: SyncPhase[] = [...]`
+    //   照样编译通过、测试照样全绿。这条测试原先的注释声称「改 SyncPhase 时
+    //   tsc 会要求同步更新」，那是一层不存在的保护——下一个加 phase 的人会
+    //   信任它。Record 的键必须铺满整个联合类型，漏一个是编译错误。
+    const expected: Record<SyncPhase, boolean> = {
+      none: false,
+      queued: true,
+      folders: true,
+      messages: true,
+      done: false,
+      error: false,
+    }
+    for (const [phase, active] of Object.entries(expected) as [SyncPhase, boolean][]) {
+      expect(isSyncActive(phase), phase).toBe(active)
+    }
   })
 })

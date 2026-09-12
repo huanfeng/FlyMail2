@@ -31,7 +31,7 @@ import { auth } from '@/lib/auth'
  * 刻意**不**显示百分比数字：total 是「这一轮要处理的邮件数」，
  * 各文件夹是边发现边累加的，百分比会往回跳。计数不会有这个问题。
  */
-function SyncProgress({ status }: { status: SyncStatus | null }) {
+export function SyncProgress({ status }: { status: SyncStatus | null }) {
   const { t } = useTranslation()
   const total = status?.total ?? 0
   const processed = status?.processed ?? 0
@@ -46,13 +46,22 @@ function SyncProgress({ status }: { status: SyncStatus | null }) {
         : t('sync.messages')
 
   return (
-    <div className="sync-progress" role="status" aria-live="polite">
+    // ⚠ 整块**不能**是 live region。计数每秒变一次（轮询间隔 1s），而首次导入
+    // 是分钟级的——读屏用户会连续几分钟每秒听一句「正在同步邮件 37 / 2000」，
+    // 新邮件提醒、操作结果、Shell 那个 announce 全被挤掉。
+    // 进度交给 progressbar（读屏按用户自己的节奏查询），只把**阶段变化**
+    // 播报出去：一次同步最多三次（queued → folders → messages）。
+    <div className="sync-progress">
       <div
         className={'sync-bar' + (determinate ? '' : ' indeterminate')}
         role="progressbar"
         aria-valuemin={0}
         {...(determinate
-          ? { 'aria-valuemax': total, 'aria-valuenow': processed }
+          ? {
+              'aria-valuemax': total,
+              'aria-valuenow': processed,
+              'aria-valuetext': `${processed} / ${total}`,
+            }
           : {})}
         aria-label={phaseLabel}
       >
@@ -63,8 +72,12 @@ function SyncProgress({ status }: { status: SyncStatus | null }) {
           />
         )}
       </div>
-      <span className="sync-progress-text">
+      {/* 可见文本已被上面的 progressbar 完整表达，对读屏是重复的 */}
+      <span className="sync-progress-text" aria-hidden="true">
         {determinate ? `${phaseLabel} ${processed} / ${total}` : phaseLabel}
+      </span>
+      <span className="sr-only" role="status" aria-live="polite">
+        {phaseLabel}
       </span>
     </div>
   )

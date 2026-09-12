@@ -808,15 +808,60 @@ commit message 写着修了「轮询永不停止」，实际只修了「轮询�
 就只意味着记录没了）、触发失败弹 toast、侧栏同步按钮补 `disabled={syncing || !acc.enabled}`
 （右键菜单里那一项本来就判了 `acc.enabled`，这个按钮漏了）。
 
+### 复审后半段的六条
+
+报告分两次送达，后半段还有六条，S5~S7 不在第一批里且都是真的：
+
+- **S5（中）同步进度整块挂了 `aria-live="polite"`，包住每秒变化的计数。**
+  轮询间隔 1 秒而首次导入是分钟级的——读屏用户会连续几分钟每秒听一句
+  「正在同步邮件 37 / 2000」，新邮件提醒、操作结果、Shell 那个 announce 全被挤掉。
+  **比没有进度表达更糟。** 改成：进度交给 `role="progressbar"`（读屏按用户自己的
+  节奏查询，带 `aria-valuetext`），可见文本 `aria-hidden`，只把**阶段名**放进一个
+  sr-only live region——一次同步最多播报三次。
+- **S6（中）上传满格后按钮停在「发送中… 100%」直到 SMTP 跑完。**
+  `onUploadProgress` 量的是请求体上传，不含服务端投递。局域网里 10MB 附件一两秒
+  就到 100%，后面几十秒数字一动不动——**这一条改动想解决的那个抱怨在最常见场景下
+  根本没解决**，只是把「发送中…」换成了「发送中… 100%」，还多了一层「明明满了」的
+  误导。满格后换回「发送中…」。顺带夹取百分比：`SyncProgress` 那边夹了、这边没夹，
+  `loaded` 略大于 `total` 时会出现 `width: 101%` 与 `aria-valuenow > aria-valuemax`。
+- **S7（中低）`.confirm-dialog` 的 `pop` 动画把居中的 transform 顶掉。**
+  `transform` 是整条被关键帧替换的，而 `pop` 的末态是 `transform: none`。
+  `pop` 的另外五个使用者都靠父级 grid/flex 居中，所以这个坑一直没碰上；
+  确认框是 `fixed` + `translate(-50%,-50%)` 自己居中的，于是那 150ms 里
+  对话框的左上角先落在视口正中，动画结束才跳回去。加了一条 `popCentered`。
+- **S9（低）`sync-phase.test.ts` 里「tsc 会强制同步更新」是假承诺。**
+  数组字面量对联合类型**没有**穷尽性检查，加新 phase 照样编译通过、测试照样绿。
+  下一个加 phase 的人会信任这层不存在的保护，而漏掉 phase 的症状正是第 7 条本身。
+  改用 `Record<SyncPhase, boolean>`——实测漏一个键是编译错误。
+- **S10（低）新测试的覆盖装反了**：`sse.ts` 的 `onState` 完全没被测到
+  （`useRealtimeSync.test.tsx` 把 `connectRealtime` 整个 mock 掉手动喂状态），
+  上传进度的正向路径也没有（只断言了「没有上传时不显示进度条」）。两处都补了。
+- **两条很小的**：`Confirm.tsx` 显式 `aria-describedby={undefined}` 但对话框有
+  `body`，读屏打开时不念那句补充说明——而**拆成 title + body 的全部理由就是那句**；
+  `PendingConfirm.resolve` 存进 state 却从没被读过（`settle` 走 `resolveRef`），死字段。
+
+另外连带修掉一条：`removeAttachment` 不清 `validationError`。超限的附件不会被加进
+列表，用户唯一的补救是删掉**已有**附件腾地方——而删完之后「附件过大」还挂着，
+直到他再点一次发送或存草稿。他刚做的正是消除那个错误的动作。
+
 ### 本轮的测试
 
-新增 17 条，**每条都做了回退验证**（改回旧写法确认它会失败）：
+新增 32 条，**每条都做了回退验证**（改回旧写法确认它会失败）：
 
 - `useAccountSync.test.tsx` 6 条。三次回退各自精确打红对应用例：
   去掉 setQueryData 播种 → 第二次点击那条红；`'none'` 不算终态 → 状态丢失那条红；
   不等触发成功就开轮询 → 第二次点击 + 触发失败两条红。
 - `useFocusTrap.test.tsx` 3 条、`overlay-layers.test.tsx` 2 条、
   `SettingsDialog.test.tsx` 3 条（Esc 归属）、`useKeyboardShortcuts.test.tsx` 3 条。
+- 后半段补的：`SyncProgress.test.tsx` 5 条（无障碍结构，导出组件来测，
+  与第四轮的 `ThemeCard` 同一个做法）、`sse.test.ts` 的 onState 4 条、
+  `ComposeDialog.test.tsx` 的上传进度 3 条与附件体积 1 条、
+  `centered-animation.test.ts` 3 条、`Confirm.test.tsx` 的 aria-describedby 1 条。
+
+其中上传进度那三条能测到真实链路，靠的是 **mock adapter 的 `reply` 回调能拿到
+`config.onUploadProgress`**——那正是 `useSend` 挂上去的那个函数，在回调里调它
+等于走了一遍「axios 配置 → uploadRatio → setUploadPct → 渲染」。
+jsdom 里没有真的上传，但链路是真的。
 
 两处**测试方法本身**的教训：
 

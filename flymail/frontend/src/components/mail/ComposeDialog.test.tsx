@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import MockAdapter from 'axios-mock-adapter'
 import api from '@/lib/api'
-import { ComposeDialog } from '@/components/mail/ComposeDialog'
+import { ComposeDialog, type ComposeInitial } from '@/components/mail/ComposeDialog'
 import { uploadRatio } from '@/lib/queries'
 
 vi.mock('react-i18next', () => ({
@@ -47,12 +47,12 @@ describe('ComposeDialog 的校验消息位置', () => {
     }
   }
 
-  async function mount() {
+  async function mount(initial?: ComposeInitial) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     await act(async () => {
       root.render(
         <QueryClientProvider client={qc}>
-          <ComposeDialog open accountId={1} onOpenChange={vi.fn()} />
+          <ComposeDialog open accountId={1} onOpenChange={vi.fn()} initial={initial} />
         </QueryClientProvider>,
       )
     })
@@ -144,5 +144,206 @@ describe('uploadRatio', () => {
     expect(uploadRatio({ loaded: 700 })).toBeNull()
     expect(uploadRatio({ loaded: 900, total: 0 })).toBeNull()
     expect(uploadRatio({ loaded: 900, total: -1 })).toBeNull()
+  })
+})
+
+/**
+ * 上传进度的**正向**路径。
+ *
+ * 此前这里只断言了「没有上传在进行时不显示进度条」——把
+ * `onProgress: setUploadPct` 那一行整个删掉，测试照样全绿。也就是说那条用例
+ * 证明的是「不该出现的时候没出现」，而真正会坏的是「该出现的时候没出现」。
+ *
+ * ⚙ jsdom 里没有真的上传，所以进度事件由 mock adapter 的 reply 回调**主动**
+ *    发起：`config.onUploadProgress` 就是 `useSend` 挂上去的那个函数，
+ *    调它等于走了一遍真实链路（axios 配置 → uploadRatio → setUploadPct → 渲染）。
+ */
+describe('ComposeDialog 的上传进度', () => {
+  let mock: MockAdapter
+  let container: HTMLDivElement
+  let root: Root
+  /** 由 reply 回调交出来的进度函数，用例用它模拟上传推进 */
+  let emitProgress: ((loaded: number, total: number) => void) | null
+  /** 让 /send 挂着不返回，以便在"上传中"这个状态上做断言 */
+  let releaseSend: (() => void) | null
+
+  async function flush(times = 4) {
+    for (let i = 0; i < times; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+    }
+  }
+
+  beforeEach(() => {
+    emitProgress = null
+    releaseSend = null
+    mock = new MockAdapter(api)
+    mock.onGet(/.*/).reply(200, [])
+    mock.onPost('/send').reply((config) => {
+      const onUp = (config as { onUploadProgress?: (e: { loaded: number; total?: number }) => void })
+        .onUploadProgress
+      emitProgress = (loaded, total) => onUp?.({ loaded, total })
+      return new Promise((resolve) => {
+        releaseSend = () => resolve([200, { status: 'ok' }])
+      })
+    })
+    mock.onPost(/.*/).reply(200, {})
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    releaseSend?.()
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
+  })
+
+  async function mountWithAttachment() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ComposeDialog
+            open
+            accountId={1}
+            onOpenChange={vi.fn()}
+            initial={{ to: ['a@example.com'] }}
+          />
+        </QueryClientProvider>,
+      )
+    })
+    await flush()
+
+    // 附件走 multipart，那是唯一会报进度的一支（纯文本正文一次性发出，没有中间状态）
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['x'.repeat(64)], 'big.bin', { type: 'application/octet-stream' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await flush()
+    return input
+  }
+
+  const sendBtn = () =>
+    [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.startsWith('compose.send') || b.textContent?.startsWith('compose.sending'),
+    )!
+
+  it('上传推进时出现进度条，按钮显示百分比', async () => {
+    await mountWithAttachment()
+    await act(async () => sendBtn().click())
+    await flush()
+
+    expect(emitProgress, '没有走到 multipart 那一支——onUploadProgress 根本没挂上').not.toBeNull()
+    await act(async () => emitProgress!(30, 100))
+    await flush(1)
+
+    const bar = container.querySelector('.compose-upload-bar')
+    expect(bar, '上传推进了却没有进度条').not.toBeNull()
+    expect(bar?.getAttribute('aria-valuenow')).toBe('30')
+    expect(sendBtn().textContent).toBe('compose.sendingPct')
+  })
+
+  it('满格之后按钮换回「发送中…」，而不是停在 100%', async () => {
+    // onUploadProgress 量的只是请求体上传，不含服务端把信投出去。局域网里
+    // 10MB 附件一两秒就到 100%，后面几十秒的 SMTP 中继里数字一动不动——
+    // 停在「发送中… 100%」比停在「发送中…」更误导：它宣称活干完了。
+    await mountWithAttachment()
+    await act(async () => sendBtn().click())
+    await flush()
+    await act(async () => emitProgress!(100, 100))
+    await flush(1)
+
+    expect(sendBtn().textContent).toBe('compose.sending')
+  })
+
+  it('拿不到总长度时不显示进度条，也不显示 NaN%', async () => {
+    await mountWithAttachment()
+    await act(async () => sendBtn().click())
+    await flush()
+    await act(async () => emitProgress!(700, 0))
+    await flush(1)
+
+    expect(container.querySelector('.compose-upload-bar')).toBeNull()
+    expect(sendBtn().textContent).toBe('compose.sending')
+  })
+})
+
+/**
+ * 「附件过大」这条错误的消散路径。
+ *
+ * 超限的那个附件**不会**被加进列表（onPickFiles 直接 return），所以用户能做的
+ * 唯一补救是删掉**已有**的附件腾地方。而 removeAttachment 原先不清消息：
+ * 他删完之后错误还挂在那儿，直到再点一次发送或存草稿——而删附件正是他为了
+ * 消除这个错误而做的动作。
+ */
+describe('ComposeDialog 的附件体积错误', () => {
+  let mock: MockAdapter
+  let container: HTMLDivElement
+  let root: Root
+
+  async function flush(times = 3) {
+    for (let i = 0; i < times; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+    }
+  }
+
+  beforeEach(() => {
+    mock = new MockAdapter(api)
+    mock.onGet(/.*/).reply(200, [])
+    mock.onPost(/.*/).reply(200, {})
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
+  })
+
+  /** 挑一个文件进去；size 可以伪造（jsdom 里造几十 MB 的真文件没必要） */
+  async function pick(name: string, size: number) {
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['x'], name)
+    Object.defineProperty(file, 'size', { value: size, configurable: true })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await flush(1)
+  }
+
+  const msg = () => container.querySelector('.compose-msg')?.textContent ?? ''
+
+  it('删掉已有附件腾出空间后，「附件过大」随之消失', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ComposeDialog open accountId={1} onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      )
+    })
+    await flush()
+
+    await pick('small.bin', 20 * 1024 * 1024) // 20MB，上限 25MB，收下
+    expect(container.querySelectorAll('.attach-chip').length).toBe(1)
+    expect(msg()).toBe('')
+
+    await pick('huge.bin', 20 * 1024 * 1024) // 再来 20MB 就超了
+    expect(msg(), '超限时没有提示').toContain('compose.attachTooLarge')
+    expect(container.querySelectorAll('.attach-chip').length, '超限的附件不该被收下').toBe(1)
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('.attach-chip .ac-remove')?.click()
+    })
+    await flush(1)
+    expect(container.querySelectorAll('.attach-chip').length).toBe(0)
+    expect(msg(), '附件删了但「附件过大」还挂着').toBe('')
   })
 })

@@ -1494,6 +1494,14 @@ mark.hl {
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 @keyframes pop { from { transform: translateY(8px) scale(0.98); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes toastIn { from { transform: translate(-50%, 8px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
+/* pop 的居中版。`pop` 的末态是 `transform: none`，对靠父级 grid/flex 居中的浮层
+   没问题（它的另外五个使用者都是那样），但确认框是 position:fixed + 自己
+   translate(-50%,-50%) 居中的——关键帧期间 transform 被整体替换，那 150ms 里
+   对话框的左上角会落在视口正中，动画结束才跳回去。 */
+@keyframes popCentered {
+  from { transform: translate(-50%, calc(-50% + 8px)) scale(0.98); opacity: 0 }
+  to   { transform: translate(-50%, -50%) scale(1); opacity: 1 }
+}
 
 .compose-head {
   padding: 10px 16px; border-bottom: 1px solid var(--rule);
@@ -2550,7 +2558,7 @@ mark.hl {
   box-shadow: var(--shadow-lg);
   padding: 20px;
   outline: none;
-  animation: pop 0.15s;
+  animation: popCentered 0.15s;
 }
 .confirm-title {
   font-family: var(--font-display); font-size: 16px; font-weight: 500;

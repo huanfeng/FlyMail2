@@ -4,7 +4,7 @@
 范围：`flymail/frontend/src` 全量，两路独立审查（设计/交互维度 + 可访问性与状态覆盖维度）。
 
 共发现 41 条。第一轮处理 16 条，第二轮 3 条，第三轮 3 条，做浏览器通知时顺带修掉第 3、27 条，
-其余 17 条记录在此，按优先级与改动成本排期。
+第四轮 4 条（第 11、12、23、24 条），其余 13 条记录在此，按优先级与改动成本排期。
 
 行号以 `d882840`（前端操作流程优化）之后、`ui-fixes` 之前的代码为准；改过的文件行号已经变了，
 正文里会标注"已处理"。**编号一律不重排**：已处理的条目保留原编号并就地标注，
@@ -486,7 +486,209 @@ if (active && active !== document.body && !rowsRef.current?.contains(active)) re
 
 ---
 
-## 四、待处理（17 条）
+## 四、第四轮已处理（4 条）——把两套语言并成一套
+
+前三轮修的是行为（数据状态、焦点、语义）。这一轮修的是**同一件事有两套写法**：
+色板有三份副本、登录页是另一套视觉语言、尺寸一半写在样式表一半写在内联 style。
+四条里没有一条改变功能，但每一条都在消除"改一处要记得改另一处"的结构。
+
+### 23. 约 170 行死 CSS
+
+删掉的：`.quick-theme` 整块连同 `.qt-*`（被移除的快速主题气泡）、旧浮层版设置面板
+（`.settings-panel` / `.settings-section` / `.settings-label` / `.theme-swatch*` / `.sw-*`，
+现行的是 `.sd-*` 那一套）、`.settings-grid` / `.settings-nav` 及其媒体查询、
+`.compose-textarea`（已换 Tiptap）、`.kbd-pill`、`.nf-pip`、`.nf-meta-row`、`.kind-sec`、
+`.label-dot`、`.mono`、`.sidebar-foot .avatar`、`.tb-menu-wrap`、`.reader-embedded`。
+
+判据是脚本扫的：index.css 里 323 个类选择器，逐个在 `src/**/*.{ts,tsx}` 与 `index.html`
+里按**完整词**匹配（`avatar-sq` 不算 `avatar` 的引用）。45 个零引用里人工排掉三类：
+Tiptap/ProseMirror 运行时注入的（`.ProseMirror-selectednode` / `.selectedCell` /
+`.tableWrapper` / `.column-resize-handle`）、我的正则从注释里误提的（`.fp-*` / `.notif-*`
+这种通配写法）、只在注释里出现的（`.reply-box` / `.reply-actions` 的"为什么移除"说明，
+那正是注释该留下的东西）。同时扫了一遍模板拼接的 className，确认没有 `` `xx-${...}` ``
+这类拼出来的类名会让"零引用"的判断失真。
+
+### 24. 主题色板三份副本合成一份
+
+原来：`index.css` 的 `[data-theme][data-mode]` 令牌（权威，18 组）、`SettingsDialog`
+预览卡里 `THEME_PREVIEW` 的 54 个 hex、`lib/theme.ts` 的 `TONES.swatch` 9 个 hex。
+改一次主题要改三处，而漂移了**没有任何东西会报错**——预览卡显示的颜色与点下去
+真正生效的颜色不一致，只有肉眼能发现。（动手前先比对了一次：当时刚好还没漂移，
+所以这次改造是等价替换，不改变任何现有观感。）
+
+修法不是"让两处引用同一份常量"，而是让预览卡**直接用那份令牌**：
+
+```tsx
+<div className="tc-preview" data-theme={id} data-mode={mode}>
+```
+
+index.css 里的选择器本来就写成 `[data-theme="x"][data-mode="y"]` 而不是 `:root[...]`，
+挂在任意子树上都会在那个子树内重新定义整套令牌。于是 `.tc-preview` / `.tc-side` /
+`.tc-accent` / `.tc-line` 全部改用 `var(--bg)` / `var(--bg-alt)` / `var(--accent)` /
+`var(--rule-strong)`，TSX 里一个颜色都不写。属性挂在预览区而不是整张卡上——
+卡片外框与名称要跟随**当前**主题，只有那块预览是"别的主题长什么样"。
+
+顺带两处：`.tc-line` 与 `.tc-side` 的边框原本是硬编码的 `rgba(0,0,0,0.08)`，
+暗色预览里几乎看不见，现在跟着预览主题走；`[data-mode="light"]` 补了一条
+`color-scheme: light` 与 dark 那条对称——它原先只写在 `:root` 上，而 `color-scheme`
+是继承属性，子树挂了 `[data-mode="light"]` 也拿不到它。**这条今天不修任何可见问题**
+（预览卡的 mode 总是取自当前模式，与 html 上的一致），修的是那个承诺本身：
+既然说「挂上这两个属性就得到一整套主题」，就不该留一项只在 `:root` 上成立。
+
+`TONES` 也不再带 `swatch` 字段（全项目除了测试没有第二个引用），
+新增的 `lib/theme-tokens.test.ts` 钉住这个结构：18 组令牌齐全（预览卡不写颜色，
+缺一个就是一块透明，界面上只表现为"这套主题的预览有点怪"）、源码里不出现
+主题特征色的 hex、亮暗两条 `color-scheme` 对称。
+
+### 11. 登录页并入应用的视觉语言
+
+`Login.tsx` 原先是 shadcn 的 `Card`/`Button`/`Input` + Tailwind 语义类 + lucide 图标，
+与应用内部的令牌、16px 自绘图标集、手写像素间距全都对不上，连圆角尺度都是两套
+（shadcn 的 `--radius` 派生 vs 裸像素）。用户看到的第一屏不长得像这个应用。
+
+改为同源：同一批令牌、同一套 `Icon`、同一档圆角与阴影，新增 `.login-*` 一组样式。
+控件尺寸按"手指够得着"定（输入 42px、主按钮 44px）——登录页没有密度压力，
+这里不该沿用列表那套 28px 的紧凑尺度。
+
+顺带补齐三处 a11y（都是改写时才显出来的）：
+
+- `<label>` 用 `useId` 关联（原先靠写死的 `id="username"` / `id="password"`）
+- 密码可见性按钮原是 `tabIndex={-1}` 的裸 button，**没有任何可访问名**——
+  读屏只报"按钮"，键盘够不着。现在有 `aria-label` + `aria-pressed`，并且可聚焦
+- 错误/限流消息原是条件渲染，改为常驻的 `role="status"` live region
+  （与内容同时插入 DOM 的 live region 读屏不播报——这是第一轮就学到的）
+
+`lucide-react` 随之从依赖里移除（DraftsList 的两个图标也换成自绘图标集），
+`Icon` 集补了 `eye` / `eye-off`；没人引用的 `components/ui/card.tsx` 一并删掉。
+`components/ui/{button,input,label}.tsx` 仍有四个对话框在用，保留。
+
+新增 `pages/Login.test.tsx` 六条：label 真的关联到存在的 id、可见性按钮的可访问名
+与可聚焦、点击后 type 与 `aria-pressed` 同步、消息区空着时也在 DOM 里、
+401 落进那个消息区、429 时提交按钮禁用。
+
+### 12. 触摸尺度
+
+判据用 `pointer: coarse` 而不是窄屏宽度——**"手指有多粗"和"窗口有多宽"是两件事**：
+平板横屏比 768px 宽得多，而桌面上把窗口拖窄的人用的仍是鼠标。
+（同一个判据在 `.mi-del` / `.account-row-actions` 的 hover 守卫上已经用过，
+第 12 条原文说的"`max-width:768px` 块只改了间距与字号"，缺的正是这个维度。）
+
+`.icon-btn` 36×36、`.lt-btn` 36×36、`.rt-btn` 34、`.chip-clear` 30、`.tb-btn` 高 38，
+搜索框同时放宽内边距——两个按钮被放大后需要更多呼吸空间。
+
+**做法是放大视觉尺寸而不是用伪元素扩命中区**：搜索框里那两个按钮只隔几像素，
+给它们各铺一块 44px 的透明命中区会互相重叠，结果是点前一个触发后一个。
+
+其中三处按钮的尺寸原本写在 `style={{ width: 20, height: 20 }}` 里——
+**内联样式优先级最高，媒体查询改不动它**。改成 `.icon-btn.compact` / `.icon-btn.mini`
+两个修饰类，尺寸的归属才回到样式表。这是第 12 条里唯一动到 TSX 的地方，
+也是"同一件事两套写法"在这一轮的第三个面孔。
+
+`.mi-star` / `.mi-del` 没有放进去：它们是绝对定位（`right: 14px` / `40px`）且不带宽高，
+给了尺寸就要连着重算两个 right——34px 宽时两者会叠掉 8px。粗指针下它们已经常驻显示
+（第一轮修的是"看不见却能点"），尺寸单独排。
+
+### 复审抓出的五条
+
+**1（高）登录主按钮绕过了仓库已有的那层桥。** 我照着 `.compose-btn` 写了
+`background: var(--accent); color: white`，而 `index.css` 顶部早就为「品牌色作按钮底」
+分好了亮暗两套：`--primary` 亮色取深调的 `--accent-ink` 配白字、暗色取亮调的
+`--accent` 配深底色字。直接用 `--accent` 配死白字，**9 套主题的暗色全部**
+（slate 暗 `#b6bdc8` 对白字 ≈ 1.9:1）与亮色里的 butter / warm / coral / aqua
+都达不到 AA 的 4.5:1——「登录」二字糊在按钮底色上，而这是第一屏。
+
+扫了一遍发现同一个写法在**四个地方**各犯了一次：`.brand-mark`（侧栏品牌方块）、
+`.compose-btn`（撰写新邮件）、`.pill-btn.primary`（对话框主按钮），加上新写的
+`.login-submit`。四处一起改成 `var(--primary)` / `var(--primary-foreground)`，
+并加了一条测试扫 CSS：任何规则里同时出现 `background: var(--accent)` 与
+写死的白字就失败。
+
+这条是「根因二（照着看起来像写，而不是照着语义上是写）」的又一例，
+而且是**照着一个本身就写错了的样板抄**——那三处比登录页早得多。
+
+**2（中高）`.mi-star` / `.mi-del` 在粗指针下反而叠得更狠。** 我在第一版的注释里写
+「它们不带宽高，所以没放进放大块」——**那句是错的**：它们的 class 是
+`mi-star icon-btn`，宽高正是从 `.icon-btn` 来的，`@media (pointer: coarse)`
+里那条 36px 直接命中。卡片模式下两者绝对定位、间隔 26px，放大后重叠 10px
+（28px 时只叠 2px），而粗指针下它们是常驻可见的——**点删除键靠右那一侧会变成加星标**。
+
+我想避免的正是这个结果（块首注释写着「铺 44px 命中区会互相重叠，点前一个触发后一个」），
+只是换了个方式发生了。→ 尺寸与 `right` 一起定（32px + 12/48），
+并把「不重叠」做成算术测试（`lib/touch-targets.test.ts`）：从 CSS 里读出尺寸与 right
+自己算一遍，不依赖布局引擎。三种回退都验过会失败——包括「把尺寸改小来避免重叠」
+这种把问题掉个头的修法。
+
+**3（中）第 12 条只做了一半。** 漏掉的恰好是不可逆操作：`DraftsList` 的
+「立即发送」「删除草稿」是 Tailwind `p-1` ≈ 21px，没带 `.icon-btn` 所以不受放大影响。
+
+而查这两个按钮时发现了更要紧的：它们的容器写的是
+`opacity-0 group-hover:opacity-100`——**与第一轮修掉的「触摸端隐形删除按钮」完全同形**。
+触摸设备 `:hover` 永不触发，而 `opacity: 0` 的元素照常接收点击，
+于是草稿列表每一行右侧躺着两个看不见的不可逆操作。
+→ 改用 `.draft-actions`，显隐守卫与 `.mi-star` / `.account-row-actions` 同一套，
+另加 `:focus-within` 让键盘用户也看得见。
+同时补上 `.mi-select input` / `.lt-all input`（16px 复选框 → 20px）与 `.chip` 的高度。
+
+**同一个缺陷在第一轮修过一次，两个月后在另一个组件上原样复现**——
+说明"hover 显隐"这个模式值得像第 23 条那样单独扫一遍全项目。
+
+**4（中）新测试只钉了 CSS 那一侧。** `theme-tokens.test.ts` 验的是令牌齐全、
+源码无色板副本、`color-scheme` 对称——这些全过，预览卡照样可能什么都不显示：
+只要 `data-theme`/`data-mode` 没挂上去或拼错，9 张卡会**全部渲染成当前主题、
+看起来一模一样**，而测试全绿。
+
+旧写法的退化形态是卡片消失（`THEME_PREVIEW[id]` 查不到就 `return null`），一眼可见；
+新写法的退化形态是「安静地都对但都一样」。→ 导出 `ThemeCard` 并加
+`ThemeCard.test.tsx` 五条（属性挂在预览区而非整张卡、九个色调都渲染得出、
+预览区内不出现任何内联颜色），`ThemeCardProps.id` 也从 `string` 收紧为 `ToneId`。
+
+**5（低）`--accent-color` 别名在预览子树里取不到被预览的颜色。**
+自定义属性的 `var()` 在**声明处**求值：`:root` 上那条 `--accent-color: var(--accent)`
+算出来的永远是 html 那层的值，向下继承时不会被子树的 `[data-theme]` 重新解析。
+今天预览卡里没人用它，但「挂上这两个属性就得到一整套主题」这个承诺对它是破的。
+→ 补一条 `[data-theme][data-mode] { --accent-color: var(--accent); }`，一条覆盖全部 18 组。
+
+**6（低）粗指针下返回键与工具栏首个按钮贴到 0 间距。** 浮动阅读面板左上角的返回键
+（`icon-btn reader-slide-close`，尺寸全来自 `.icon-btn`）放大到 36px 后占到 `left 12→48`，
+而 `.reader-slide .reader-toolbar` 为它让的 `padding-left` 正好也是 48px——
+28px 时还有 8px 缝。不重叠也不会误点，但在最该留余量的触摸场景下反而最紧。
+→ `padding-left` 跟着进 coarse 块提到 56px。
+
+**7（低，既有）色板其实还有第四份副本，而且已经漂了。** `index.html` 的两个
+`theme-color`：亮那个 `#fbfaf7` 是 **warm** 的 `--bg`，而默认色调是 **slate**（`#f7f8fa`）；
+暗那个 `#1a1917` **在整张 9×2 的令牌表里根本不存在**。
+第 24 条自称"三合一"时把它漏了，而新加的守卫也盖不到——那条测试的 glob 只扫
+`src` 下的 ts/tsx。
+
+这处没法走令牌：`<meta>` 在 CSS 变量之外，浏览器读它时下面的引导脚本还没跑，
+所以它只能表达「默认色调 + 跟随系统」，用户选了别的色调或反着设了明暗时会差一档——
+那是这个标签的固有限制。→ 值改成 slate 的，并加一条测试把它和令牌绑住
+（顺带断言引导脚本的默认调仍是 slate，那是三处必须一致的第三处）。
+
+**「三合一」其实是四合一。** 找副本时我只找了"程序里引用色板的地方"，
+没有找"任何写着颜色的地方"——`index.html` 不在 `src/` 下，也不 import 任何东西，
+于是整条搜索路径都绕过了它。而它恰恰是漂得最久、最没人看的一处。
+
+### 自己在实现期间抓到的两条
+
+**JSX 注释漏了闭合的 `}`，`tsc` 两次都放行。** 写成 `{/* … */` 之后紧跟一个元素时，
+TS 把它解析成「一个包着 `<div>` 的表达式容器」，语法合法、渲染结果也对，
+所以 `tsc --noEmit` 干净通过。第一次是 eslint 的解析器报 `Parsing error` 抓到的，
+第二次是 vite 的 oxc 在 `vitest` 里报 `Unterminated regular expression` 抓到的。
+**同一个笔误犯了两次，而两次都不是被类型检查发现的**——又一条「tsc 绿灯不是证据」。
+
+**给 `color-scheme` 补丁写的理由说过头了。** 我写的是「暗色应用里预览一张亮色卡会
+继承到 dark」，但预览卡的 `mode` 恒等于当前模式，那个场景根本不会发生。
+那条 CSS 仍该补（让按属性选择的两条对称），但理由改成了实话：
+**它今天不修任何可见问题**，修的是那个承诺本身。写注释时顺手编一个听起来合理的
+失败场景，比不写注释更坏——下一个人会拿它当事实。
+
+**需人工确认**（jsdom 测不了的）：新登录页在九套主题明暗两套下的观感与对比度；
+真机触摸端放大后的列表行是否拥挤；主题预览卡的九张是否确实各不相同。
+
+---
+
+## 五、待处理（13 条）
 
 ### P1 — 建议下一轮
 
@@ -524,19 +726,27 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 而 `.ctx-menu`/`.ctx-item` 是权威样式，`DropMenu` 组件和 `CtxMenuItem` 模型都是现成的。
 同一应用里两种菜单外观。→ 替换成 `<DropMenu>` 净删约 35 行。
 
-**11. 登录页是另一套视觉语言**
+**11. 登录页是另一套视觉语言** — ✅ 已于第四轮处理，见第四节。
+
+<details><summary>原文</summary>
+
 `Login.tsx` 用 lucide-react 图标 + shadcn Card/Button/Input + Tailwind 语义类；
 应用内部用自绘 16px stroke 图标集 + MailMaster 令牌 + 手写像素间距。
 连圆角尺度都不同（shadcn 的 `--radius` 派生 vs 裸像素）。
 用户看到的第一屏不长得像这个应用。顺带：为 3 个图标引入了整个 lucide-react。
+</details>
 
-**12. 触摸目标偏小 + 窄屏断点只做了一半**
+**12. 触摸目标偏小 + 窄屏断点只做了一半** — ✅ 已于第四轮处理，见第四节。
+
+<details><summary>原文</summary>
+
 `.icon-btn` 28×28、`.lt-btn` 30×30、`.rt-btn` 26×26、`.chip-clear` 22×22、
 账户同步按钮 22×22（图标 11px）、搜索清除按钮 20×20。
 而 `max-width:768px` 块只改了间距与字号，没有任何一处放大触摸目标。
 三栏退化到单栏本身做得不错（抽屉 + `data-mobile-pane`），缺的是退化之后的"手指尺度"。
 附带：汉堡菜单用的是三点图标（隐喻错误），返回键用 `chevron-right` 加 `scaleX(-1)` 镜像
 ——都是图标集缺项的代偿。
+</details>
 
 **13. 撰写器校验错误显示在会滚走的位置**
 `validationError` 渲染在 `.compose-body`（`overflow-y:auto`）最底部、编辑器之后，
@@ -566,9 +776,9 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 **22.** `NotificationsPage` 的 `dayLabel` 缺 NaN 守卫（同文件的 `fmtTime` 与 `MailList` 的 `relTime` 都有），非法 `created_at` 静默落入"更早"分组。
 
-**23.** 约 150 行死 CSS：`.quick-theme` 整块（73 行，被移除的快速主题气泡）、`.settings-panel`/`.settings-section`/`.theme-swatches`、`.compose-textarea`（已换 Tiptap）、`.nf-pip`、`.label-dot`、`.kbd-pill`。在一个 2224 行的单文件 CSS 里，这些残留会让后来者分不清哪套是现行语言。
+**23.** ✅ 已于第四轮处理（实删 172 行），见第四节。原文：约 150 行死 CSS：`.quick-theme` 整块（73 行，被移除的快速主题气泡）、`.settings-panel`/`.settings-section`/`.theme-swatches`、`.compose-textarea`（已换 Tiptap）、`.nf-pip`、`.label-dot`、`.kbd-pill`。在一个 2224 行的单文件 CSS 里，这些残留会让后来者分不清哪套是现行语言。
 
-**24.** 主题色板有三份副本：`index.css` 的权威定义、`SettingsDialog` 预览卡里的 54 个 hex、`lib/theme.ts` 的 `TONES.swatch`。改一次主题要改三处，必然漂移。→ 预览卡改为挂 `data-theme`/`data-mode` 让它自己继承令牌。
+**24.** ✅ 已于第四轮处理，见第四节。原文：主题色板有三份副本：`index.css` 的权威定义、`SettingsDialog` 预览卡里的 54 个 hex、`lib/theme.ts` 的 `TONES.swatch`。改一次主题要改三处，必然漂移。→ 预览卡改为挂 `data-theme`/`data-mode` 让它自己继承令牌。
 
 **25.** 撰写器细节：~~最小化条的展开箭头是手画的内联 `<svg>`~~、~~展开按钮的 `title` 文案是反的~~ —— 这两项已随第三轮修掉；仍开着的是 From 下拉带 14 行内联样式而 `.settings-field > select` 是现成的。
 
@@ -583,7 +793,7 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 ---
 
-## 五、三条真缺陷的共同形状（2026-09-12 补）
+## 六、三条真缺陷的共同形状（2026-09-12 补）
 
 三、四轮的代码审查抓出三条我的测试全部放行了的真缺陷。把它们并排看，是同一件事的三个面：
 
@@ -601,7 +811,7 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 ---
 
-## 六、两条贯穿性的根因
+## 七、两条贯穿性的根因
 
 审查是两路独立进行的，却得出了同一个判断：**项目不缺设计体系，缺的是贯彻**。
 18 组色调令牌 + shadcn 桥接是完整的，`AccountDialog` 用 radix 做对了对话框，
@@ -621,12 +831,16 @@ SSE 连接状态也不外露（`useRealtimeSync(): void`），合盖唤醒 / 后
 
 ---
 
-## 七、建议的推进顺序
+## 八、建议的推进顺序
 
 1. ~~**P1 第 1、2、8 条**（翻页失败、后台刷新不可见、侧栏/草稿 error 态）~~
    ——✅ 第二轮完成。
 2. ~~**P1 第 4、5、6 条**（ARIA 语义、aria-label、分栏手柄）~~ ——✅ 第三轮完成。
-3. **P2 第 23、24 条**打包做（死 CSS + 色板三合一）
-   ——加起来能删约 200 行并消除主题漂移的结构性风险，只碰两个文件、不动交互逻辑，回归成本最低。
-4. **P1 第 11、12 条**（登录页视觉统一、触摸尺度）
-   ——面向"第一印象"与移动端，可作为独立的一轮。
+3. ~~**P2 第 23、24 条**（死 CSS + 色板三合一）~~ ——✅ 第四轮完成。
+4. ~~**P1 第 11、12 条**（登录页视觉统一、触摸尺度）~~ ——✅ 第四轮完成。
+5. **P1 第 7、9、13 条**（长操作无进度表达、设置页 8 处 window.confirm、
+   撰写器校验错误显示在会滚走的位置）——三条都是"用户做了事却看不到反馈"，
+   其中第 7 条（首次同步几千封是分钟级操作而屏幕上只有一个 11px 的点在转）
+   在日常使用里最容易被撞到。
+6. **P1 第 10、14 条 + P2 的一串**（菜单不同源、手风琴无展开指示符，
+   以及第 15~22、25、26、28、29 条）——多是各自独立的小修，可以按一次一批地清。

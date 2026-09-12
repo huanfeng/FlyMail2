@@ -7,8 +7,13 @@
          两处的配色与字形保持一致。 -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f6df6'/%3E%3Ctext x='32' y='46' font-family='system-ui,sans-serif' font-size='40' font-weight='bold' fill='white' text-anchor='middle'%3EF%3C/text%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1a1917" media="(prefers-color-scheme: dark)" />
+    <!-- 移动端地址栏/状态栏底色。这是色板唯一无法走令牌的一处：meta 在 CSS 变量之外，
+         浏览器读它时下面那段引导脚本还没跑。所以它只能表达「默认色调 + 跟随系统」，
+         用户选了别的色调或反着设了明暗时会差一档——这是这个标签的固有限制，不是缺陷。
+         值必须等于默认调 slate 的 --bg（src/index.css）：此前写的是 warm 的 #fbfaf7
+         和一个整张令牌表里都不存在的 #1a1917。lib/theme-tokens.test.ts 会比对这两个值。 -->
+    <meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)" />
     <title>FlyMail</title>
     <!--
       主题引导：必须在这里内联跑，不能等 main.tsx。

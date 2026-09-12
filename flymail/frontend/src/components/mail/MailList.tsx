@@ -1315,8 +1315,7 @@ export function MailList({
             /* 有输入时显示清除按钮 */
             <button
               type="button"
-              className="icon-btn"
-              style={{ width: 20, height: 20 }}
+              className="icon-btn mini"
               onClick={() => onSearchChange('')}
               aria-label={t('list.clearSearch')}
             >

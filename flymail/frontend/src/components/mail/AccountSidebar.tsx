@@ -232,11 +232,10 @@ function AccountBlock({
           {/* 同步（进行中时旋转） */}
           <button
             type="button"
-            className="icon-btn"
+            className="icon-btn compact"
             title={t('sync.trigger')}
             aria-label={t('sync.trigger')}
             onClick={(e) => { e.stopPropagation(); onSync() }}
-            style={{ width: 22, height: 22 }}
           >
             <Icon
               name="circle-dot"

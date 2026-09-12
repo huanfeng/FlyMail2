@@ -39,6 +39,8 @@ export type IconName =
   | 'cloud'
   | 'filter'
   | 'shield'
+  | 'eye'
+  | 'eye-off'
 
 interface IconProps {
   name: IconName
@@ -248,6 +250,25 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
           <path d="M8 2l4.5 1.7v3.5c0 3-1.8 5.2-4.5 6.3-2.7-1.1-4.5-3.3-4.5-6.3V3.7z"/>
           {/* 斜杠表示「屏蔽」，与普通的安全盾牌区分开 */}
           <path d="M6 6l4 4"/>
+        </svg>
+      )
+
+    case 'eye':
+      return (
+        <svg {...p}>
+          <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+      )
+
+    case 'eye-off':
+      return (
+        <svg {...p}>
+          {/* 眼形画一半 + 一道斜杠：整只眼加斜杠在 16px 下会糊成一团 */}
+          <path d="M6.3 4c.55-.14 1.12-.2 1.7-.2 4 0 6.5 4.2 6.5 4.2a13 13 0 0 1-2.05 2.45"/>
+          <path d="M9.9 11.6c-.6.16-1.25.24-1.9.24-4 0-6.5-3.84-6.5-3.84A12.4 12.4 0 0 1 4 5.3"/>
+          <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/>
+          <path d="M2 2l12 12"/>
         </svg>
       )
 

@@ -52,8 +52,8 @@ export function SearchSyntaxHelp({ onPick }: Props) {
       <Popover.Trigger asChild>
         <button
           type="button"
-          className="icon-btn"
-          style={{ width: 20, height: 20, flex: '0 0 auto' }}
+          className="icon-btn mini"
+          style={{ flex: '0 0 auto' }}
           title={t('list.syntax.title')}
           aria-label={t('list.syntax.title')}
         >

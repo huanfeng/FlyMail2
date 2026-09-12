@@ -19,17 +19,19 @@ export interface ThemePref {
   tone: ToneId
 }
 
-/** 所有色调的元数据（供 UI 渲染色块） */
-export const TONES: { id: ToneId; nameKey: string; swatch: string }[] = [
-  { id: 'slate',    nameKey: 'settings.general.tone.slate',    swatch: '#5b6470' },
-  { id: 'warm',     nameKey: 'settings.general.tone.warm',     swatch: '#b5886b' },
-  { id: 'sky',      nameKey: 'settings.general.tone.sky',      swatch: '#4a86c2' },
-  { id: 'rose',     nameKey: 'settings.general.tone.rose',     swatch: '#d6628a' },
-  { id: 'mint',     nameKey: 'settings.general.tone.mint',     swatch: '#3d9970' },
-  { id: 'lavender', nameKey: 'settings.general.tone.lavender', swatch: '#8d6cc4' },
-  { id: 'coral',    nameKey: 'settings.general.tone.coral',    swatch: '#d27a63' },
-  { id: 'butter',   nameKey: 'settings.general.tone.butter',   swatch: '#d4a72c' },
-  { id: 'aqua',     nameKey: 'settings.general.tone.aqua',     swatch: '#2ba9b5' },
+/** 所有色调的元数据（供 UI 渲染主题卡）。
+ *  这里刻意**不带颜色值**：色板只在 index.css 的 [data-theme][data-mode] 里定义一份，
+ *  界面要显示某套主题长什么样，就把那两个属性挂到元素上让令牌自己生效。 */
+export const TONES: { id: ToneId; nameKey: string }[] = [
+  { id: 'slate',    nameKey: 'settings.general.tone.slate' },
+  { id: 'warm',     nameKey: 'settings.general.tone.warm' },
+  { id: 'sky',      nameKey: 'settings.general.tone.sky' },
+  { id: 'rose',     nameKey: 'settings.general.tone.rose' },
+  { id: 'mint',     nameKey: 'settings.general.tone.mint' },
+  { id: 'lavender', nameKey: 'settings.general.tone.lavender' },
+  { id: 'coral',    nameKey: 'settings.general.tone.coral' },
+  { id: 'butter',   nameKey: 'settings.general.tone.butter' },
+  { id: 'aqua',     nameKey: 'settings.general.tone.aqua' },
 ]
 
 /** localStorage 键名 */

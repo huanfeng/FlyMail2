@@ -1,18 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { login } from '@/lib/api'
 import { parseRetryAfter, retryAfterText } from '@/lib/rate-limit'
 import { savedLogin } from '@/lib/saved-login'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Mail, Eye, EyeOff } from 'lucide-react'
+import { Icon } from '@/components/ui/Icon'
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const uid = useId()
 
   // 「记住密码」：勾选登录后保存凭据，下次打开自动填充；取消勾选登录即清除。
   const [saved] = useState(() => savedLogin.load())
@@ -94,72 +91,89 @@ export function LoginPage() {
     }
   }
 
+  // 三种消息互斥，且都进同一个常驻的 live region——常驻是前几轮的教训：
+  // 与内容同时插入 DOM 的 live region，读屏不播报。
+  const message = rateLimited
+    ? { text: rateLimitMsg, danger: true }
+    : retryReady
+      ? { text: t('login.rateLimitOver'), danger: false }
+      : error
+        ? { text: error, danger: true }
+        : null
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Mail className="h-6 w-6 text-primary" />
+    <div className="login-page">
+      <form className="login-card" onSubmit={handleSubmit}>
+        <div className="login-brand">
+          <div className="login-logo" aria-hidden="true">
+            <Icon name="mail" size={22} stroke={1.4} />
           </div>
-          <CardTitle className="text-2xl font-semibold">{t('app.name')}</CardTitle>
-          <p className="text-sm text-muted-foreground">{t('login.subtitle')}</p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">{t('login.username')}</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={t('login.username')}
-                autoComplete="username"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">{t('login.password')}</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={t('login.password')}
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(e) => setRemember(e.target.checked)}
-                className="h-4 w-4 rounded border-input accent-primary"
-              />
-              {t('login.rememberPassword')}
-            </label>
-            {rateLimited ? (
-              <p className="text-sm text-destructive">{rateLimitMsg}</p>
-            ) : retryReady ? (
-              <p className="text-sm text-muted-foreground">{t('login.rateLimitOver')}</p>
-            ) : (
-              error && <p className="text-sm text-destructive">{error}</p>
-            )}
-            <Button type="submit" className="w-full" disabled={loading || rateLimited}>
-              {loading ? t('login.submitting') : t('login.submit')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          <h1 className="login-title">{t('app.name')}</h1>
+          <p className="login-sub">{t('login.subtitle')}</p>
+        </div>
+
+        <div className="login-field">
+          <label htmlFor={`${uid}-user`}>{t('login.username')}</label>
+          <input
+            id={`${uid}-user`}
+            className="login-input"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={t('login.username')}
+            autoComplete="username"
+            autoFocus
+          />
+        </div>
+
+        <div className="login-field">
+          <label htmlFor={`${uid}-pass`}>{t('login.password')}</label>
+          <div className="login-input-wrap">
+            <input
+              id={`${uid}-pass`}
+              className="login-input"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t('login.password')}
+              autoComplete="current-password"
+            />
+            {/* 可聚焦（原先是 tabIndex={-1} 且没有可访问名，读屏只报「按钮」）。
+                aria-pressed 表达的是「明文显示开着没开着」，比切换 label 更稳妥。 */}
+            <button
+              type="button"
+              className="login-eye"
+              onClick={() => setShowPassword(!showPassword)}
+              aria-pressed={showPassword}
+              aria-label={t('login.togglePassword')}
+              title={t('login.togglePassword')}
+            >
+              <Icon name={showPassword ? 'eye-off' : 'eye'} size={16} />
+            </button>
+          </div>
+        </div>
+
+        <label className="login-remember">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          {t('login.rememberPassword')}
+        </label>
+
+        {/* 常驻占位：有消息才有文字，但区域一直在 DOM 里 */}
+        <p
+          className={'login-msg' + (message?.danger ? ' danger' : '')}
+          role="status"
+          aria-live="polite"
+        >
+          {message?.text ?? ''}
+        </p>
+
+        <button type="submit" className="login-submit" disabled={loading || rateLimited}>
+          {loading ? t('login.submitting') : t('login.submit')}
+        </button>
+      </form>
     </div>
   )
 }

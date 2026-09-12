@@ -36,6 +36,7 @@
     "subtitle": "Sign in to continue",
     "username": "Username",
     "password": "Password",
+    "togglePassword": "Show or hide password",
     "rememberPassword": "Remember password",
     "submit": "Sign in",
     "submitting": "Signing in...",

@@ -52,19 +52,6 @@ const POLL_INTERVAL_MAX = 3600
 const BODY_DAYS_MIN = 1
 const BODY_DAYS_MAX = 3650
 
-/** 主题预览色表，来自蓝本 THEME_PREVIEW */
-const THEME_PREVIEW: Record<string, { l: { bg: string; side: string; accent: string }; d: { bg: string; side: string; accent: string } }> = {
-  warm:     { l: { bg: '#fbfaf7', side: '#f5f3ee', accent: '#b5886b' }, d: { bg: '#1f1d18', side: '#26231d', accent: '#d2a482' } },
-  sky:      { l: { bg: '#f8fafc', side: '#f1f5f9', accent: '#4a86c2' }, d: { bg: '#161a21', side: '#1c2029', accent: '#7aaad8' } },
-  lavender: { l: { bg: '#faf9fc', side: '#f3f1f7', accent: '#8d6cc4' }, d: { bg: '#1c1925', side: '#221f2d', accent: '#b593e0' } },
-  coral:    { l: { bg: '#fdf9f7', side: '#f8f0ec', accent: '#d27a63' }, d: { bg: '#1f1917', side: '#261f1c', accent: '#e89a84' } },
-  slate:    { l: { bg: '#f7f8fa', side: '#eef0f3', accent: '#5b6470' }, d: { bg: '#14161a', side: '#1a1d22', accent: '#b6bdc8' } },
-  mint:     { l: { bg: '#f4faf6', side: '#e7f3eb', accent: '#3d9970' }, d: { bg: '#131a16', side: '#18211c', accent: '#6dc99c' } },
-  butter:   { l: { bg: '#fefbf3', side: '#faf3df', accent: '#d4a72c' }, d: { bg: '#1c1a13', side: '#232017', accent: '#e8c560' } },
-  rose:     { l: { bg: '#fdf6f8', side: '#f9e9ee', accent: '#d6628a' }, d: { bg: '#1d1518', side: '#251b1f', accent: '#e88aac' } },
-  aqua:     { l: { bg: '#f3fafc', side: '#e3f2f6', accent: '#2ba9b5' }, d: { bg: '#0f1a1c', side: '#142225', accent: '#6cd1d8' } },
-}
-
 /** 设置分区 ID */
 type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'mail' | 'signature' | 'aliases' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
@@ -91,16 +78,16 @@ interface SettingsDialogProps {
 // ════════════════════════════════════════════════════════════
 
 interface ThemeCardProps {
-  id: string
+  /** 被预览的色调。用 ToneId 而不是 string：这个值直接写进 data-theme，
+      拼错就是 9 张卡全部渲染成当前主题、看起来一模一样，而且不会有任何报错。 */
+  id: ToneId
   label: string
   mode: ThemeMode
   active: boolean
   onClick: () => void
 }
 
-function ThemeCard({ id, label, mode, active, onClick }: ThemeCardProps) {
-  const p = THEME_PREVIEW[id]?.[mode === 'dark' ? 'd' : 'l']
-  if (!p) return null
+export function ThemeCard({ id, label, mode, active, onClick }: ThemeCardProps) {
   return (
     <button
       type="button"
@@ -109,11 +96,15 @@ function ThemeCard({ id, label, mode, active, onClick }: ThemeCardProps) {
       aria-pressed={active}
       aria-label={label}
     >
-      {/* 颜色预览区：侧栏色 + 主区底色 + accent 条 + 模拟文本线 */}
-      <div className="tc-preview" style={{ background: p.bg }}>
-        <div className="tc-side" style={{ background: p.side }} />
-        <div className="tc-main" style={{ background: p.bg }}>
-          <div className="tc-accent" style={{ background: p.accent }} />
+      {/* 颜色预览区：侧栏色 + 主区底色 + accent 条 + 模拟文本线。
+          这里不写任何颜色——把目标主题的 data-theme/data-mode 挂在预览区上，
+          让 index.css 的令牌在这个子树内重新定义一遍，预览自己就长成那个主题的样子。
+          色板因此只有 index.css 一份权威定义，改主题不必再同步第二处。
+          （属性挂在预览区而不是整张卡上：卡片外框与名称要跟随**当前**主题。） */}
+      <div className="tc-preview" data-theme={id} data-mode={mode}>
+        <div className="tc-side" />
+        <div className="tc-main">
+          <div className="tc-accent" />
           <div className="tc-line" style={{ width: '70%' }} />
           <div className="tc-line" style={{ width: '50%' }} />
         </div>

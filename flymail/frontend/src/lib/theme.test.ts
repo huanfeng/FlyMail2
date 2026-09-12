@@ -98,11 +98,18 @@ describe('TONES', () => {
     expect(TONES).toHaveLength(9)
   })
 
-  it('每个色调有合法的 id / nameKey / swatch', () => {
+  it('每个色调有合法的 id / nameKey', () => {
     for (const tone of TONES) {
       expect(tone.id).toBeTruthy()
       expect(tone.nameKey).toMatch(/^settings\.general\.tone\./)
-      expect(tone.swatch).toMatch(/^#[0-9a-f]{6}$/i)
+    }
+  })
+
+  // 色板只有 index.css 一份：TONES 不再带颜色值，主题卡靠挂 data-theme/data-mode 继承令牌。
+  // 这条防的是有人为了图方便再把 hex 抄回来——那正是第 24 条要消除的漂移源。
+  it('不携带任何颜色值', () => {
+    for (const tone of TONES) {
+      expect(Object.keys(tone)).toEqual(['id', 'nameKey'])
     }
   })
 })

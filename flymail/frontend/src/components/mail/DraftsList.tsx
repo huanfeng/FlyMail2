@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Send, Trash2 } from 'lucide-react'
+import { Icon } from '@/components/ui/Icon'
 import { useDrafts, useDeleteDraft, useSendDraft } from '@/lib/queries'
 import { errorText } from '@/lib/format'
 import type { Draft } from '@/lib/types'
@@ -74,8 +74,12 @@ export function DraftsList({ accountId, onOpenDraft }: Props) {
                 </p>
               )}
             </div>
-            {/* 操作按钮：发送 + 删除 */}
-            <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* 操作按钮：发送 + 删除。
+                显隐交给 .draft-actions（CSS 里带指针类型守卫）而不是 Tailwind 的
+                group-hover：触摸设备上 :hover 永不触发，而 opacity:0 的元素照常接收点击——
+                那就是两个看不见的「立即发送」和「删除草稿」躺在每一行右侧。
+                这与第一轮修掉的 .mi-star / .mi-del 是同一个缺陷，同一条规矩。 */}
+            <div className="draft-actions">
               <button
                 type="button"
                 title={t('compose.sendDraft')}
@@ -84,10 +88,9 @@ export function DraftsList({ accountId, onOpenDraft }: Props) {
                   e.stopPropagation()
                   sendDraft.mutate({ id: d.id, accountId })
                 }}
-                className="rounded p-1 hover:bg-[var(--bg-hover)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                style={{ color: 'var(--ink-3)' }}
+                className="icon-btn"
               >
-                <Send size={13} />
+                <Icon name="send" size={13} />
               </button>
               <button
                 type="button"
@@ -97,10 +100,9 @@ export function DraftsList({ accountId, onOpenDraft }: Props) {
                   e.stopPropagation()
                   deleteDraft.mutate({ id: d.id, accountId })
                 }}
-                className="rounded p-1 hover:bg-[var(--bg-hover)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                style={{ color: 'var(--ink-3)' }}
+                className="icon-btn"
               >
-                <Trash2 size={13} />
+                <Icon name="trash" size={13} />
               </button>
             </div>
           </button>

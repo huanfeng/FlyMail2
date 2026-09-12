@@ -50,6 +50,21 @@ const sources = import.meta.glob('../**/*.{ts,tsx}', {
   eager: true,
 }) as Record<string, string>
 
+
+/** sRGB 相对亮度（WCAG 2.1 定义） */
+function luminance(hex: string): number {
+  const h = hex.replace('#', '')
+  const ch = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+  const lin = ch.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+}
+
+/** 两色的对比度（1 ~ 21） */
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
 describe('主题令牌', () => {
   const blocks = themeBlocks()
 
@@ -125,6 +140,25 @@ describe('主题令牌', () => {
         want?.toLowerCase(),
       )
     }
+  })
+
+  it('主按钮的底色与字色在 18 套主题下都达到 WCAG AA', () => {
+    // 上一条禁的是一种**写法**，这一条钉的是**结果**——写法可以再变，4.5:1 不能破。
+    //
+    // --primary / --primary-foreground 的定义在文件顶部的 shadcn 桥里：
+    // 亮色 = --accent-ink 配白字，暗色 = --accent 配 --bg。
+    // 曾经登录按钮直接用 --accent 配死白字，18 组里有 17 组不到 4.5（最差 1.67）。
+    const AA = 4.5
+    const failures: string[] = []
+    for (const [key, vars] of blocks) {
+      const mode = key.split('/')[1]
+      const bg = mode === 'light' ? vars['accent-ink'] : vars['accent']
+      const fg = mode === 'light' ? '#ffffff' : vars['bg']
+      expect(bg, `${key} 缺 --${mode === 'light' ? 'accent-ink' : 'accent'}`).toBeTruthy()
+      const r = contrast(bg, fg)
+      if (r < AA) failures.push(`${key}: ${bg} 配 ${fg} = ${r.toFixed(2)}`)
+    }
+    expect(failures, `主按钮对比度不足 ${AA}`).toEqual([])
   })
 
   it('没有哪个控件拿 --accent 当底色又写死白字', () => {

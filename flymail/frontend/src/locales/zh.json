@@ -1,7 +1,8 @@
 {
   "app": {
     "name": "FlyMail",
-    "undo": "撤销"
+    "undo": "撤销",
+    "retry": "重试"
   },
   "ctx": {
     "markRead": "标为已读",
@@ -132,7 +133,13 @@
     },
     "deletedCountToast": "已删除 {{count}} 封",
     "movedToast": "已移动",
-    "movedCountToast": "已移动 {{count}} 项"
+    "movedCountToast": "已移动 {{count}} 项",
+    "undoUnavailable": "撤销窗口已过，无法撤销",
+    "loadErrorTitle": "加载失败",
+    "loadErrorHint": "没能取到邮件列表，请检查网络或稍后重试。",
+    "noAccountsTitle": "还没有邮箱账户",
+    "noAccountsHint": "添加一个账户就可以开始收信了。",
+    "addAccountCta": "添加账户"
   },
   "sync": {
     "trigger": "同步",
@@ -310,7 +317,12 @@
       "colShort": "列",
       "quoteShow": "显示引用内容",
       "quoteHide": "隐藏引用内容"
-    }
+    },
+    "closeGuardTitle": "这封邮件还没发出",
+    "closeGuardText": "关闭后未保存的内容会丢失。",
+    "closeGuardSave": "保存草稿",
+    "closeGuardDiscard": "丢弃",
+    "closeGuardCancel": "继续写"
   },
   "notif": {
     "title": "通知",
@@ -360,7 +372,8 @@
     "star": "星标开关",
     "markUnread": "标为未读",
     "selectRow": "选中 / 取消选中当前行",
-    "extendSelection": "把选择扩展到相邻一条"
+    "extendSelection": "把选择扩展到相邻一条",
+    "undo": "撤销上一次删除/归档/移动"
   },
   "settings": {
     "title": "设置",

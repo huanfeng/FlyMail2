@@ -14,6 +14,7 @@ import {
   useSignature,
 } from '@/lib/queries'
 import { useToast } from '@/components/ui/Toast'
+import { COMPOSE_CLOSE_EVENT } from '@/hooks/useKeyboardShortcuts'
 import { useInlineImages } from '@/hooks/useInlineImages'
 import { formatBytes } from '@/lib/format'
 import { buildFromOptions, pickFromOption } from '@/lib/from-options'
@@ -155,6 +156,10 @@ export function ComposeDialog({
   const winRef = React.useRef<HTMLDivElement>(null)
   const dragRef = React.useRef<{ dx: number; dy: number } | null>(null)
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null)
+  // 关闭确认：写了一半的邮件是这个应用里唯一真正会丢失的东西——
+  // 删邮件有撤销、服务器上还有副本，而没存的草稿一旦关掉就什么都不剩。
+  // 别处的确认框都被撤销取代了，这里反而必须留一道。
+  const [closeGuard, setCloseGuard] = React.useState(false)
 
   function onHeadPointerDown(e: React.PointerEvent) {
     // 点到标题栏按钮（最小化/关闭）时不触发拖动
@@ -298,6 +303,7 @@ export function ComposeDialog({
 
   // 指向最新的发送逻辑（含最新的表单与忙碌状态），供下面的全局组合键监听调用。
   const sendRef = React.useRef<() => void>(() => {})
+  const closeRef = React.useRef<() => void>(() => {})
 
   // ⌘/Ctrl + Enter 发送。
   //
@@ -316,6 +322,15 @@ export function ComposeDialog({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  // Esc 关闭撰写器：全局快捷键广播请求，由这里决定是直接关还是先问一句。
+  // 同 sendRef，走 ref 避免监听器随每次渲染摘挂。
+  React.useEffect(() => {
+    if (!open) return
+    function onRequest() { closeRef.current() }
+    window.addEventListener(COMPOSE_CLOSE_EVENT, onRequest)
+    return () => window.removeEventListener(COMPOSE_CLOSE_EVENT, onRequest)
   }, [open])
 
   // ── 发送 ─────────────────────────────────────────────────────────────────────
@@ -387,7 +402,37 @@ export function ComposeDialog({
       if (isBusy || noAccount) return
       handleSend()
     }
+    closeRef.current = requestClose
   })
+
+  /** 正文是否有实际内容（签名不算——它是自动插入的，不是用户写的）。 */
+  function hasBodyText(): boolean {
+    const html = editorRef.current?.getHTML() ?? ''
+    const withoutSignature = html.replace(/<div[^>]*data-signature[\s\S]*?<\/div>/gi, '')
+    return withoutSignature.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0
+  }
+
+  /** 有没有值得挽救的东西 */
+  function isDirty(): boolean {
+    return (
+      form.toStr.trim().length > 0 ||
+      form.ccStr.trim().length > 0 ||
+      form.bccStr.trim().length > 0 ||
+      form.subject.trim().length > 0 ||
+      attachments.length > 0 ||
+      hasBodyText()
+    )
+  }
+
+  /**
+   * 请求关闭撰写器。空白撰写器直接关，写过东西的先问一句。
+   * 所有关闭入口（× 按钮、丢弃按钮、Esc）都必须走这里。
+   */
+  function requestClose() {
+    if (isBusy) return
+    if (isDirty()) setCloseGuard(true)
+    else onOpenChange(false)
+  }
 
   // ── 存草稿 ───────────────────────────────────────────────────────────────────
   async function handleSaveDraft() {
@@ -467,7 +512,7 @@ export function ComposeDialog({
         <button
           className="icon-btn"
           title={t('compose.cancel')}
-          onClick={(e) => { e.stopPropagation(); onOpenChange(false) }}
+          onClick={(e) => { e.stopPropagation(); requestClose() }}
         >
           <Icon name="close" size={12} />
         </button>
@@ -491,6 +536,37 @@ export function ComposeDialog({
       style={winStyle}
       onMouseDown={(e) => e.stopPropagation()}
     >
+
+      {/* 关闭确认。三选一而不是二选一：直接问「确定丢弃吗」会逼用户在
+          「丢掉」和「继续写」之间选，而他真正想要的多半是第三个——先存着。 */}
+      {closeGuard && (
+        <div className="compose-guard" role="dialog" aria-modal="true" aria-label={t('compose.closeGuardTitle')}>
+          <div className="compose-guard-card">
+            <div className="compose-guard-title">{t('compose.closeGuardTitle')}</div>
+            <div className="compose-guard-text">{t('compose.closeGuardText')}</div>
+            <div className="compose-guard-actions">
+              <button type="button" className="pill-btn" onClick={() => setCloseGuard(false)}>
+                {t('compose.closeGuardCancel')}
+              </button>
+              <button
+                type="button"
+                className="pill-btn danger"
+                onClick={() => { setCloseGuard(false); onOpenChange(false) }}
+              >
+                {t('compose.closeGuardDiscard')}
+              </button>
+              <button
+                type="button"
+                className="pill-btn primary"
+                disabled={noAccount || isBusy}
+                onClick={() => { setCloseGuard(false); void handleSaveDraft() }}
+              >
+                {t('compose.closeGuardSave')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 标题栏 .compose-head（可拖动）─────────────────────────────────────── */}
       <div
@@ -517,7 +593,7 @@ export function ComposeDialog({
         <button
           className="icon-btn"
           title={t('compose.cancel')}
-          onClick={() => onOpenChange(false)}
+          onClick={requestClose}
         >
           <Icon name="close" size={14} />
         </button>
@@ -751,7 +827,7 @@ export function ComposeDialog({
         {/* 丢弃（关闭浮窗） */}
         <button
           className="pill-btn"
-          onClick={() => onOpenChange(false)}
+          onClick={requestClose}
           disabled={isBusy}
           type="button"
         >

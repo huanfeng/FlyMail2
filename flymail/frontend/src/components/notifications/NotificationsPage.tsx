@@ -1,4 +1,5 @@
 // 通知中心（站内 feed）— 居中浮层
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 //
 // 归属：与「设置」一致做成浮层，而不是占据第三栏。
 // 侧栏那两个辅助入口（铃铛 / 齿轮）行为因此统一，主区域始终是邮件；
@@ -86,6 +87,9 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
     g.items.push(n)
   }
 
+  // 焦点关在浮层里（与设置浮层一致）
+  const trapRef = useFocusTrap<HTMLDivElement>(true)
+
   // Esc 关闭（与设置浮层一致）
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -117,7 +121,14 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
       className="settings-backdrop"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="notif-dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="notif-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('notif.title')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
       {/* 顶栏：标题与操作合并在同一行。
           原来标题是独占一行的 28px 大字（全屏页面的排版），搬进浮层后
           光标题区就吃掉近 90px 高，留给通知条目的空间反而不够。 */}

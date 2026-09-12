@@ -43,10 +43,49 @@ describe('useUndoable', () => {
     const commit = vi.fn()
     const rollback = vi.fn()
     await act(async () => api.begin({ commit, rollback }))
-    await act(async () => api.undo())
+    let ok: boolean | undefined
+    await act(async () => { ok = api.undo() })
 
+    expect(ok).toBe(true)
     expect(rollback).toHaveBeenCalledTimes(1)
     expect(commit).not.toHaveBeenCalled()
+  })
+
+  it('已被强制落地后，undo 返回 false —— 调用方据此告诉用户撤销来不及了', async () => {
+    const commit = vi.fn()
+    await act(async () => api.begin({ commit, rollback: vi.fn() }))
+    await act(async () => api.flush())
+
+    let ok: boolean | undefined
+    await act(async () => { ok = api.undo() })
+
+    // 这正是「切文件夹后撤销条还挂在屏幕上」的那一刻：邮件已经真的删了。
+    // 返回 false 才能让 UI 说实话，静默无操作会让用户以为撤销成功。
+    expect(ok).toBe(false)
+    expect(commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('从未有过挂起项时 undo 也返回 false', async () => {
+    let ok: boolean | undefined
+    await act(async () => { ok = api.undo() })
+    expect(ok).toBe(false)
+  })
+
+  it('关闭页面时落地挂起的操作', async () => {
+    const commit = vi.fn()
+    await act(async () => api.begin({ commit, rollback: vi.fn() }))
+    // 关标签页/关桌面端窗口不会触发 React 卸载清理，
+    // 没有这一道兜底，请求就随进程消失了——UI 显示删掉了，重开却又回来
+    await act(async () => { window.dispatchEvent(new Event('beforeunload')) })
+    expect(commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('beforeunload 落地后不会在卸载时重复提交', async () => {
+    const commit = vi.fn()
+    await act(async () => api.begin({ commit, rollback: vi.fn() }))
+    await act(async () => { window.dispatchEvent(new Event('beforeunload')) })
+    await act(async () => root.unmount())
+    expect(commit).toHaveBeenCalledTimes(1)
   })
 
   it('提交与回滚都只发生一次', async () => {

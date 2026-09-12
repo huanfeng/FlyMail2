@@ -39,6 +39,13 @@ const KEY_TONE = 'flymail_theme_tone'
 /** 合法色调集合（用于校验） */
 const VALID_TONES = new Set<string>(TONES.map((t) => t.id))
 
+/** 系统是否偏好暗色。matchMedia 在非浏览器环境（测试、SSR）下可能没有。 */
+function prefersDark(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+    : false
+}
+
 /**
  * 读取主题偏好
  * - 从 localStorage 读取 mode/tone，校验合法值
@@ -48,8 +55,10 @@ export function getTheme(): ThemePref {
   const rawMode = localStorage.getItem(KEY_MODE)
   const rawTone = localStorage.getItem(KEY_TONE)
 
+  // 没存过偏好就跟随系统。一律默认亮色会让系统用暗色的人每次打开都被闪一下，
+  // 而这个判断在 index.html 的内联引导脚本里有一份提前量——两处必须一致。
   const mode: ThemeMode =
-    rawMode === 'dark' || rawMode === 'light' ? rawMode : 'light'
+    rawMode === 'dark' || rawMode === 'light' ? rawMode : prefersDark() ? 'dark' : 'light'
 
   const tone: ToneId = VALID_TONES.has(rawTone ?? '') ? (rawTone as ToneId) : 'slate'
 

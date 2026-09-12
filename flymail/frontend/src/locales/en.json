@@ -1,7 +1,8 @@
 {
   "app": {
     "name": "FlyMail",
-    "undo": "Undo"
+    "undo": "Undo",
+    "retry": "Retry"
   },
   "ctx": {
     "markRead": "Mark as read",
@@ -132,7 +133,13 @@
     },
     "deletedCountToast": "Deleted {{count}} messages",
     "movedToast": "Moved",
-    "movedCountToast": "Moved {{count}} items"
+    "movedCountToast": "Moved {{count}} items",
+    "undoUnavailable": "Undo window has passed",
+    "loadErrorTitle": "Failed to load",
+    "loadErrorHint": "Could not fetch the message list. Check your connection and try again.",
+    "noAccountsTitle": "No mail accounts yet",
+    "noAccountsHint": "Add an account to start receiving mail.",
+    "addAccountCta": "Add account"
   },
   "sync": {
     "trigger": "Sync",
@@ -310,7 +317,12 @@
       "colShort": "Col",
       "quoteShow": "Show quoted text",
       "quoteHide": "Hide quoted text"
-    }
+    },
+    "closeGuardTitle": "This message is unsent",
+    "closeGuardText": "Unsaved content will be lost if you close it.",
+    "closeGuardSave": "Save draft",
+    "closeGuardDiscard": "Discard",
+    "closeGuardCancel": "Keep writing"
   },
   "notif": {
     "title": "Notifications",
@@ -360,7 +372,8 @@
     "star": "Toggle star",
     "markUnread": "Mark as unread",
     "selectRow": "Select / deselect current row",
-    "extendSelection": "Extend selection to the next row"
+    "extendSelection": "Extend selection to the next row",
+    "undo": "Undo last delete / archive / move"
   },
   "settings": {
     "title": "Settings",

@@ -4,7 +4,30 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1917" media="(prefers-color-scheme: dark)" />
     <title>FlyMail</title>
+    <!--
+      主题引导：必须在这里内联跑，不能等 main.tsx。
+      bundle 解析完才应用主题的话，暗色用户每次刷新都先吃一帧白闪。
+      逻辑要与 src/lib/theme.ts 的 getTheme() 保持一致——那边是权威，这里只是提前量。
+    -->
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('flymail_theme_mode')
+          if (mode !== 'dark' && mode !== 'light') {
+            // 没存过偏好就跟随系统，而不是一律亮色
+            mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          }
+          var tone = localStorage.getItem('flymail_theme_tone') || 'slate'
+          document.documentElement.setAttribute('data-mode', mode)
+          document.documentElement.setAttribute('data-theme', tone)
+        } catch (e) {
+          /* 隐私模式下 localStorage 可能抛异常，忽略即可，主题回到默认 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

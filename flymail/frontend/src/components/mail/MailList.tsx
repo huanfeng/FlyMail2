@@ -64,6 +64,31 @@ interface Props {
   /** 本人邮箱集合（已小写），用于会话行头像避开自己 */
   selfAddrs: Set<string>
   loading: boolean
+  /**
+   * 列表数据加载失败时的错误。
+   *
+   * 必须有这一路：只看 loading 的话，后端 500 / 断网 / 令牌失效全都会落进
+   * itemCount === 0 的空态分支，界面显示「这个文件夹里还没有邮件」——
+   * 把服务故障谎报成一个空收件箱，用户既判断不出真相也没有重试的入口。
+   */
+  error?: unknown
+  /** 重试当前列表请求（错误态里的「重试」按钮） */
+  onRetry?: () => void
+  /**
+   * 一个邮箱账户都还没有。
+   *
+   * 与「这个文件夹是空的」是两回事，必须分开：新用户首次登录时两者都表现为
+   * itemCount === 0，若共用同一套文案，他看到的就是一句「暂无邮件」，
+   * 而唯一的添加入口是侧栏一个 + 图标——等于没有引导。
+   */
+  noAccounts?: boolean
+  /** 空态里的「添加账户」按钮 */
+  onAddAccount?: () => void
+  /**
+   * 账户识别色查询。仅聚合视图/搜索结果传入——单文件夹视图里所有邮件都属于
+   * 同一个账户，点一个到处都一样的色点只是噪声。
+   */
+  acctColorOf?: (accountId: number) => string | null
   activeMessageId: number | null
   onSelectMessage: (id: number) => void
   onToggleFlag: (id: number, flagged: boolean) => void
@@ -186,6 +211,13 @@ function relTime(isoStr: string, lang: string): string {
 // 选择复选框：行首独立一列（仅选择模式下由 CSS 显示），点击不触发打开邮件
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** 把未知形状的错误取成一行可展示的文本；取不出就返回空串（不显示细节行）。 */
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  return ''
+}
+
 function SelectBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
   // 用 <label> 包裹原生 checkbox：点击整块都可靠切换（label 原生联动 input → onChange），
   // label 上 stopPropagation 阻止冒泡到行（避免误打开邮件）。
@@ -249,9 +281,11 @@ interface CardRowProps {
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
+  /** 账户识别色；null = 单账户上下文，不必区分 */
+  acctColor: string | null
 }
 
-function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor }: CardRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -277,13 +311,15 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
       {/* 选择复选框（独立列，仅选择模式下显示）*/}
       <SelectBox checked={selected} onToggle={onToggleSelect} />
 
-      {/* 方形头像 */}
+      {/* 方形头像。聚合/搜索视图下右下角点一个账户识别色，
+          否则一列邮件全是同一个底色，看不出哪封属于哪个邮箱。 */}
       <span className="mi-avatar-wrap">
         <div
           className="avatar-sq"
           style={{ background: 'var(--accent)' }}
         >
           {initials(msg.from_name, msg.from_addr)}
+          {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
         </div>
       </span>
 
@@ -356,9 +392,11 @@ interface CompactRowProps {
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
+  /** 账户识别色；null = 单账户上下文，不必区分 */
+  acctColor: string | null
 }
 
-function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor }: CompactRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -391,6 +429,7 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
           style={{ background: 'var(--accent)' }}
         >
           {initials(msg.from_name, msg.from_addr)}
+          {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
         </div>
       </span>
 
@@ -643,6 +682,11 @@ export function MailList({
   onToggleSelectThread,
   selfAddrs,
   loading,
+  error,
+  onRetry,
+  noAccounts,
+  onAddAccount,
+  acctColorOf,
   activeMessageId,
   onSelectMessage,
   onToggleFlag,
@@ -1239,8 +1283,23 @@ export function MailList({
         {/* 首屏加载骨架 */}
         {loading && <SkeletonList />}
 
+        {/* 错误态。排在空态之前：请求失败时 itemCount 同样是 0，
+            先判错误才不会把故障渲染成「这里什么都没有」。 */}
+        {!loading && error != null && (
+          <div className="list-error">
+            <div className="list-error-title">{t('list.loadErrorTitle')}</div>
+            <div>{t('list.loadErrorHint')}</div>
+            {errorText(error) && <div className="list-error-detail">{errorText(error)}</div>}
+            {onRetry && (
+              <button type="button" className="pill-btn" onClick={onRetry} style={{ marginTop: 14 }}>
+                {t('app.retry')}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* 空态：无搜索/过滤结果 */}
-        {!loading && itemCount === 0 && (
+        {!loading && error == null && itemCount === 0 && (
           <div
             style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}
           >
@@ -1252,15 +1311,41 @@ export function MailList({
                 marginBottom: 4,
               }}
             >
-              {t('list.nothingHere')}
+              {noAccounts ? t('list.noAccountsTitle') : t('list.nothingHere')}
             </div>
             <div>
-              {query
-                ? t('list.searchNoResult')
-                : filterActive
-                  ? t('list.filterNoResult')
-                  : t('list.noMessages')}
+              {noAccounts
+                ? t('list.noAccountsHint')
+                : query
+                  ? t('list.searchNoResult')
+                  : filterActive
+                    ? t('list.filterNoResult')
+                    : t('list.noMessages')}
             </div>
+
+            {/* 空态得给出口。新用户唯一该做的事就是添加账户，把它摆在他正看着的地方。 */}
+            {noAccounts && onAddAccount && (
+              <button
+                type="button"
+                className="pill-btn primary"
+                onClick={onAddAccount}
+                style={{ marginTop: 14 }}
+              >
+                {t('list.addAccountCta')}
+              </button>
+            )}
+
+            {/* 筛选筛空了同理：让他一键退回去，而不是自己去找那几个 chip */}
+            {!noAccounts && !query && filterActive && (
+              <button
+                type="button"
+                className="pill-btn"
+                onClick={onClearFilter}
+                style={{ marginTop: 14 }}
+              >
+                {t('list.clearFilter')}
+              </button>
+            )}
 
             {/* 本地一无所获时，服务端兜底是唯一还能走的路，所以直接摆在空态里 */}
             {searching && (
@@ -1273,7 +1358,7 @@ export function MailList({
         )}
 
         {/* 虚拟化列表 */}
-        {!loading && rows.length > 0 && (
+        {!loading && error == null && rows.length > 0 && (
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
             {virtualItems.map((vItem) => {
               const row = rows[vItem.index]
@@ -1454,6 +1539,7 @@ export function MailList({
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
                       onDelete={() => onDeleteMessage(row.msg.id)}
+                      acctColor={acctColorOf?.(row.msg.account_id) ?? null}
                     />
                   ) : (
                     <CardRow
@@ -1469,6 +1555,7 @@ export function MailList({
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
                       onDelete={() => onDeleteMessage(row.msg.id)}
+                      acctColor={acctColorOf?.(row.msg.account_id) ?? null}
                     />
                   )}
                 </div>

@@ -30,6 +30,13 @@ export interface ToastOptions {
 interface ToastContextValue {
   /** 显示一条 toast 消息，默认 2.5s 后自动消失 */
   toast: (message: string, options?: ToastOptions) => void
+  /**
+   * 立刻收起当前 toast，**不**触发它的 onExpire。
+   *
+   * 给延迟提交用：操作已经由别处强制落地时，撤销入口必须同时消失，
+   * 否则按钮还在、点下去却已经无事可撤（见 useUndoable 的注释）。
+   */
+  dismiss: () => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -66,6 +73,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setState(null)
     if (fire) expire?.()
   }, [])
+
+  /** 对外暴露的收起：只清场，挂起的操作由调用方自己负责落地。 */
+  const dismissOnly = useCallback(() => dismiss(false), [dismiss])
 
   const toast = useCallback(
     (msg: string, options?: ToastOptions) => {
@@ -106,11 +116,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={{ toast, dismiss: dismissOnly }}>
       {children}
+
+      {/*
+        播报区常驻。
+        aria-live 的语义是「这个区域的内容变化时播报」——区域本身和内容一起插入 DOM 时，
+        多数读屏不播报。撤销条是删除/归档/移动的唯一反馈（5 秒后静默提交），
+        漏播等于读屏用户做完危险操作收不到任何确认，也不知道有撤销可按。
+        所以这里始终渲染容器，只让里面的文本变化。
+      */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {state?.message ?? ''}
+      </div>
+
       {/* 渲染 .toast 条；CSS 令牌与 toastIn 动画已在 index.css 就绪 */}
       {state != null && (
-        <div className="toast" role="status" aria-live="polite">
+        <div className="toast">
           <span>{state.message}</span>
           {state.actionLabel && (
             <button type="button" className="toast-action" onClick={handleAction}>

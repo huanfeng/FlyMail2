@@ -114,6 +114,24 @@
 
 /* ── MailMaster 全局令牌（:root 默认值，由主题选择器覆盖） ──────────── */
 :root {
+  /* 告诉浏览器当前的明暗，原生控件才会跟着走：滚动条、<select> 下拉、
+     checkbox、input[type=color]、日期选择器、自动填充的黄底。
+     缺这一行时，暗色主题下这些控件全是亮色的——只自绘了 ::-webkit-scrollbar
+     的那四个容器例外，其余滚动区一律露馅。由 JS 在切主题时改写（见 lib/theme.ts）。 */
+  color-scheme: light;
+
+  /* 语义状态色。
+     此前没有这一层，需要错误色的地方就地写 var(--danger-wash, #fdecec) ——
+     令牌从未定义，永远走回退值，于是暗色主题下是一块亮粉底。
+     回退值让「令牌不存在」看起来像在正常工作，这是它最危险的用法。 */
+  --danger-wash: #fdecec;
+  --danger-ink: #a12622;
+  --danger-line: #f3c9c9;
+  --success-wash: #e8f5ec;
+  --success-ink: #1e6b3a;
+  --warning-wash: #fdf3e3;
+  --warning-ink: #8a5a10;
+
   /* 字体栈：中文优先，回落到系统字体 */
   --font-display: "PingFang SC", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
   --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
@@ -196,6 +214,20 @@
 }
 
 /* warm 暗 */
+/* 暗色下的通用覆盖：与具体色调无关的那几项。
+   各色调各自的 [data-theme=x][data-mode=dark] 只管色板，明暗语义在这里统一。 */
+[data-mode="dark"] {
+  color-scheme: dark;
+
+  --danger-wash: #3a1f1f;
+  --danger-ink: #f2a3a3;
+  --danger-line: #5a2b2b;
+  --success-wash: #1b2f22;
+  --success-ink: #86d9a4;
+  --warning-wash: #332715;
+  --warning-ink: #e5be76;
+}
+
 [data-theme="warm"][data-mode="dark"] {
   --bg: #1f1d18; --bg-alt: #26231d; --bg-sunk: #2e2a23; --surface: #26231d;
   --ink: #ece7dc; --ink-2: #bfb8ab; --ink-3: #9b958b; --ink-4: #6a645a;
@@ -825,12 +857,20 @@ mark.hl {
   background: var(--bg-alt);
 }
 .mi-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
+/* hover 显隐的两个按钮（星标 / 删除）必须锁在细指针设备上。
+   opacity:0 的元素照常接收点击，而触摸设备 :hover 永不触发——
+   不加守卫的话，行右侧 14~54px 就躺着两个看不见的按钮，点下去是删除。
+   粗指针下改为常驻显示，让它们至少是可见的。 */
 .mi-star {
   position: absolute; right: 14px; top: 14px;
   color: var(--ink-4);
-  opacity: 0; transition: opacity 0.1s;
+  transition: opacity 0.1s;
 }
-.mail-item:hover .mi-star, .mi-star.starred { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .mi-star { opacity: 0; }
+  .mail-item:hover .mi-star { opacity: 1; }
+}
+.mi-star.starred { opacity: 1; }
 .mi-star.starred { color: #e0b04a; }
 .mi-attach { color: var(--ink-3); }
 
@@ -838,9 +878,12 @@ mark.hl {
 .mi-del {
   position: absolute; right: 40px; top: 14px;
   color: var(--ink-4);
-  opacity: 0; transition: opacity 0.1s;
+  transition: opacity 0.1s;
 }
-.mail-item:hover .mi-del { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .mi-del { opacity: 0; }
+  .mail-item:hover .mi-del { opacity: 1; }
+}
 .mi-del:hover { color: var(--destructive); }
 
 /* 宽布局（滑入预览）模式：单行紧凑行 */
@@ -1649,13 +1692,66 @@ mark.hl {
   display: flex; align-items: center; gap: 14px;
 }
 
-/* 撤销按钮：在深色 toast 上用强调色文字，不画边框——它是行内动作不是独立控件 */
+/* 撤销按钮：不画边框——它是行内动作不是独立控件。
+   配色必须跟 toast 正文同源。toast 是反色容器（底 --ink、字 --bg），
+   而 --accent 是为「画在 --bg 上」设计的：把它放进来，亮色主题下只有 2.7:1，
+   暗色主题下 --ink 本身就是亮的，对比度掉到 1.6:1 —— 几乎看不见。
+   这是删错邮件唯一的后悔入口，且只存在 5 秒，不能靠用户找。
+   与正文同色则对比度天然合格，靠常驻下划线表达「可点击」。 */
 .toast-action {
   background: none; border: none; padding: 0;
-  color: var(--accent-color); font-size: 13px; font-weight: 600;
+  color: var(--bg); font-size: 13px; font-weight: 600;
+  text-decoration: underline; text-underline-offset: 2px;
   cursor: pointer; white-space: nowrap;
 }
-.toast-action:hover { text-decoration: underline; }
+.toast-action:hover { text-decoration-thickness: 2px; }
+
+/* 撰写器关闭确认：盖在撰写窗内部而不是全屏遮罩，
+   它拦的是这一个窗口的关闭，不该让整个应用变暗。 */
+.compose-guard {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.28); border-radius: inherit;
+}
+.compose-guard-card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 10px; padding: 18px 20px;
+  box-shadow: var(--shadow-md); max-width: 320px;
+}
+.compose-guard-title {
+  font-family: var(--font-display); font-size: 15px;
+  color: var(--ink); margin-bottom: 6px;
+}
+.compose-guard-text { font-size: 13px; color: var(--ink-3); }
+.compose-guard-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+}
+
+/* 破坏性动作降权：与旁边的中性按钮同重会让「丢弃」看起来像个普通选项 */
+.pill-btn.danger { color: var(--danger-ink); border-color: var(--danger-line); }
+.pill-btn.danger:hover { background: var(--danger-wash); }
+
+/* 列表错误态。与空态同一处版式预算，但用 danger 语义色，
+   让「出错了」和「没有内容」在一眼之内就能分开。 */
+.list-error {
+  padding: 48px 20px; text-align: center;
+  color: var(--ink-3); font-size: 13px;
+}
+.list-error-title {
+  font-family: var(--font-display); font-size: 18px;
+  color: var(--danger-ink); margin-bottom: 4px;
+}
+.list-error-detail {
+  margin-top: 8px; font-family: var(--font-mono); font-size: 11px;
+  color: var(--ink-4); word-break: break-all;
+}
+
+/* 只给读屏的文本：不可见但不脱离无障碍树（display:none / visibility:hidden 会） */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 
 /* 文字选中配色 */
 ::selection { background: var(--accent-soft); color: var(--accent-ink); }
@@ -1968,13 +2064,14 @@ mark.hl {
    账户行操作按钮：仅 hover 时显示
    ════════════════════════════════════════════════════════════════════════ */
 /* 默认隐藏，父级 .group hover 时显示 */
+/* 同 .mi-del：hover 显隐只在细指针设备上成立。
+   触摸端没有 hover 也没有右键菜单，隐藏这里等于「立即同步」完全没有入口。 */
 .account-row-actions {
-  opacity: 0;
   transition: opacity 0.12s;
 }
-/* 父容器 hover 触发显示 */
-.group:hover .account-row-actions {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .account-row-actions { opacity: 0; }
+  .group:hover .account-row-actions { opacity: 1; }
 }
 
 /* 同步旋转动画（用于同步中状态） */
@@ -1988,8 +2085,18 @@ mark.hl {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   键盘可达性：列表行 / chip 焦点环（仅键盘聚焦时显示）
+   键盘可达性：焦点环
    ════════════════════════════════════════════════════════════════════════ */
+
+/* 全局兜底。逐个类去加焦点环是补不全的——工具栏、侧栏、设置的 15 个分区导航
+   曾经全都没有，纯键盘用户 Tab 一圈看不出焦点在哪。
+   用 :where() 让特异性为 0，任何具体规则都能覆盖它。 */
+:where(a[href], button, select, [role='button'], [tabindex='0']):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 列表行用内缩焦点环，避免与相邻行的边界重叠 */
 .mail-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -1998,6 +2105,30 @@ mark.hl {
 .lt-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* 输入框把原生 outline 关掉了，得自己补一个焦点表达，否则 Tab 进去毫无反应 */
+.inline-input:focus-visible,
+.search-input input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   动效降级：尊重系统「减少动态效果」
+   ════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* 同步指示器是无限旋转的，动效敏感用户会被持续干扰。
+     上面的规则把它压成一帧，这里让它保持静止但仍然可见。 */
+  .spin-anim { animation: none !important; opacity: 0.6; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════

@@ -45,7 +45,7 @@ import {
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { useKeyboardShortcuts, COMPOSE_CLOSE_EVENT } from '@/hooks/useKeyboardShortcuts'
 import type { GoTarget } from '@/lib/shortcuts'
 import { useUndoable } from '@/hooks/useUndoable'
 import {
@@ -57,6 +57,7 @@ import {
   setConversationView,
 } from '@/lib/list-prefs'
 import { commonAccountId, selectedThreads } from '@/lib/thread-format'
+import { accountColorMap } from '@/lib/account-color'
 import type { ListStyle } from '@/lib/list-prefs'
 import { EMPTY_FILTER, filterKey, isFilterActive, toggleFilter } from '@/lib/list-filters'
 import type { FilterKey, ListFilter } from '@/lib/list-filters'
@@ -130,6 +131,10 @@ export function ShellPage() {
 
   const { data: accounts = [] } = useAccounts()
   const { data: folders = [] } = useFolders(accountId)
+  // 账户识别色：聚合/搜索视图把多个账户的邮件混在一列里，
+  // 全用同一个 accent 底色就看不出哪封属于哪个邮箱。
+  const acctColors = useMemo(() => accountColorMap(accounts), [accounts])
+
   // 本人邮箱集合：会话行头像要避开自己（自己发起的讨论不该显示自己的首字母）
   const selfAddrs = useMemo(
     () => new Set(accounts.map((a) => a.email.trim().toLowerCase()).filter(Boolean)),
@@ -181,6 +186,9 @@ export function ShellPage() {
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(() => new Set())
   const [hiddenThreadIds, setHiddenThreadIds] = useState<Set<string>>(() => new Set())
   const undoable = useUndoable()
+  // toast 与 undoable 是一对：撤销窗口的可见部分在 toast 上，
+  // 强制落地时必须同时收起它，否则撤销按钮会变成哑巴。
+  const { toast, dismiss: dismissToast } = useToast()
 
   // 两个列表都用 useMemo 固定引用：flatMap 每渲染都产出新数组，
   // 直接进 useMemo/useEffect 的依赖数组等于「每渲染必重算」。
@@ -201,6 +209,10 @@ export function ShellPage() {
   // 声明位置必须早于快捷键 hook。
   const threadList = threads ?? []
   const messagesLoading = conversationView ? threadSource.isLoading : msgSource.isLoading
+  // 错误必须与 loading 一起往下传：只传 loading 的话，请求失败时列表走的是
+  // itemCount === 0 的空态，把后端故障显示成「这个文件夹里还没有邮件」。
+  const messagesError = conversationView ? threadSource.error : msgSource.error
+  const refetchMessages = conversationView ? threadSource.refetch : msgSource.refetch
   const hasNextPage = (conversationView ? threadSource.hasNextPage : msgSource.hasNextPage) ?? false
   const isFetchingNextPage = conversationView
     ? threadSource.isFetchingNextPage
@@ -211,31 +223,44 @@ export function ShellPage() {
   }
 
   // 数据源标识：视图形态 + 搜索/聚合/文件夹 + 列表样式 + 筛选
-  //（驱动 MailList 滚动重置与选择清空）。
-  // 筛选进 key：换了筛选就是另一份结果集，停在原滚动位置会落在一片空白里，
-  // 选中项也可能已被筛掉，留着会让批量操作打到看不见的邮件上。
-  // 会话/单封同理：两种模式的选中项类型都不一样，切换后必须清空。
+  //（驱动 MailList 滚动重置）。
+  // 筛选进 key：换了筛选就是另一份结果集，停在原滚动位置会落在一片空白里。
+  // 搜索态固定写作 'search'：每敲一个字都重置滚动会把搜索框的焦点也打断。
   const sourceKey = `${conversationView ? 'th' : 'ms'}-${searching ? 'search' : (agg ?? folderId)}-${listStyle}-${filterKey(filter)}`
+
+  // 选择作用域标识：比 sourceKey 多一个搜索词。
+  //
+  // 两者必须分开。上面为了保住搜索框焦点，把所有搜索都归成同一个 'search'，
+  // 于是「搜发票 → 勾 5 封 → 改搜合同」全程 key 不变，选择就留了下来：
+  // 工具栏显示「已选 5 封」而列表里一封都不高亮，此时点批量删除，
+  // 删掉的是屏幕上根本看不见的那 5 封。滚动重置和选择清空是两件事，
+  // 合用一个 key 就必然有一边是错的。
+  const selectionKey = `${sourceKey}-${debouncedQuery}`
 
   // ── 批量选择 ──────────────────────────────────────────────────────────────
   //
   // 两种模式各持一套集合，而不是合成 `Set<number | string>`：
   // 选中项要回头去列表里找对应条目（求共同账户就是这么做的），而数字与字符串
   // 在 TS 里比较合法、运行时永不相等——合成一套会得到一个编译期看不出的空结果。
-  // 两套集合互斥使用，sourceKey 变化时一并清空。
+  // 两套集合互斥使用，selectionKey 变化时一并清空。
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(() => new Set())
-  // 切换数据源/样式/视图形态时清空选择，避免跨上下文误操作。
+  // 切换数据源/样式/视图形态/搜索词时清空选择，避免跨上下文误操作。
+  //
   // 挂起的删除必须同时落地：撤销入口马上要随当前列表一起消失了，
   // 留着它等于把一个再也无法撤销、也永远不会提交的操作丢在半空。
+  // 而落地之后 toast 也必须立刻收起——它有自己独立的 5 秒计时，不收的话
+  // 撤销按钮会继续挂在屏幕上，点下去却已无事可撤：用户以为撤销成功了，
+  // 邮件其实已经永久删除。这是整套延迟提交里唯一会骗人的一条路径。
   useEffect(() => {
     undoable.flush()
+    dismissToast()
     setSelectedIds(new Set())
     setSelectedThreadIds(new Set())
     setHiddenIds(new Set())
     setHiddenThreadIds(new Set())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceKey])
+  }, [selectionKey])
 
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
@@ -286,7 +311,6 @@ export function ShellPage() {
   const threadMove = useThreadBatchMove()
   const deleteOne = useDeleteMessage()
   const moveOne = useMoveMessage()
-  const { toast } = useToast()
 
   // ── 可撤销操作 ──────────────────────────────────────────────────────────────
   //
@@ -381,11 +405,24 @@ export function ShellPage() {
     })
 
     toast(message, {
-      actionLabel: t('common.undo'),
+      actionLabel: t('app.undo'),
       duration: UNDO_WINDOW_MS,
-      onAction: undoable.undo,
+      onAction: handleUndo,
       onExpire: undoable.flush,
     })
+  }
+
+  /**
+   * 撤销，并保证用户一定收到反馈。
+   *
+   * undo 返回 false 意味着挂起项已被别处强制落地（切文件夹、切搜索词、页面将关闭），
+   * 此时那封邮件已经真的删掉了。静默无操作会让用户以为撤销成功——
+   * 宁可告诉他「来不及了」，也不能让他带着错误的认知离开。
+   */
+  function handleUndo(): boolean {
+    const ok = undoable.undo()
+    if (!ok) toast(t('list.undoUnavailable'))
+    return ok
   }
 
   // 列表行 hover 快捷删除单封
@@ -962,7 +999,8 @@ export function ShellPage() {
     onGo: goTo,
     onToggleSelectCurrent: toggleSelectCurrent,
     onExtendSelection: extendSelection,
-    onCloseCompose: () => setComposeOpen(false),
+    // 不直接关：撰写器可能有未保存的内容，由它自己决定要不要先问一句
+    onCloseCompose: () => window.dispatchEvent(new CustomEvent(COMPOSE_CLOSE_EVENT)),
     composeOpen,
     // Esc：清空当前邮件 / 关闭双栏浮动阅读 / 退出通知视图
     onEscape: onMobileBack,
@@ -970,6 +1008,14 @@ export function ShellPage() {
     onToggleHelp: () => setHelpOpen((o) => !o),
     onCloseHelp: () => setHelpOpen(false),
     helpOpen,
+    // 其它浮层遮挡时屏蔽单键，并让出 Esc。
+    // 漏掉任何一个的后果都是：那个浮层开着时按 # 会删掉背后的邮件，
+    // 而撤销条在屏幕底部、用户此刻根本看不到。
+    overlayOpen: settingsOpen || notifOpen || dialogOpen || drawerOpen,
+    // 这里传裸的 undo：反馈由 onUndoUnavailable 给，
+    // 用 handleUndo 会连 toast 带 hook 各弹一次。
+    onUndo: undoable.undo,
+    onUndoUnavailable: () => toast(t('list.undoUnavailable')),
   })
 
   // 移动端单栏：有选中邮件/会话或处于通知视图时显示阅读面板，否则显示列表面板
@@ -1081,6 +1127,16 @@ export function ShellPage() {
               onToggleSelectThread={toggleSelectThread}
               selfAddrs={selfAddrs}
               loading={messagesLoading}
+              error={messagesError}
+              noAccounts={accounts.length === 0}
+              acctColorOf={
+                // 单文件夹视图里所有邮件同属一个账户，点色点只是噪声
+                (agg != null || searching) && accounts.length > 1
+                  ? (id) => acctColors.get(id) ?? null
+                  : undefined
+              }
+              onAddAccount={() => { setEditingAccount(null); setDialogOpen(true) }}
+              onRetry={() => void refetchMessages()}
               activeMessageId={messageId}
               onSelectMessage={selectMessage}
               onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}

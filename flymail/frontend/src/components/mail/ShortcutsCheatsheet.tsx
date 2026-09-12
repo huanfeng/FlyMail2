@@ -5,6 +5,7 @@
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import { getShortcutGroups } from '@/lib/shortcuts'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 
 interface Props {
   onClose: () => void
@@ -13,6 +14,8 @@ interface Props {
 export function ShortcutsCheatsheet({ onClose }: Props) {
   const { t } = useTranslation()
   const groups = getShortcutGroups()
+  // 焦点关在浮层里：这里已经有 role=dialog，缺的是让键盘也真的进得来、出得去
+  const trapRef = useFocusTrap<HTMLDivElement>(true)
 
   return (
     <div
@@ -20,6 +23,7 @@ export function ShortcutsCheatsheet({ onClose }: Props) {
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
+        ref={trapRef}
         className="shortcuts-card"
         role="dialog"
         aria-modal="true"

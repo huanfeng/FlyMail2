@@ -115,6 +115,7 @@ export function getShortcutGroups(): ShortcutGroup[] {
         { id: 'delete', keys: ['#', 'Del'], descKey: 'shortcuts.delete' },
         { id: 'star', keys: ['S'], descKey: 'shortcuts.star' },
         { id: 'unread', keys: ['Shift', 'U'], descKey: 'shortcuts.markUnread' },
+        { id: 'undo', keys: [comboHint('Z')], descKey: 'shortcuts.undo' },
       ],
     },
     {

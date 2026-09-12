@@ -1,4 +1,5 @@
 // 设置弹框组件（modal）
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 // 参考蓝本：.dev/mailmaster/src_extracted/06_87910dfb.js (SettingsScreen + THEMES_LIST)
 // 原版设置是覆盖层弹框（.settings-backdrop > .settings-dialog），左侧分栏导航 + 右侧内容。
 // 所有颜色严格使用 CSS 令牌，不写死任何颜色值。复用现有 Section 子组件数据逻辑。
@@ -1226,6 +1227,9 @@ export function SettingsDialog({
     { id: 'about',      labelKey: 'settings.navAbout',            icon: 'more' },
   ]
 
+  // 焦点关在浮层里，关闭后还给打开它的那个按钮
+  const trapRef = useFocusTrap<HTMLDivElement>(true)
+
   // Esc 键关闭弹框
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1244,7 +1248,14 @@ export function SettingsDialog({
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       {/* 弹框本体：阻止冒泡，避免点击内部误关 */}
-      <div className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('settings.title')}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         {/* 关闭按钮 */}
         <button
           type="button"

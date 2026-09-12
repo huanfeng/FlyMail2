@@ -25,6 +25,8 @@ function makeHandlers() {
     onEscape: vi.fn(),
     onToggleHelp: vi.fn(),
     onCloseHelp: vi.fn(),
+    onUndo: vi.fn(() => true),
+    onUndoUnavailable: vi.fn(),
   }
 }
 
@@ -35,18 +37,21 @@ describe('useKeyboardShortcuts', () => {
   let root: Root
   let h: Handlers
 
-  function Probe({ composeOpen = false, helpOpen = false }: { composeOpen?: boolean; helpOpen?: boolean }) {
+  type ProbeProps = { composeOpen?: boolean; helpOpen?: boolean; overlayOpen?: boolean }
+
+  function Probe({ composeOpen = false, helpOpen = false, overlayOpen = false }: ProbeProps) {
     useKeyboardShortcuts({
       ...h,
       navIds: [1, 2, 3],
       activeNavId: 2,
       composeOpen,
       helpOpen,
+      overlayOpen,
     })
     return <input data-testid="field" />
   }
 
-  async function mount(props: { composeOpen?: boolean; helpOpen?: boolean } = {}) {
+  async function mount(props: ProbeProps = {}) {
     await act(async () => root.render(<Probe {...props} />))
   }
 
@@ -203,6 +208,59 @@ describe('useKeyboardShortcuts', () => {
     await press('k', { ctrlKey: true })
     window.removeEventListener(FOCUS_SEARCH_EVENT, spy)
     expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('其它浮层打开时屏蔽单键——设置面板开着不能删掉背后的邮件', async () => {
+    await mount({ overlayOpen: true })
+    await press('#')
+    await press('e')
+    await press('x')
+    await press('j')
+    // 撤销条在屏幕底部，用户此刻盯着浮层根本看不到，删了就是静默删除
+    expect(h.onDelete).not.toHaveBeenCalled()
+    expect(h.onArchive).not.toHaveBeenCalled()
+    expect(h.onToggleSelectCurrent).not.toHaveBeenCalled()
+    expect(h.onNavigate).not.toHaveBeenCalled()
+  })
+
+  it('其它浮层打开时 Esc 让位——浮层自己关自己，不连带关掉当前邮件', async () => {
+    await mount({ overlayOpen: true })
+    await press('Escape')
+    expect(h.onEscape).not.toHaveBeenCalled()
+  })
+
+  it('其它浮层打开时 ? 不开速查表', async () => {
+    await mount({ overlayOpen: true })
+    await press('?')
+    expect(h.onToggleHelp).not.toHaveBeenCalled()
+  })
+
+  it('Ctrl+Z 撤销', async () => {
+    await mount()
+    await press('z', { ctrlKey: true })
+    expect(h.onUndo).toHaveBeenCalledTimes(1)
+    expect(h.onUndoUnavailable).not.toHaveBeenCalled()
+  })
+
+  it('已无可撤销项时给出反馈，而不是静默无事发生', async () => {
+    h.onUndo = vi.fn(() => false)
+    await mount()
+    await press('z', { ctrlKey: true })
+    // 静默失败会让用户以为撤销成功，而邮件其实已经永久删除
+    expect(h.onUndoUnavailable).toHaveBeenCalledTimes(1)
+  })
+
+  it('输入框内的 Ctrl+Z 让给浏览器的文本撤销', async () => {
+    await mount()
+    const field = container.querySelector('input')!
+    await press('z', { ctrlKey: true }, field)
+    expect(h.onUndo).not.toHaveBeenCalled()
+  })
+
+  it('Ctrl+Shift+Z 不触发撤销（那是「重做」的惯例键位）', async () => {
+    await mount()
+    await press('z', { ctrlKey: true, shiftKey: true })
+    expect(h.onUndo).not.toHaveBeenCalled()
   })
 
   it('动作回调为 null 时按键不报错', async () => {

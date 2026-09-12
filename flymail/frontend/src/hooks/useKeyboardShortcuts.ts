@@ -8,6 +8,13 @@ import { GO_TARGETS, GO_TIMEOUT_MS, KEY, type GoTarget } from '@/lib/shortcuts'
 /** 快捷键 `/` 触发时广播此事件，MailList 内部监听后聚焦搜索框 */
 export const FOCUS_SEARCH_EVENT = 'flymail:focus-search'
 
+/**
+ * 请求关闭撰写器。Esc 广播此事件而不是直接关窗：
+ * 写了一半的邮件要先问一句「保存草稿 / 丢弃 / 继续写」，
+ * 而只有 ComposeDialog 自己知道有没有写过东西。
+ */
+export const COMPOSE_CLOSE_EVENT = 'flymail:compose-close'
+
 // ────────────────────────────────────────────────────────────────────────────
 // 类型
 // ────────────────────────────────────────────────────────────────────────────
@@ -60,6 +67,20 @@ interface KeyboardShortcutsOptions {
   onCloseHelp: () => void
   /** 速查浮层是否打开中（打开时屏蔽单键，Esc 优先关闭它） */
   helpOpen: boolean
+  /**
+   * 是否有其它浮层遮挡（设置 / 通知 / 账户对话框 / 移动端抽屉）。
+   *
+   * 为什么必须单列一项：屏蔽判据原本只有「焦点在输入框内」，而浮层里的焦点
+   * 通常落在按钮上——不是输入框，于是单键照常穿透到背后的列表。设置面板开着时
+   * 按 `#` 会删掉背后那封邮件，撤销条又在用户视线之外的屏幕底部，5 秒后静默提交。
+   *
+   * Esc 也据此让位：浮层自己负责关自己，这里不能再顺手把当前邮件也关掉。
+   */
+  overlayOpen: boolean
+  /** Ctrl/⌘+Z：撤销刚才的删除/归档/移动。返回 false 表示已无可撤销项。 */
+  onUndo: () => boolean
+  /** 已无可撤销项时的反馈（撤销窗口已过或已被强制落地） */
+  onUndoUnavailable: () => void
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -115,14 +136,17 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
     function handleKeyDown(e: KeyboardEvent) {
       const o = ref.current
 
-      // Esc 优先处理（无论焦点位置）：帮助浮层 > Compose > 通用返回
+      // Esc 优先处理（无论焦点位置）：帮助浮层 > Compose > 其它浮层 > 通用返回
+      //
+      // overlayOpen 时直接收手：设置/通知/账户浮层各自监听 Esc 关自己，
+      // 这里若继续往下走会把背后正在看的那封邮件也一并关掉——同一次按键被消费两回。
       if (e.key === KEY.escape) {
         goAt.current = 0
         if (o.helpOpen) {
           o.onCloseHelp()
         } else if (o.composeOpen) {
           o.onCloseCompose()
-        } else {
+        } else if (!o.overlayOpen) {
           o.onEscape?.()
         }
         return
@@ -135,17 +159,30 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
         return
       }
 
+      // ⌘Z / Ctrl+Z：撤销刚才的删除/归档/移动。
+      //
+      // 撤销条钉在屏幕底部且只存在 5 秒，键盘用户要 Tab 穿过整个虚拟列表才够得到，
+      // 实际上等于没有。给它一个键位，撤销才对非鼠标用户真正可用。
+      // 输入框内让位给浏览器原生的文本撤销。
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (isInInputField(e.target) || o.composeOpen) return
+        e.preventDefault()
+        if (!o.onUndo()) o.onUndoUnavailable()
+        return
+      }
+
       // ? : 切换快捷键速查浮层。在其它单键屏蔽之前处理（即使浮层已开也能再次按 ? 关闭），
-      //     但输入框内不触发，避免打字时误开。
+      //     但输入框内、以及别的浮层开着时不触发。
       if (e.key === KEY.help) {
-        if (isInInputField(e.target)) return
+        if (isInInputField(e.target) || o.overlayOpen) return
         e.preventDefault()
         o.onToggleHelp()
         return
       }
 
-      // 在输入型元素内 / Compose 打开 / 帮助浮层打开时，屏蔽其余单键快捷键
-      if (isInInputField(e.target) || o.composeOpen || o.helpOpen) return
+      // 屏蔽其余单键快捷键：输入型元素内 / Compose / 速查浮层 / 任何其它浮层。
+      // overlayOpen 漏掉过一次，后果是设置面板开着时按 # 删掉背后的邮件。
+      if (isInInputField(e.target) || o.composeOpen || o.helpOpen || o.overlayOpen) return
 
       // 忽略带 Ctrl/Meta/Alt 的组合（让浏览器原生快捷键正常工作）。
       // Shift 不在此列：Shift+U / Shift+J / Shift+K 都是有效键位。

@@ -10,6 +10,7 @@ import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
+import { BrowserNotifySection } from '@/components/settings/BrowserNotifySection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { RulesSection } from '@/components/settings/RulesSection'
 import { BlocklistSection } from '@/components/settings/BlocklistSection'
@@ -1313,7 +1314,14 @@ export function SettingsDialog({
             {section === 'rules' && <RulesSection />}
             {section === 'blocklist' && <BlocklistSection />}
             {section === 'privacy' && <PrivacySection />}
-            {section === 'notify' && <NotifyChannelsSection />}
+            {section === 'notify' && (
+              <>
+                {/* 这台设备上的提醒排在外发渠道之前：多数人要的是「让这个浏览器
+                    提醒我」，而不是先去配一个 webhook */}
+                <BrowserNotifySection Row={Row} Toggle={Toggle} />
+                <NotifyChannelsSection />
+              </>
+            )}
             {section === 'monitoring' && <MonitoringSection />}
             {section === 'security' && <SecuritySection />}
             {section === 'shortcuts' && <ShortcutsSection />}

@@ -549,7 +549,18 @@
       "logsTitle": "投递日志",
       "noLogs": "暂无投递记录",
       "statusOk": "成功",
-      "statusFailed": "失败"
+      "statusFailed": "失败",
+      "deviceTitle": "这台设备上的提醒",
+      "deviceHint": "只对当前这个浏览器生效，换一台设备要重新设置。",
+      "desktop": "桌面通知",
+      "desktopHint": "标签页切走时，由系统弹出新邮件提醒。需要浏览器授权。",
+      "permissionDenied": "浏览器已拒绝本站的通知权限，请在地址栏的站点设置里改回「允许」后重试。",
+      "unsupported": "当前浏览器不支持桌面通知。",
+      "sound": "提示音",
+      "soundHint": "标签页切走时，新邮件到达播放一声轻提示。",
+      "soundTest": "试听",
+      "titleBadge": "标签页未读角标",
+      "titleBadgeHint": "把未读数显示在标签页标题与站点图标上。不需要任何授权。"
     },
     "rules": {
       "title": "邮件规则",

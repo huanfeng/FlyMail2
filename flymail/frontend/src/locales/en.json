@@ -549,7 +549,18 @@
       "logsTitle": "Delivery Logs",
       "noLogs": "No delivery records yet",
       "statusOk": "OK",
-      "statusFailed": "Failed"
+      "statusFailed": "Failed",
+      "deviceTitle": "Alerts on this device",
+      "deviceHint": "These apply to this browser only — set them again on another device.",
+      "desktop": "Desktop notifications",
+      "desktopHint": "Let the system notify you about new mail while this tab is in the background. Requires browser permission.",
+      "permissionDenied": "This browser has blocked notifications for this site. Allow them in the site settings, then try again.",
+      "unsupported": "This browser does not support desktop notifications.",
+      "sound": "Sound",
+      "soundHint": "Play a soft chime when mail arrives while this tab is in the background.",
+      "soundTest": "Preview",
+      "titleBadge": "Unread badge on the tab",
+      "titleBadgeHint": "Show the unread count in the tab title and site icon. No permission needed."
     },
     "rules": {
       "title": "Mail Rules",

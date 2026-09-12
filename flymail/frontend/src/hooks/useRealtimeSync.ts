@@ -1,14 +1,37 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { connectRealtime } from '@/lib/sse'
+import { getNotifyPrefs } from '@/lib/notify-prefs'
+import { claimChime, pageHidden, playChime, showMailNotice } from '@/lib/browser-notify'
+
+/** 新邮件通知里「点开那封信」的回调。由 Shell 传入。 */
+export interface RealtimeOptions {
+  onOpenMessage?: (messageId: number) => void
+  /** 供读屏播报的一行文字（常驻 live region 消费）。 */
+  onAnnounce?: (text: string) => void
+}
 
 /**
  * 订阅 SSE 实时推送。
- * 收到 new_mail 事件后，使 folders 和 messages 查询缓存失效，
- * TanStack Query 将自动在后台重新请求，从而刷新未读数和邮件列表。
+ *
+ * 两类事件分工不同，不能混：
+ *
+ * - `new_mail` —— 「有变化，去重新拉」。对基线导入、archive / junk 一律会发，
+ *   所以只用来让缓存失效，**绝不**拿它弹通知：用户首次添加账户导入几千封
+ *   历史邮件时会被淹没。
+ * - `notify` —— 「值得打扰用户的一件事」。后端在 emit 那一侧已经过了三道闸门
+ *   （文件夹类型、非基线未读、跨文件夹去重），标题正文也拼好了。
  */
-export function useRealtimeSync(): void {
+export function useRealtimeSync(opts: RealtimeOptions = {}): void {
   const qc = useQueryClient()
+  // 回调每次渲染都是新引用，放进依赖会让 SSE 连接反复重建（每次都要重新取票）。
+  // 同步放在 effect 里而不是 render 期赋值：后者正是 react-hooks/refs 拦的东西，
+  // 而这里也不需要在 render 期读——SSE 回调只会在 effect 跑完之后才触发。
+  const optsRef = useRef(opts)
+  useEffect(() => {
+    optsRef.current = opts
+  })
+
   useEffect(() => {
     const close = connectRealtime((ev) => {
       if (ev.type === 'new_mail') {
@@ -21,9 +44,34 @@ export function useRealtimeSync(): void {
         void qc.invalidateQueries({ queryKey: ['thread-messages'] })
         void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
         void qc.invalidateQueries({ queryKey: ['account-unread'] })
-        // 新邮件会产生站内通知，刷新铃铛角标与通知列表
+        return
+      }
+
+      if (ev.type === 'notify') {
+        // 铃铛角标与通知列表跟着这条走（它才是「产生了一条通知」的准确时刻）
         void qc.invalidateQueries({ queryKey: ['notifications-unread'] })
         void qc.invalidateQueries({ queryKey: ['notifications'] })
+
+        if (ev.event !== 'mail_new') return
+
+        // 读屏播报：视觉用户看得见未读徽标跳变，读屏用户此前完全无感知
+        optsRef.current.onAnnounce?.(`${ev.title} ${ev.body}`.trim())
+
+        // 桌面通知与提示音只在标签页不可见时给：页面就在眼前时列表已经自己
+        // 刷新了，再弹一个系统通知只是噪音。
+        if (!pageHidden()) return
+        const prefs = getNotifyPrefs()
+        if (prefs.desktop) {
+          showMailNotice({
+            title: ev.title,
+            body: ev.body,
+            messageId: ev.message_id,
+            accountId: ev.account_id,
+            onOpen: (id) => optsRef.current.onOpenMessage?.(id),
+          })
+        }
+        // 抢一次：开着多个 FlyMail 标签页时，同一批新邮件不该按窗口数叠加着响
+        if (prefs.sound && claimChime()) playChime()
       }
     })
     return close

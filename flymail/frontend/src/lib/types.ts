@@ -39,12 +39,36 @@ export interface Profile {
 }
 
 /** SSE 实时推送事件结构 */
-export interface RealtimeEvent {
+/**
+ * 同步事件：语义是「有变化，去重新拉」。
+ *
+ * ⚠ 它对基线导入、archive / junk 一律会发，**不能**拿它弹浏览器通知——
+ * 首次添加账户导入几千封历史邮件时会把用户淹没。该弹的那条走 NotifyEvent。
+ */
+export interface SyncEvent {
   type: 'new_mail'
   account_id: number
   folder_id: number
   new_count: number
 }
+
+/**
+ * 通知事件：语义是「值得打扰用户的一件事」。
+ *
+ * 后端在 emit 那一侧已经过了三道闸门（文件夹类型、非基线未读、跨文件夹去重），
+ * 标题与正文也在那里拼好了（单封带发件人与主题，多封聚合成「收到 N 封」）。
+ */
+export interface NotifyEvent {
+  type: 'notify'
+  event: NotifyEventType
+  account_id: number
+  /** 仅单封新邮件非 0，点击通知可直达那封信 */
+  message_id: number
+  title: string
+  body: string
+}
+
+export type RealtimeEvent = SyncEvent | NotifyEvent
 
 export interface AccountStats {
   message_count: number

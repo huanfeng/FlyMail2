@@ -45,6 +45,7 @@ import {
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { useUnreadBadge } from '@/hooks/useUnreadBadge'
 import { useKeyboardShortcuts, COMPOSE_CLOSE_EVENT } from '@/hooks/useKeyboardShortcuts'
 import type { GoTarget } from '@/lib/shortcuts'
 import { useUndoable } from '@/hooks/useUndoable'
@@ -83,9 +84,6 @@ function parseAgg(v: string | null): AggregateView | null {
 export function ShellPage() {
   // 注意：GET /folders/:fid/messages 不绑定 account，依赖单管理员假设；
   // 未来支持多用户时需补 ownership 校验。
-
-  // 订阅 SSE 实时推送，新邮件到达时自动刷新 folders/messages 缓存
-  useRealtimeSync()
 
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
@@ -190,6 +188,24 @@ export function ShellPage() {
   const searchThreads = useInfiniteSearchThreads(conversationView ? debouncedQuery : '', filter)
   // 聚合入口徽标计数
   const { data: aggCounts = { inbox: 0, unread: 0, starred: 0, inboxTotal: 0 } } = useAggregateCounts()
+
+  // ── 新邮件提醒 ───────────────────────────────────────────────────────────────
+  //
+  // 读屏播报的文本。seq 是必需的：aria-live 的语义是「内容变化时播报」，
+  // 连着来两封主题相同的信时文本一模一样，DOM 没变化 = 不播报。
+  // 用一个随次数增减的零宽字符让文本"变"一下，对视觉与朗读都没有副作用。
+  const [announce, setAnnounce] = useState<{ text: string; seq: number }>({ text: '', seq: 0 })
+
+  // 订阅 SSE 实时推送：new_mail 刷新缓存，notify 走提醒（桌面通知 / 提示音 / 播报）
+  useRealtimeSync({
+    // 必须走 openMailById 而不是 selectMessage：点通知时用户多半停在别的账户、
+    // 聚合视图或搜索结果里，只写 message 参数会切不过去；会话视图下更是直接一片空白。
+    onOpenMessage: (id) => void openMailById(id),
+    onAnnounce: (text) => setAnnounce((p) => ({ text, seq: p.seq + 1 })),
+  })
+
+  // 标签页标题与站点图标上的未读角标。不需要任何权限，也是切走之后唯一还看得见的提醒。
+  useUnreadBadge(aggCounts.unread)
 
   // 当前生效的数据源（搜索 > 聚合 > 文件夹）。两套的分页形状不同，各取各的。
   const msgSource = searching ? searchInfinite : agg ? aggInfinite : folderInfinite
@@ -725,35 +741,50 @@ export function ShellPage() {
     setParam((p) => p.set('thread', id))
   }
 
+  /**
+   * 按 id 打开一封邮件，并把视图切到能看见它的状态。成功返回 true。
+   *
+   * 「点了通知却跳到一片空白」在这条路径上踩过一次，所以**所有从通知类入口
+   * 打开邮件的地方都必须走这里**，不能图省事用 selectMessage——后者只写 message
+   * 参数，既不切账户/文件夹、也不管会话视图要的是 thread。
+   * 站内通知与浏览器桌面通知共用此函数。
+   */
+  async function openMailById(messageId: number): Promise<boolean> {
+    try {
+      const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
+      setView('messages')
+      setNotifOpen(false)
+      setSearchQuery('')
+      setParam((p) => {
+        p.set('account', String(data.account_id))
+        p.set('folder', String(data.folder_id))
+        p.delete('agg')
+        // 会话视图的第三栏只认 thread 参数：只写 message 的话点通知会跳到一片空白。
+        // 详情 DTO 带 thread_id，据此定位到那条会话；这封是新到的未读，
+        // 手风琴的默认展开规则（最新一封 + 全部未读）保证它是打开的。
+        if (conversationView && data.thread_id) {
+          p.set('thread', data.thread_id)
+          p.delete('message')
+        } else {
+          p.set('message', String(data.id))
+          p.delete('thread')
+        }
+      })
+      return true
+    } catch {
+      /* 邮件已删除等情况 → 由调用方决定回退 */
+      return false
+    }
+  }
+
   // 点击通知跳转：单封新邮件（带 message_id）→ 精准打开该邮件；
-  // 否则回退到该账户的收件箱。邮件可能已被删除，失败时同样回退。
+  // openMailById 返回 false（邮件已删除等）时落到下面的账户收件箱回退。
+  // 回退留在这里而不是塞进 openMailById：浏览器桌面通知那条路径根本没有回退可言，
+  // 两个入口因此才能共用同一段定位逻辑。
   async function openNotification(n: Notification) {
     if (n.type !== 'mail_new' && !n.account_id) return
     if (n.message_id) {
-      try {
-        const { data } = await api.get<MessageDetail>(`/messages/${n.message_id}`)
-        setView('messages')
-        setNotifOpen(false)
-        setSearchQuery('')
-        setParam((p) => {
-          p.set('account', String(data.account_id))
-          p.set('folder', String(data.folder_id))
-          p.delete('agg')
-          // 会话视图的第三栏只认 thread 参数：只写 message 的话点通知会跳到一片空白。
-          // 详情 DTO 带 thread_id，据此定位到那条会话；这封是新到的未读，
-          // 手风琴的默认展开规则（最新一封 + 全部未读）保证它是打开的。
-          if (conversationView && data.thread_id) {
-            p.set('thread', data.thread_id)
-            p.delete('message')
-          } else {
-            p.set('message', String(data.id))
-            p.delete('thread')
-          }
-        })
-        return
-      } catch {
-        /* 邮件已删除等情况 → 回退账户收件箱 */
-      }
+      if (await openMailById(n.message_id)) return
     }
     if (!n.account_id) return
     try {
@@ -1142,6 +1173,13 @@ export function ShellPage() {
 
   return (
     <>
+      {/* 新邮件的读屏播报区。常驻——aria-live 的语义是「这个区域的内容变化时播报」，
+          区域本身和内容一起插入 DOM 时多数读屏不播报（与 Toast 里那个同理）。
+          视觉用户能看见未读徽标跳变，读屏用户此前对新邮件到达完全无感知。 */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {announce.text ? announce.text + '\u200b'.repeat(announce.seq % 2) : ''}
+      </div>
+
       <AppLayout
         sidebar={sidebar}
         mobilePane={mobilePane}

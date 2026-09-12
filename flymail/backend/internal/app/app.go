@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -47,6 +48,22 @@ type App struct {
 	// 与 notify 落库/外发解耦，为空时零开销。messageID 仅单封新邮件事件非 0。
 	emitHookMu sync.RWMutex
 	emitHook   func(eventType string, accountID uint, messageID uint, title, body string)
+}
+
+// notifyStreamEvent 是推给浏览器的通知事件。
+//
+// 与同步事件（type=new_mail）分开：那个的语义是「有变化，去重新拉」，
+// 对基线导入、archive / junk 一律会发；这个是「值得打扰用户的一件事」，
+// 已经过了 emit 那一侧的三道闸门（文件夹类型、非基线未读、跨文件夹去重）。
+// 前端据此弹浏览器通知，拿 new_mail 弹的话首次导入几千封历史邮件就会刷屏。
+type notifyStreamEvent struct {
+	Type      string `json:"type"`  // 固定 "notify"
+	Event     string `json:"event"` // mail_new / sync_failed / account_status / mail_rule
+	AccountID uint   `json:"account_id"`
+	// MessageID 仅单封新邮件非 0，前端据此点击直达那封信
+	MessageID uint   `json:"message_id"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
 }
 
 // SetEmitHook 注册通知事件观察者。桌面形态在 OnStartup 时注入，nil 表示移除。
@@ -118,8 +135,12 @@ func New(cfg *config.Config) (*App, error) {
 
 	a := &App{}
 
+	// SSE Hub 提前建：emit 要借它把通知同样推给浏览器（见下）。
+	hub := sse.NewHub()
+
 	// 通知中心：站内记录 + 外发推送。emit 回调注入到各事件源（解耦）。
-	// 外层再包一层 emitHook 观察者：桌面形态借此弹系统原生通知。
+	// 外层再包两层观察者：桌面形态借 emitHook 弹系统原生通知，
+	// 浏览器形态借 SSE 收到同一条事件后弹 Notification。
 	notifySvc := notify.NewService(notify.NewRepository(db))
 	baseEmit := notifySvc.EmitFunc()
 	emit := func(eventType string, accountID uint, messageID uint, title, body string) {
@@ -130,12 +151,26 @@ func New(cfg *config.Config) (*App, error) {
 		if hook != nil {
 			hook(eventType, accountID, messageID, title, body)
 		}
+		// 推给浏览器。这里而不是跟着 new_mail 走，是因为**闸门都在这一侧**：
+		// new_mail 对基线导入、archive / junk 一样会发，拿它弹桌面通知，
+		// 用户首次添加账户导入几千封历史邮件时就会被通知淹没。
+		// 能走到这里的已经过了「文件夹类型 + 非基线未读 + 跨文件夹去重」三道闸门。
+		payload, err := json.Marshal(notifyStreamEvent{
+			Type:      "notify",
+			Event:     eventType,
+			AccountID: accountID,
+			MessageID: messageID,
+			Title:     title,
+			Body:      body,
+		})
+		if err == nil {
+			hub.Publish(payload)
+		}
 	}
 	syncSvc.SetEmitter(emit)
 	accountSvc.SetEmitter(emit)
 
-	// SSE Hub + 后台同步管理器（IDLE + 轮询，新邮件经 Hub 推送）。
-	hub := sse.NewHub()
+	// 后台同步管理器（IDLE + 轮询，新邮件经 Hub 推送）。
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
 	manager.SetEmitter(emit)
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })

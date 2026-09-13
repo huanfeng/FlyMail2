@@ -68,8 +68,16 @@ type Event struct {
 }
 
 // Publisher 由 sse.Hub 适配实现（Manager 只依赖发布能力）。
+//
+// 两个方法的区别是**这条能不能丢**，由调用方声明而不是由 hub 猜：
+//   - Publish：new_mail / notify，丢了就没了（列表不刷新、通知不弹）。
+//   - PublishProgress：同步进度，只有最新一帧有意义，缓冲满时挤掉最旧的。
+//
+// 一轮同步的进度有 2n+4 条而 new_mail 只有 0~n 条，不分开的话进度会把
+// 邮件事件整个挤出缓冲。详见 internal/sse/hub.go 的头注释。
 type Publisher interface {
 	Publish(payload []byte)
+	PublishProgress(payload []byte)
 }
 
 // AccountLister 是 Manager 调度所需的账户能力。account.Service 满足之。
@@ -83,7 +91,7 @@ type AccountLister interface {
 type Phase string
 
 const (
-	PhaseQueued   Phase = "queued" // 排队等待全局同步名额（前端未识别按进行中展示）
+	PhaseQueued   Phase = "queued" // 排队等待全局同步名额
 	PhaseFolders  Phase = "folders"
 	PhaseMessages Phase = "messages"
 	PhaseDone     Phase = "done"
@@ -91,14 +99,52 @@ const (
 )
 
 // Status 是某账户当前同步进度的快照（内存存储，重启丢失）。
+//
+// ⚠ 这里曾经有一对 Total / Processed（账户邮件总数，只在 done 时写）。删掉了：
+// 它们没有任何读者，却要每轮同步做一次随邮件数增长的 COUNT 来填，
+// 而且**每条 SSE 事件都白带一个恒为 0 的 total**——一个挂在进度事件上、
+// 在进度阶段恒为 0 的字段，正是下一个人会拿去画进度条的东西（这次就踩过）。
+// 账户邮件总数由 /accounts/:id/stats 承担。
 type Status struct {
 	AccountID uint      `json:"account_id"`
 	Phase     Phase     `json:"phase"`
-	Total     int       `json:"total"`
-	Processed int       `json:"processed"`
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// 本轮要过的可选文件夹数与已完成数（messages 阶段有效）
+	FoldersTotal int `json:"folders_total,omitempty"`
+	FoldersDone  int `json:"folders_done,omitempty"`
+
+	// 本轮要回补的历史正文封数与已完成数。
+	//
+	// ⚠ 刻意**不**做成一个 phase：正文回补一轮最多 200 封、十几秒到一分钟，
+	// 而 5000 封待补要分 25 轮、跨一个多小时。做成阶段有两个坏处：
+	//   1. 手动同步要等正文补完才报 done，而前端把五个 invalidateQueries 挂在
+	//      done 上——用户点了同步，新邮件要几十秒后才出现在列表里，是实打实的倒退；
+	//   2. 语义也不对：此刻邮件列表**已经完整**，缺的只是正文。用「同步中」的转圈
+	//      表达它，会让用户以为邮件还没收全。
+	// 所以 done 照常在 messages 之后报，这两个字段作为一条弱表达并行推进。
+	BodiesTotal int `json:"bodies_total,omitempty"`
+	BodiesDone  int `json:"bodies_done,omitempty"`
+	// 正在同步的文件夹显示名；空表示不在文件夹里（排队/列文件夹/已结束）
+	CurrentFolder string `json:"current_folder,omitempty"`
+	// 该文件夹的类型（inbox/sent/custom/...）。
+	// ⚠ 必须一起给：系统文件夹的名字在前端走 i18n（"收件箱"），只发 DisplayName
+	// 的话进度行会显示服务器原名（"INBOX"/"Sent Items"），而同一个文件夹在
+	// 侧栏列表里显示的是本地化名——同一个东西两个名字。
+	CurrentFolderType string `json:"current_folder_type,omitempty"`
+}
+
+// StatusEvent 是同步进度的 SSE 推送。
+//
+// 它存在的理由只有一个：**后台自动同步前端此前完全不知道在发生**。
+// 手动触发那一路前端知道自己按了按钮，可以去轮询；而 Manager 按 pollInterval
+// 定时跑的那一路没有任何入口——界面上既不转圈也不显示进度，
+// 用户看到的是"未读数偶尔自己跳一下"。
+type StatusEvent struct {
+	Type string `json:"type"` // "sync_status"
+	Status
 }
 
 // ErrSyncRunning 表示该账户已有同步在运行。
@@ -324,10 +370,6 @@ func (s *Service) run(accountID uint) {
 			s.fail(accountID, err)
 			return
 		}
-		s.setStatus(accountID, func(st *Status) {
-			st.Total = state.Total
-			st.Processed = state.Total
-		})
 	}
 
 	// 5. 更新账户最后同步时间

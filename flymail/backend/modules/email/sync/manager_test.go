@@ -76,8 +76,9 @@ func (f *mgrFakeSession) FetchRawMessage(uid imapv2.UID) ([]byte, error) { retur
 
 // fakePublisher 线程安全记录发布的事件载荷。
 type fakePublisher struct {
-	mu       gosync.Mutex
-	payloads [][]byte
+	mu          gosync.Mutex
+	payloads    [][]byte
+	viaProgress []int // 走了可丢通道的那些下标
 }
 
 func (p *fakePublisher) Publish(payload []byte) {
@@ -86,6 +87,28 @@ func (p *fakePublisher) Publish(payload []byte) {
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 	p.payloads = append(p.payloads, cp)
+}
+
+// PublishProgress 与 Publish 记进同一条列表（多数用例只关心「发了什么」），
+// 但**另记一份走了哪条队列**——「终态必须走不可丢通道」是这次的一条关键判据，
+// 丢掉 done 会让前端永远停在同步中。
+func (p *fakePublisher) PublishProgress(payload []byte) {
+	p.mu.Lock()
+	p.viaProgress = append(p.viaProgress, len(p.payloads))
+	p.mu.Unlock()
+	p.Publish(payload)
+}
+
+// droppable 返回第 i 条是否走的可丢通道。
+func (p *fakePublisher) droppable(i int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, idx := range p.viaProgress {
+		if idx == i {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *fakePublisher) count() int {

@@ -173,7 +173,9 @@
     "done": "Sync complete",
     "error": "Sync failed: {{error}}",
     "triggerFailed": "Could not start sync",
-    "lost": "Sync status lost (service restarted or account removed)"
+    "lost": "Sync status lost (service restarted or account removed)",
+    "folderProgress": "folder {{done}} of {{total}}",
+    "bodies": "Fetching bodies {{done}} / {{total}}"
   },
   "realtime": {
     "offline": "Live connection lost, reconnecting…"

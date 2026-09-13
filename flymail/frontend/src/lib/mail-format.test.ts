@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { folderLabel, formatAddresses, formatDate, senderInitial } from '@/lib/mail-format'
+import { folderLabel, folderName, formatAddresses, formatDate, senderInitial } from '@/lib/mail-format'
 import type { Address, Folder } from '@/lib/types'
 
 function addr(name: string, email: string): Address {
@@ -114,6 +114,21 @@ describe('folderLabel', () => {
 
   it('自定义文件夹用服务器给的显示名', () => {
     expect(folderLabel(folders, 2, t)).toBe('2026 项目')
+  })
+
+  it('未知类型兜底成服务器给的名字，不显示 i18n key 的字面量', () => {
+    // i18next 查不到 `folder.xxx` 时会把 key 本身当文案显示给用户。
+    // 同步进度那个调用方拿到的是 SSE 来的裸字符串，不经过 Folder 对象——
+    // 多一个来源就多一种进来的可能。
+    expect(folderName('', '奇怪的文件夹', t)).toBe('奇怪的文件夹')
+    expect(folderName('unknown', 'Weird', t)).toBe('Weird')
+  })
+
+  it('已知的系统类型仍走 i18n', () => {
+    for (const type of ['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive']) {
+      expect(folderName(type, 'ServerName', t)).toBe(`folder.${type}`)
+    }
+    expect(folderName('custom', '我的项目', t)).toBe('我的项目')
   })
 
   it('文件夹还没加载到时返回 null，而不是空字符串', () => {

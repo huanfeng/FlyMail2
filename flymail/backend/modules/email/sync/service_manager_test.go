@@ -39,7 +39,8 @@ func (l *fakeLister) TouchLastSync(uint, time.Time) error { return nil }
 // nopPublisher 丢弃事件。
 type nopPublisher struct{}
 
-func (nopPublisher) Publish([]byte) {}
+func (nopPublisher) Publish([]byte)         {}
+func (nopPublisher) PublishProgress([]byte) {}
 
 // TestTriggerViaManagerDialFailureSetsError 经 Manager 触发时若建连失败，状态兜底置 error（非停在 queued）。
 func TestTriggerViaManagerDialFailureSetsError(t *testing.T) {

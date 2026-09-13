@@ -48,8 +48,39 @@ export function folderLabel(
 ): string | null {
   const f = folders.find((x) => x.id === folderId)
   if (!f) return null
-  return f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)
+  return folderName(f.type, f.display_name, t)
 }
+
+/**
+ * 判据本身：系统文件夹走 i18n，自定义用服务器给的名字。
+ *
+ * 单独拿出来是因为有第二个调用方**手上没有 Folder 对象**——同步进度行显示的
+ * 「正在同步 收件箱」来自 SSE 推送，那里只有名字与类型两个字段。
+ * 让它自己判一次的话，同一个文件夹会在进度行显示 "INBOX"、在侧栏显示「收件箱」。
+ */
+export function folderName(
+  type: string,
+  displayName: string,
+  t: (k: string) => string,
+): string {
+  // ⚠ 未知类型要兜底成 displayName，不能直接拼 key：
+  // i18next 查不到 `folder.xxx` 时回落成**字面量** `folder.xxx` 显示给用户。
+  // 这不是现存 bug（ClassifyFolder 的 classifyByName 最后一行无条件返回 custom，
+  // 空 type 只可能来自历史遗留行），但同步进度那个调用方拿到的是 SSE 来的裸字符串，
+  // 不经过 Folder 对象——多一个来源就多一种进来的可能。
+  return KNOWN_FOLDER_TYPES.has(type) && type !== 'custom' ? t(`folder.${type}`) : displayName
+}
+
+/** 有 i18n 文案的文件夹类型。不在这里面的一律显示服务器给的名字。 */
+const KNOWN_FOLDER_TYPES = new Set([
+  'inbox',
+  'sent',
+  'drafts',
+  'trash',
+  'junk',
+  'archive',
+  'custom',
+])
 
 export function senderInitial(name: string, addr: string): string {
   const s = (name || addr || '?').trim()

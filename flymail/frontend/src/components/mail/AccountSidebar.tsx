@@ -15,29 +15,39 @@ import {
   useMe,
   useSetAccountEnabled,
   useDeleteAccount,
+  useSyncStatus,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
+import { isSyncActive } from '@/lib/types'
 import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
+import { folderName } from '@/lib/mail-format'
 
 /**
  * 同步进度行。
  *
  * 三种表达，按后端给得出什么来分：
- * - 知道总数（messages 阶段）→ 确定进度条 + 「已处理 / 总数」
- * - 还不知道总数（queued / folders 阶段）→ 不确定进度条 + 阶段名
+ * - 知道文件夹总数（messages 阶段）→ 确定进度条 + 「第 3 / 12 个文件夹 · 收件箱」
+ * - 还不知道（queued / folders 阶段）→ 不确定进度条 + 阶段名
  * - 后端没返回状态（刚触发、状态还没建立）→ 也走不确定那一支
  *
- * 刻意**不**显示百分比数字：total 是「这一轮要处理的邮件数」，
- * 各文件夹是边发现边累加的，百分比会往回跳。计数不会有这个问题。
+ * ⚠ 分母是**文件夹数**不是邮件数，界面上也如实这么写。早先这里用的是
+ * `status.total / status.processed`，而后端只在同步**结束**时才写那两个字段——
+ * 于是确定态那一支在真实路径上一次都没出现过，而代码看起来像是做了进度。
+ *
+ * 粒度也只到文件夹：单个文件夹内部的分批抓取没有对外的进度出口，
+ * 所以首次导入时 INBOX 那一格会停留很久。够用但不够细。
  */
 export function SyncProgress({ status }: { status: SyncStatus | null }) {
   const { t } = useTranslation()
-  const total = status?.total ?? 0
-  const processed = status?.processed ?? 0
+  const total = status?.folders_total ?? 0
+  const done = status?.folders_done ?? 0
   const determinate = total > 0
 
   // 复用已有的 sync.* 文案，不另起一层 sync.phase.*——同一件事两套键是下一个漂移源
+  // ⚠ 兜底分支落在 messages 上：调用方用 isSyncActive 门控，进不来 done/error/none。
+  // 但万一门控被改动绕过，显示「正在同步邮件…」比显示空白更容易被发现是错的——
+  // 空白会被当成"加载中"，而一个明确的错误状态会有人来报。
   const phaseLabel =
     status?.phase === 'queued'
       ? t('sync.queued')
@@ -45,12 +55,21 @@ export function SyncProgress({ status }: { status: SyncStatus | null }) {
         ? t('sync.folders')
         : t('sync.messages')
 
+  // ⚠ 用 folderName 而不是直接显示 current_folder：后端给的是服务器原名
+  // （INBOX / Sent Items），而侧栏的文件夹列表对系统文件夹显示的是本地化名。
+  // 直接显示的话同一个文件夹在两处叫两个名字。
+  const here =
+    status?.current_folder != null && status.current_folder !== ''
+      ? folderName(status.current_folder_type ?? '', status.current_folder, t)
+      : ''
+  const detail = determinate
+    ? t('sync.folderProgress', { done, total }) + (here ? ` · ${here}` : '')
+    : ''
+
   return (
-    // ⚠ 整块**不能**是 live region。计数每秒变一次（轮询间隔 1s），而首次导入
-    // 是分钟级的——读屏用户会连续几分钟每秒听一句「正在同步邮件 37 / 2000」，
-    // 新邮件提醒、操作结果、Shell 那个 announce 全被挤掉。
-    // 进度交给 progressbar（读屏按用户自己的节奏查询），只把**阶段变化**
-    // 播报出去：一次同步最多三次（queued → folders → messages）。
+    // ⚠ 整块不能是 live region：文件夹进度在长同步里会变很多次，
+    // 而读屏会把每一次都念出来，把新邮件提醒和操作结果全挤掉。
+    // 进度交给 progressbar（读屏按用户自己的节奏查询），live region 里只放阶段名。
     <div className="sync-progress">
       <div
         className={'sync-bar' + (determinate ? '' : ' indeterminate')}
@@ -59,8 +78,8 @@ export function SyncProgress({ status }: { status: SyncStatus | null }) {
         {...(determinate
           ? {
               'aria-valuemax': total,
-              'aria-valuenow': processed,
-              'aria-valuetext': `${processed} / ${total}`,
+              'aria-valuenow': done,
+              'aria-valuetext': detail,
             }
           : {})}
         aria-label={phaseLabel}
@@ -68,18 +87,37 @@ export function SyncProgress({ status }: { status: SyncStatus | null }) {
         {determinate && (
           <span
             className="sync-bar-fill"
-            style={{ width: `${Math.min(100, (processed / total) * 100)}%` }}
+            style={{ width: `${Math.min(100, (done / total) * 100)}%` }}
           />
         )}
       </div>
       {/* 可见文本已被上面的 progressbar 完整表达，对读屏是重复的 */}
       <span className="sync-progress-text" aria-hidden="true">
-        {determinate ? `${phaseLabel} ${processed} / ${total}` : phaseLabel}
+        {determinate ? `${phaseLabel} ${detail}` : phaseLabel}
       </span>
       <span className="sr-only" role="status" aria-live="polite">
         {phaseLabel}
       </span>
     </div>
+  )
+}
+
+/**
+ * 历史正文回补的进度。
+ *
+ * 与 SyncProgress 的区别是**表达强度**：那个有转圈、有进度条，说的是
+ * 「邮件还在收」；这个只有一行小字，说的是「邮件已经收全了，正在把正文也拉下来」。
+ * 后者慢得多（5000 封要分 25 轮、跨一个多小时），用同等强度表达会一直在那儿晃。
+ *
+ * 分母来自后端一轮捞到的待补条数，分子是已落库封数——比文件夹粒度精确得多。
+ */
+export function BodyPrefetchNote({ status }: { status: SyncStatus | null }) {
+  const { t } = useTranslation()
+  const total = status?.bodies_total ?? 0
+  if (total <= 0) return null
+  const done = status?.bodies_done ?? 0
+  return (
+    <div className="body-prefetch-note">{t('sync.bodies', { done, total })}</div>
   )
 }
 
@@ -138,12 +176,6 @@ interface Props {
   onRetryFolders?: () => void
   activeAccountId: number | null
   activeFolderId: number | null
-  syncing: boolean
-  /** 正在同步的账户 id（null = 无）。转圈与进度只给这一个账户，
-      而不是「有同步在跑就让当前账户转」。 */
-  syncingAccountId: number | null
-  /** 那个账户的同步进度 */
-  syncStatus: SyncStatus | null
   /** 通知浮层是否打开，用于高亮铃铛 */
   notifOpen: boolean
   /** 设置浮层是否打开，用于高亮齿轮 */
@@ -212,11 +244,6 @@ interface AccountBlockProps {
   foldersError?: unknown
   onRetryFolders?: () => void
   activeFolderId: number | null
-  /** 这个账户此刻是否在同步（不是「有账户在同步」——原先传的是全局布尔，
-      于是同步账户 B 时转圈出现在 A 上） */
-  syncing: boolean
-  /** 同步进度。仅正在同步的那个账户会拿到，其余为 null */
-  syncStatus: SyncStatus | null
   /** 账户级未读数（后端去重口径，见 useAccountUnread） */
   unread: number
   onToggleExpand: () => void
@@ -237,8 +264,6 @@ function AccountBlock({
   foldersError,
   onRetryFolders,
   activeFolderId,
-  syncing,
-  syncStatus,
   unread,
   onToggleExpand,
   onSync,
@@ -249,6 +274,14 @@ function AccountBlock({
   onDelete,
 }: AccountBlockProps) {
   const { t } = useTranslation()
+
+  // 每个账户行自己观察自己的同步状态（enabled=false：只读缓存，不发请求）。
+  //
+  // 这样「谁在同步」不再依赖父组件传下来的那一个 id——后台自动同步没有触发者，
+  // 父组件根本不知道它在跑。缓存由三方写入：手动触发那一路的轮询、
+  // SSE 推送（手动与后台都走它）、以及触发成功时的乐观播种。
+  const { data: syncStatus } = useSyncStatus(acc.id, false)
+  const syncing = isSyncActive(syncStatus?.phase)
 
   // 账户右键菜单：同步 / 编辑 / 启停 / 删除
   const accountCtxItems: CtxMenuItem[] = [
@@ -329,8 +362,13 @@ function AccountBlock({
 
       {/* 同步进度。首次导入几千封是分钟级操作，此前全部反馈只有上面那个 11px 的
           圆点在转——用户无从判断是在动、卡住了、还是快好了。
-          后端的 Status 一直带着 phase/total/processed，前端一行都没用过。 */}
-      {syncing && <SyncProgress status={syncStatus} />}
+          现在阶段与文件夹进度都来自后端（手动触发走轮询，后台自动同步走 SSE 推送，
+          两者写同一个缓存键）。 */}
+      {syncing && <SyncProgress status={syncStatus ?? null} />}
+      {/* 正文回补：与同步**并行**的一条弱表达，刻意不转圈也不做成同步阶段。
+          此刻邮件列表已经完整，缺的只是正文——用同步中的转圈表达它，
+          会让用户以为邮件还没收全，那是错的信息。 */}
+      {!syncing && <BodyPrefetchNote status={syncStatus ?? null} />}
 
       {/* 展开的文件夹列表 */}
       {expanded && (
@@ -387,9 +425,6 @@ export function AccountSidebar({
   onRetryFolders,
   activeAccountId,
   activeFolderId,
-  syncing,
-  syncingAccountId,
-  syncStatus,
   notifOpen,
   settingsOpen,
   activeAgg,
@@ -543,8 +578,6 @@ export function AccountSidebar({
             foldersError={acc.id === activeAccountId ? foldersError : undefined}
             onRetryFolders={onRetryFolders}
             activeFolderId={activeFolderId}
-            syncing={syncing && acc.id === syncingAccountId}
-            syncStatus={acc.id === syncingAccountId ? syncStatus : null}
             unread={accountUnread[acc.id] ?? 0}
             onToggleExpand={() => {
               // 展开时同时切换账户选中（若点击非激活账户）

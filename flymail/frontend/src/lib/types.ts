@@ -68,7 +68,22 @@ export interface NotifyEvent {
   body: string
 }
 
-export type RealtimeEvent = SyncEvent | NotifyEvent
+/**
+ * 同步进度事件：语义是「某个账户的同步状态变了」。
+ *
+ * 它存在的唯一理由是**后台自动同步**。手动触发那一路前端知道自己按了按钮，
+ * 可以去轮询；而 Manager 按 pollInterval 定时跑的那一路前端没有任何入口——
+ * 界面上既不转圈也不显示进度，用户看到的只是「未读数偶尔自己跳一下」。
+ *
+ * 后端在 statusStore 的统一出口上发布，所以手动与后台两条路走同一套事件。
+ */
+export interface SyncStatusEvent extends SyncStatus {
+  type: 'sync_status'
+  account_id: number
+  phase: SyncPhase
+}
+
+export type RealtimeEvent = SyncEvent | NotifyEvent | SyncStatusEvent
 
 export interface AccountStats {
   message_count: number
@@ -466,7 +481,14 @@ export interface DraftRequest {
  */
 export type SyncPhase = 'none' | 'queued' | 'folders' | 'messages' | 'done' | 'error'
 
-/** 同步是否仍在进行（排队也算——用户按下按钮后到真正开始之间的那段同样要有表达） */
+/**
+ * 同步是否仍在进行（排队也算——用户按下按钮后到真正开始之间的那段同样要有表达）。
+ *
+ * ⚠ 正文回补**不在**这里面，别再把它加回来。它确实还在占着同一条 IMAP 连接，
+ * 但此刻邮件列表已经完整、缺的只是正文；而且 done 上挂着前端那五个
+ * invalidateQueries，把 done 推迟到回补结束等于「用户点了同步，新邮件几十秒后
+ * 才出现在列表里」。回补的进度由 bodies_total / bodies_done 另行表达。
+ */
 export function isSyncActive(phase: SyncPhase | undefined): boolean {
   return phase === 'queued' || phase === 'folders' || phase === 'messages'
 }
@@ -474,13 +496,25 @@ export function isSyncActive(phase: SyncPhase | undefined): boolean {
 export interface SyncStatus {
   account_id?: number
   phase: SyncPhase
-  /** 待处理的邮件总数。folders 阶段还不知道，为 0 */
-  total?: number
-  /** 已处理数。与 total 一起才能算百分比，单独出现只能表达「在动」 */
-  processed?: number
   error?: string
   started_at?: string
   updated_at?: string
+  /** 本轮要过的可选文件夹数（messages 阶段有效；\Noselect 容器不计入） */
+  folders_total?: number
+  /** 已完成的文件夹数 */
+  folders_done?: number
+  /** 正在同步的文件夹显示名；空表示不在文件夹里（排队 / 列文件夹 / 已结束） */
+  current_folder?: string
+  /** 该文件夹的类型。与名字一起用 folderName() 渲染，才和侧栏列表叫同一个名字 */
+  current_folder_type?: string
+  /**
+   * 本轮要回补的历史正文封数与已完成数。
+   *
+   * 这是一条**与同步并行**的弱表达，不是同步阶段：邮件列表此刻已经完整，
+   * 缺的只是正文。用「同步中」的转圈表达它会让用户以为邮件还没收全。
+   */
+  bodies_total?: number
+  bodies_done?: number
 }
 
 /**

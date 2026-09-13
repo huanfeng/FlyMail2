@@ -31,8 +31,8 @@ func NewHandler(hub *Hub, consume func(ticket string) bool) http.HandlerFunc {
 
 		// 先订阅再写响应头：反过来的话，从客户端收到头到这里完成订阅之间推送的事件
 		// 会静默丢失（前端刚连上就漏掉一封新邮件，且无从察觉）。
-		ch, cancel := hub.Subscribe()
-		defer cancel()
+		sub := hub.Subscribe()
+		defer sub.Cancel()
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -54,7 +54,17 @@ func NewHandler(hub *Hub, consume func(ticket string) bool) http.HandlerFunc {
 					return // 写失败说明连接已断，退出避免卡在 Flush。
 				}
 				flusher.Flush()
-			case msg, open := <-ch:
+			case msg, open := <-sub.Events:
+				if !open {
+					return
+				}
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", msg); err != nil {
+					return
+				}
+				flusher.Flush()
+			case msg, open := <-sub.Progress:
+				// 与 Events 分开一条 case：进度事件量远大于邮件事件，
+				// 共用一条缓冲时会把后者挤掉（见 hub.go 的头注释）。
 				if !open {
 					return
 				}

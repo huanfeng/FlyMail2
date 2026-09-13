@@ -275,4 +275,49 @@ describe('useRealtimeSync', () => {
       vi.useRealTimers()
     }
   })
+
+  // ── 同步进度推送 ──────────────────────────────────────────────────────────
+  describe('sync_status', () => {
+    it('写进与轮询同一个缓存键，不走 invalidate', async () => {
+      // 同一个键有三个写入方（触发时的乐观播种、轮询、这里的推送）和多个读者
+      // （手动触发那一路、侧栏每个账户行）。写同一份是「谁在同步」只有一份真相的前提；
+      // 走 invalidate 则会让每条事件都触发一次 HTTP，后台同步推几十条就是几十个请求。
+      const qc = await mount()
+      const spy = vi.spyOn(qc, 'invalidateQueries')
+
+      await fire({
+        type: 'sync_status',
+        account_id: 7,
+        phase: 'messages',
+        folders_total: 12,
+        folders_done: 3,
+        current_folder: '收件箱',
+      })
+
+      expect(qc.getQueryData(['sync-status', 7])).toEqual({
+        account_id: 7,
+        phase: 'messages',
+        folders_total: 12,
+        folders_done: 3,
+        current_folder: '收件箱',
+      })
+      expect(spy, 'sync_status 不该触发任何 invalidate').not.toHaveBeenCalled()
+    })
+
+    it('缓存里不留 type 字段——它是信封而不是状态', async () => {
+      // 留着的话 SyncStatus 会多出一个来路不明的字段，而下一个人分不清
+      // 它是后端给的还是前端塞的。
+      const qc = await mount()
+      await fire({ type: 'sync_status', account_id: 1, phase: 'folders' })
+      expect(qc.getQueryData(['sync-status', 1])).not.toHaveProperty('type')
+    })
+
+    it('按账户分键，不会把 A 的进度写到 B 上', async () => {
+      const qc = await mount()
+      await fire({ type: 'sync_status', account_id: 1, phase: 'messages', folders_done: 2 })
+      await fire({ type: 'sync_status', account_id: 2, phase: 'done' })
+      expect((qc.getQueryData(['sync-status', 1]) as { phase: string }).phase).toBe('messages')
+      expect((qc.getQueryData(['sync-status', 2]) as { phase: string }).phase).toBe('done')
+    })
+  })
 })

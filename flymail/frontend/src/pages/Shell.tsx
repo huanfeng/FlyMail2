@@ -625,8 +625,9 @@ export function ShellPage() {
   // 于是在账户 A 上点账户 B 的同步按钮时有两处错：B 的图标不转（syncing 读的是 A 的状态），
   // 而且轮询永不停止——A 的 phase 既不是 done 也不是 error，那个把 syncEnabled 置回 false
   // 的 effect 永远等不到条件，每秒一个请求一直发到切账户或刷新为止。
+  // 只保留「触发」这一件事。「谁在同步」由侧栏每个账户行自己观察缓存得出——
+  // 后台自动同步没有触发者，这里根本不知道它在跑。
   const accountSync = useAccountSync()
-  const { accountId: syncingAccountId, status: syncStatus, syncing } = accountSync
 
   // ── 账户对话框 state（新增账户用）─────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -1147,9 +1148,6 @@ export function ShellPage() {
       onRetryFolders={() => void foldersQuery.refetch()}
       activeAccountId={accountId}
       activeFolderId={folderId}
-      syncing={syncing}
-      syncingAccountId={syncingAccountId}
-      syncStatus={syncStatus}
       notifOpen={notifOpen}
       settingsOpen={settingsOpen}
       activeAgg={agg}

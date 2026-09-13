@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '@/components/ui/Toast'
 import { useSyncStatus, useTriggerSync } from '@/lib/queries'
+import { writeSyncStatus } from '@/lib/sync-cache'
 import { apiErrorMessage } from '@/lib/api'
 import { isSyncActive, type SyncStatus } from '@/lib/types'
 
@@ -88,7 +89,9 @@ export function useAccountSync(): AccountSync {
     (id: number) => {
       trigger.mutate(id, {
         onSuccess: () => {
-          qc.setQueryData<SyncStatus>(['sync-status', id], { account_id: id, phase: 'queued' })
+          // 走同一个单调写入口。播种没有 updated_at，于是它总能覆盖上一轮
+          // 遗留的 done——那正是要的：用户刚按下按钮，这一刻服务端确实是 queued。
+          writeSyncStatus(qc, id, { account_id: id, phase: 'queued' })
           setAccountId(id)
         },
         onError: (err) => {

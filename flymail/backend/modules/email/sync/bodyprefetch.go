@@ -94,6 +94,9 @@ func (m *Manager) prefetchHistoryBodies(accountID uint, sess Session, yield func
 	if len(msgs) == 0 {
 		return
 	}
+	// 这一轮的分母。比文件夹粒度精确得多——正文回补天然有封数级的进度可报。
+	m.statusBodies(accountID, len(msgs))
+	defer m.statusBodiesEnd(accountID)
 
 	// 按文件夹分组：同一文件夹只 SELECT 一次。
 	byFolder := map[uint][]message.Message{}
@@ -112,6 +115,7 @@ func (m *Manager) prefetchHistoryBodies(accountID uint, sess Session, yield func
 			continue
 		}
 		fetched += m.fetchBodies(f.Path, byFolder[folderID], sess)
+		m.statusBodiesDone(accountID, fetched)
 		if yield != nil {
 			yield() // 文件夹边界让位前台任务（用户正在打开的邮件/附件优先）
 		}

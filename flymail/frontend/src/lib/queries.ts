@@ -1,10 +1,13 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useSyncExternalStore } from 'react'
 import api from '@/lib/api'
 import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
 import type { ListFilter } from '@/lib/list-filters'
 import { getRemoteImageDefault, subscribePrivacyPrefs } from '@/lib/privacy-prefs'
+import { isNewerStatus, syncStatusKey, writeSyncStatus } from '@/lib/sync-cache'
+import { isSyncActive } from '@/lib/types'
 import {
   applyThreadUnreadDelta,
   applyUnreadDelta,
@@ -813,14 +816,58 @@ export function useMonitoringDiagnostics(accountId: number | null, enabled: bool
   })
 }
 
+/** 取一次某账户的同步状态。抽出来是因为 SSE 重连后的对账也要用它。 */
+export async function fetchSyncStatus(accountId: number): Promise<SyncStatus> {
+  const { data } = await api.get<SyncStatus>(`/accounts/${accountId}/sync/status`)
+  return data
+}
+
+/**
+ * SSE（重新）连上时，对一遍那些「缓存里还在同步」的账户。
+ *
+ * ── 为什么必须有这一步 ─────────────────────────────────────────────────────
+ *
+ * SSE 是**尽力推送**，不是可靠投递：合盖唤醒、切网络、后端重启期间的事件全丢，
+ * 而慢客户端还会被 hub 主动丢掉可丢的那一类（同步进度正是可丢的那类）。
+ * 一旦错过的那条恰好是 `done`，缓存就永远停在 `messages`——
+ * 而没有任何一方会来纠正它：账户行只读缓存不发请求，手动触发那一路早就收手了。
+ * 用户看到的是某个账户**永久转圈**，只能靠刷新页面。
+ *
+ * 只对活跃态的账户：已经是 done/error/none 的没什么可对的，
+ * 而无差别全拉会在每次重连时打出 N 个请求（弱网下重连很频繁）。
+ */
+export async function reconcileSyncStatus(qc: QueryClient): Promise<void> {
+  const stale: number[] = []
+  for (const q of qc.getQueryCache().findAll({ queryKey: ['sync-status'] })) {
+    const st = q.state.data as SyncStatus | undefined
+    const id = (q.queryKey as unknown[])[1]
+    if (typeof id === 'number' && id > 0 && isSyncActive(st?.phase)) stale.push(id)
+  }
+  await Promise.all(
+    stale.map(async (id) => {
+      try {
+        writeSyncStatus(qc, id, await fetchSyncStatus(id))
+      } catch {
+        // 对账是护栏不是主路径：失败就算了，下一次重连或下一轮推送还会有机会，
+        // 而在这里抛出去会把 SSE 的 onState 回调打断。
+      }
+    }),
+  )
+}
+
 export function useSyncStatus(accountId: number | null, enabled: boolean) {
+  const qc = useQueryClient()
   return useQuery({
-    queryKey: ['sync-status', accountId],
+    queryKey: syncStatusKey(accountId ?? 0),
     enabled: accountId != null && enabled,
     refetchInterval: enabled ? 1000 : false,
     queryFn: async (): Promise<SyncStatus> => {
-      const { data } = await api.get<SyncStatus>(`/accounts/${accountId}/sync/status`)
-      return data
+      const data = await fetchSyncStatus(Number(accountId))
+      // ⚠ 这里要挡一次旧响应：一个在同步期间发出、尚未落地的请求可能在 SSE 推来
+      // done 之后才返回，把状态改回 messages——而那之后轮询已经停了，
+      // 再没有任何东西会来纠正它。详见 sync-cache.ts 的 writeSyncStatus。
+      const prev = qc.getQueryData<SyncStatus>(syncStatusKey(Number(accountId)))
+      return isNewerStatus(prev, data) ? data : (prev as SyncStatus)
     },
   })
 }
@@ -832,7 +879,7 @@ export function useTriggerSync() {
       await api.post(`/accounts/${accountId}/sync`)
     },
     onSuccess: (_data, accountId) => {
-      void qc.invalidateQueries({ queryKey: ['sync-status', accountId] })
+      void qc.invalidateQueries({ queryKey: syncStatusKey(accountId) })
     },
   })
 }

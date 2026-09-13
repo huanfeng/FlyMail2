@@ -173,7 +173,9 @@
     "done": "同步完成",
     "error": "同步失败：{{error}}",
     "triggerFailed": "无法开始同步",
-    "lost": "同步状态已丢失（服务重启或账户已删除）"
+    "lost": "同步状态已丢失（服务重启或账户已删除）",
+    "folderProgress": "第 {{done}} / {{total}} 个文件夹",
+    "bodies": "正在补齐正文 {{done}} / {{total}}"
   },
   "realtime": {
     "offline": "实时连接已断开，正在重连…"

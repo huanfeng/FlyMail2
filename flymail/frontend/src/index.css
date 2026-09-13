@@ -2564,6 +2564,14 @@ mark.hl {
   from { transform: translateX(-100%) }
   to { transform: translateX(365%) }
 }
+/* 正文回补的弱表达：比同步进度低一档，只有一行小字、不转圈也没有进度条。
+   它说的是「邮件已经收全，正在把正文也拉下来」，与「邮件还在收」是两件事。 */
+.body-prefetch-note {
+  padding: 2px 12px 6px 34px;
+  font-size: 10.5px; color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
 .sync-progress-text {
   font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

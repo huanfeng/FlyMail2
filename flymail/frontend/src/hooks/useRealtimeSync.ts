@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { reconcileSyncStatus } from '@/lib/queries'
 import { connectRealtime } from '@/lib/sse'
+import { writeSyncStatus } from '@/lib/sync-cache'
+import type { SyncStatus } from '@/lib/types'
 import { getNotifyPrefs } from '@/lib/notify-prefs'
 import { claimChime, pageHidden, playChime, showMailNotice } from '@/lib/browser-notify'
 
@@ -56,6 +59,20 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean 
     }
 
     const close = connectRealtime((ev) => {
+      if (ev.type === 'sync_status') {
+        // 写进与轮询同一个缓存键。
+        //
+        // 这样「谁在同步」只有一份真相：手动触发那一路在轮询这个键，侧栏的每个
+        // 账户行在**观察**这个键（enabled:false，只读缓存不发请求），后台自动同步
+        // 则由这里推进来。三方读同一份，不会出现「转圈的是 A、进度是 B」。
+        // 剥掉 type：它是信封而不是状态。留着的话缓存里的 SyncStatus 会多出一个
+        // 来路不明的字段，下一个人分不清它是后端给的还是前端塞的。
+        const status: SyncStatus = { ...ev }
+        delete (status as { type?: string }).type
+        writeSyncStatus(qc, ev.account_id, status)
+        return
+      }
+
       if (ev.type === 'new_mail') {
         void qc.invalidateQueries({ queryKey: ['folders'] })
         void qc.invalidateQueries({ queryKey: ['messages'] })
@@ -100,6 +117,7 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean 
       if (state === 'open') {
         clearOfflineTimer()
         setOffline(false)
+        void reconcileSyncStatus(qc)
         return
       }
       // connecting：可能一秒内就好了，先不报。已经在倒计时就别重置——

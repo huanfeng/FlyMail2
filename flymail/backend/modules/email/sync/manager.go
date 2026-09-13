@@ -72,8 +72,37 @@ type Manager struct {
 	wb     *wbStore     // 持久化回写队列（EnableWriteback 装配，可能为 nil）
 }
 
-// setStatusStore 由 Service.SetManager 调用，共享同步进度存储。
-func (m *Manager) setStatusStore(s *statusStore) { m.status = s }
+// setStatusStore 由 Service.SetManager 调用，共享同步进度存储，
+// 并把状态变更接到 SSE 上——前端的同步进度（含**后台自动同步**）由此推送。
+//
+// 接在 store 的统一出口上而不是各个调用点：漏掉一处的表现是"某种同步不显示进度"，
+// 那种漏几乎不可能被测试发现。
+func (m *Manager) setStatusStore(s *statusStore) {
+	m.status = s
+	s.setOnChange(m.publishStatus)
+}
+
+// publishStatus 把一次状态变更推给所有 SSE 订阅者。
+func (m *Manager) publishStatus(st Status) {
+	if m.pub == nil {
+		return
+	}
+	payload, err := json.Marshal(StatusEvent{Type: "sync_status", Status: st})
+	if err != nil {
+		return
+	}
+	// 判据：**会被后续快照取代的可丢，终态不可丢。**
+	//
+	// 中间帧（queued / folders / messages / 文件夹推进 / 正文回补）丢了无所谓——
+	// 每条事件都携带完整快照，后到的天然覆盖先到的。而丢掉 done / error 是致命的：
+	// 前端会永远停在"同步中"，因为再没有后续事件来纠正它（账户行只观察缓存，
+	// 手动触发那一路也已经收手）。这正是"粘住"与"短暂倒退"的分界。
+	if st.Phase == PhaseDone || st.Phase == PhaseError {
+		m.pub.Publish(payload)
+		return
+	}
+	m.pub.PublishProgress(payload)
+}
 
 func NewManager(accounts AccountLister, folders *folder.Service, messages *message.Service, pub Publisher) *Manager {
 	return &Manager{
@@ -359,6 +388,33 @@ func (m *Manager) statusPhase(accountID uint, p Phase) {
 	}
 }
 
+func (m *Manager) statusFolders(accountID uint, total int) {
+	if m.status != nil {
+		m.status.beginFolders(accountID, total)
+	}
+}
+
+func (m *Manager) statusEnterFolder(accountID uint, f *folder.Folder) {
+	if m.status != nil {
+		m.status.enterFolder(accountID, folderDisplayName(f), f.Type)
+	}
+}
+
+func (m *Manager) statusFinishFolder(accountID uint) {
+	if m.status != nil {
+		m.status.finishFolder(accountID)
+	}
+}
+
+// folderDisplayName 取文件夹的展示名；缺省回落到 IMAP 路径。
+// 系统文件夹的本地化在前端做（folderLabel），这里只保证非空。
+func folderDisplayName(f *folder.Folder) string {
+	if f.DisplayName != "" {
+		return f.DisplayName
+	}
+	return f.Path
+}
+
 func (m *Manager) statusFail(accountID uint, err error) {
 	if m.status != nil {
 		m.status.fail(accountID, err.Error())
@@ -366,11 +422,27 @@ func (m *Manager) statusFail(accountID uint, err error) {
 }
 
 func (m *Manager) statusDone(accountID uint) {
-	if m.status == nil {
-		return
+	if m.status != nil {
+		m.status.markDone(accountID)
 	}
-	total, _ := m.messages.CountByAccount(accountID)
-	m.status.markDone(accountID, int(total))
+}
+
+func (m *Manager) statusBodies(accountID uint, total int) {
+	if m.status != nil {
+		m.status.beginBodies(accountID, total)
+	}
+}
+
+func (m *Manager) statusBodiesDone(accountID uint, done int) {
+	if m.status != nil {
+		m.status.advanceBodies(accountID, done)
+	}
+}
+
+func (m *Manager) statusBodiesEnd(accountID uint) {
+	if m.status != nil {
+		m.status.endBodies(accountID)
+	}
 }
 
 // recomputeIdleQuotaLocked 取启用账户中 id 最小的前 maxIdle 个授予常驻 IDLE 名额。调用方须持 m.mu。
@@ -393,10 +465,17 @@ func (m *Manager) recomputeIdleQuotaLocked(ids []uint) {
 
 // FullSync 执行一轮全文件夹增量同步，随后回补一批历史正文（若已开启）。
 // 正文回补刻意放在同步名额释放之后：它是后台补齐，不该占着并发名额挡住其他账户。
+//
+// ⚠ statusDone 报在正文回补**之前**，别挪到后面去。
+// 前端把「刷新列表/未读数」那五个 invalidate 挂在 done 上，推迟 done 就是推迟
+// 「用户点了同步之后新邮件多久出现在列表里」——回补一轮十几秒到一分钟，
+// 那是实打实的倒退。此刻邮件列表确实已经完整了，缺的只是正文，
+// 而正文回补的进度由 Status 的 BodiesTotal / BodiesDone 另行表达。
 func (m *Manager) FullSync(accountID uint, sess Session, yield func()) error {
 	if err := m.fullSyncMessages(accountID, sess, yield); err != nil {
 		return err
 	}
+	m.statusDone(accountID)
 	m.prefetchHistoryBodies(accountID, sess, yield)
 	return nil
 }
@@ -423,6 +502,18 @@ func (m *Manager) fullSyncMessages(accountID uint, sess Session, yield func()) e
 		return err
 	}
 	m.statusPhase(accountID, PhaseMessages)
+	// 文件夹进度：分母在这里才知道（列完文件夹之后）。
+	// 只能到文件夹这一粒度——单个文件夹内部的分批抓取没有对外的进度出口，
+	// 所以首次导入时 INBOX 那一格会停留很久。够用但不够细，记在这里免得
+	// 下一个人以为进度条卡住了。
+	selectable := 0
+	for i := range fs {
+		if fs[i].Selectable {
+			selectable++
+		}
+	}
+	m.statusFolders(accountID, selectable)
+
 	var firstErr error
 	attempted, failed := 0, 0
 	for i := range fs {
@@ -431,12 +522,14 @@ func (m *Manager) fullSyncMessages(accountID uint, sess Session, yield func()) e
 			continue
 		}
 		attempted++
+		m.statusEnterFolder(accountID, f)
 		if err := m.syncFolder(accountID, f, sess); err != nil {
 			failed++
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
+		m.statusFinishFolder(accountID)
 		if yield != nil {
 			yield() // 文件夹边界让位前台任务（详情/附件/手动触发）
 		}
@@ -447,13 +540,12 @@ func (m *Manager) fullSyncMessages(accountID uint, sess Session, yield func()) e
 		m.statusFail(accountID, firstErr)
 		return firstErr
 	}
-	m.statusDone(accountID)
 	logger.Info("sync-manager: 一轮同步完成",
 		zap.Uint("account_id", accountID), zap.Duration("duration", time.Since(start)))
 	return nil
 }
 
-// InboxSync 只增量同步收件箱（IDLE 唤醒用）。
+// InboxSync 只增量同步收件箱（IDLE 唤醒用）。进度上报的取舍见 pollInbox。
 func (m *Manager) InboxSync(accountID uint, sess Session) error {
 	return m.pollInbox(accountID, sess)
 }
@@ -499,7 +591,16 @@ func (m *Manager) releaseSyncSlot() {
 	}
 }
 
-// pollInbox 只增量同步收件箱（IDLE 唤醒用）。
+// pollInbox 只增量同步收件箱，**仅 IDLE 唤醒走这条**。
+//
+// ⚠ 刻意**不**上报同步状态，别当成漏了：这条路径只过一个文件夹的增量，
+// 通常几百毫秒就结束。给它上报的话，侧栏会为每一封到达的新邮件闪一下转圈和
+// 进度条——那是噪音，不是信息。这条路径本来就有它自己的反馈：新邮件出现在列表里
+// （靠 new_mail 事件刷新）。
+//
+// ⚠ 别把这句读成「后台自动同步不报进度」：按 pollInterval 的**定时轮询根本不走
+// 这条**——它走 runner 的 doPoll → host.FullSync → fullSyncMessages，那条有完整的
+// 进度上报。这里只有 IDLE 唤醒那一条通路。
 func (m *Manager) pollInbox(accountID uint, sess Session) error {
 	inbox, err := m.folders.FindInbox(accountID)
 	if err != nil || inbox == nil {

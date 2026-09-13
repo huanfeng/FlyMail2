@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import {
   getRemoteImageDefault,
   setRemoteImageDefault,
-  subscribeRemoteImageDefault,
+  subscribePrivacyPrefs,
 } from '@/lib/privacy-prefs'
 
 // 这个开关参与 useMessageDetail 的 query key，也是「打开邮件会不会向发件人发请求」
@@ -51,7 +51,7 @@ describe('privacy-prefs', () => {
 
   it('写入会通知订阅者，取消订阅后不再收到', () => {
     const seen: boolean[] = []
-    const unsubscribe = subscribeRemoteImageDefault(() => seen.push(getRemoteImageDefault()))
+    const unsubscribe = subscribePrivacyPrefs(() => seen.push(getRemoteImageDefault()))
 
     setRemoteImageDefault(true)
     setRemoteImageDefault(false)
@@ -67,7 +67,7 @@ describe('privacy-prefs', () => {
       throw new Error('storage disabled')
     })
     const fn = vi.fn()
-    const unsubscribe = subscribeRemoteImageDefault(fn)
+    const unsubscribe = subscribePrivacyPrefs(fn)
     setRemoteImageDefault(true)
     expect(fn).toHaveBeenCalledTimes(1)
     unsubscribe()

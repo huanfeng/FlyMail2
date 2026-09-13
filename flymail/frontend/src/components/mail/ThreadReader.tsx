@@ -16,6 +16,7 @@ import { MessageBody } from '@/components/mail/MessageBody'
 import { ReaderToolbar } from '@/components/mail/ReaderToolbar'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
 import {
+  folderLabel,
   formatAddresses,
   formatDate,
   senderInitial,
@@ -36,17 +37,6 @@ import {
 } from '@/lib/queries'
 import { defaultExpanded } from '@/lib/thread-format'
 import type { Folder, MessageDetail, MessageListItem } from '@/lib/types'
-
-/** 文件夹显示名：系统文件夹走 i18n，自定义文件夹用服务器给的名字 */
-function folderLabel(
-  folders: Folder[],
-  folderId: number,
-  t: (k: string) => string,
-): string | null {
-  const f = folders.find((x) => x.id === folderId)
-  if (!f) return null
-  return f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)
-}
 
 // ── 手风琴单项 ───────────────────────────────────────────
 
@@ -156,6 +146,17 @@ function ThreadItem({
           }
         }}
       >
+        {/* 展开指示符。aria-expanded 已经告诉了读屏，但视觉用户此前只能靠
+            「鼠标移上去底色变了」猜这一行能点开。
+            aria-hidden：状态由外层的 aria-expanded 表达，这里再念一遍是重复。
+
+            ⚠ 刻意不做展开动画：正文是 iframe，高度要等它加载完再测量回传，
+            对一个测量之前还不知道的高度做过渡，得到的是「先展到一个错的高度
+            再跳一下」——比现在的瞬时切换更差。 */}
+        <span className="ti-caret" aria-hidden="true">
+          <Icon name="chevron-right" size={12} stroke={2} />
+        </span>
+
         <div className="avatar-sq" style={{ background: 'var(--accent-color)', color: 'white' }}>
           {initial}
         </div>

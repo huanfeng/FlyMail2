@@ -15,6 +15,16 @@ export interface DropMenuProps {
   items: CtxMenuItem[]
   /** 对齐方式，默认右对齐（工具栏「更多」在右端，左对齐会溢出栏外） */
   align?: 'start' | 'center' | 'end'
+  /**
+   * 受控开合。**省略即非受控**（radix 自己管），绝大多数调用点都该省略。
+   *
+   * 需要它的只有一种情况：菜单开着时**由程序**让触发元素变得不可用或消失。
+   * radix 自己覆盖了点外部 / Esc / 选中项这三条关闭路径，但覆盖不到
+   * 「换了数据源」「退出了选择模式」这类外部状态变化——菜单会留在屏幕上，
+   * 而它的 trigger 已经 disabled，关闭时焦点回不到 trigger，掉到 <body>。
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 function renderItems(items: CtxMenuItem[]) {
@@ -52,9 +62,10 @@ function renderItems(items: CtxMenuItem[]) {
   })
 }
 
-export function DropMenu({ trigger, items, align = 'end' }: DropMenuProps) {
+export function DropMenu({ trigger, items, align = 'end', open, onOpenChange }: DropMenuProps) {
   return (
-    <DropdownMenu.Root>
+    // open 为 undefined 时 radix 退回非受控，与原行为逐字相同
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="ctx-menu" align={align} sideOffset={4}>

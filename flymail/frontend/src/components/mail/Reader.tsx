@@ -3,7 +3,13 @@ import type { CtxMenuItem } from '@/components/ui/ContextMenu'
 import { MessageBody } from '@/components/mail/MessageBody'
 import { ReaderToolbar } from '@/components/mail/ReaderToolbar'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
-import { formatAddresses, formatDate, senderInitial, useDelayedFlag } from '@/lib/mail-format'
+import {
+  folderLabel,
+  formatAddresses,
+  formatDate,
+  senderInitial,
+  useDelayedFlag,
+} from '@/lib/mail-format'
 import { useMessageDetail, useMarkRead, useToggleFlag, useFolders, useAccounts } from '@/lib/queries'
 import type { MessageDetail } from '@/lib/types'
 
@@ -126,6 +132,13 @@ export function Reader({
   const toText = formatAddresses(detail.to ?? [], selfAddr, meLabel)
   const ccText = detail.cc && detail.cc.length > 0 ? formatAddresses(detail.cc, selfAddr, meLabel) : ''
 
+  // meta 行：这一封在哪。与会话手风琴的 .ti-folder 共用同一个 folderLabel，
+  // 两个视图不会对同一个文件夹给出不同的名字。
+  const currentFolderName = folderLabel(accountFolders, detail.folder_id, t)
+  const ownerAccount = accounts.find((a) => a.id === detail.account_id)
+  // 单账户用户每封信都看到同一个地址，那是噪音；多账户时它才携带信息
+  const showAccountTag = accounts.length > 1 && ownerAccount != null
+
   return (
     <section className="col reader">
       {/* ── 工具条 ───────────────────────────────────────
@@ -150,22 +163,31 @@ export function Reader({
             {detail.subject || t('list.noSubject')}
           </h1>
 
-          {/* meta 行：收件人账号/日期等小标签 */}
-          <div className="reader-meta-row">
-            <span className="mi-tag" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span
-                className="dot"
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: 'var(--accent-color)',
-                  display: 'inline-block',
-                }}
-              />
-              {formatDate(detail.date)}
-            </span>
-          </div>
+          {/* meta 行：这一封在哪（账户 / 文件夹）。
+              原先这里放的是 formatDate(detail.date)，而它在下面 40px 处的
+              .th-time 里又出现一遍——一整行的视觉预算只承载了一条重复信息。
+              会话手风琴的折叠行（.ti-folder）早就显示文件夹了，这里补齐。
+              账户只在多账户时才显示：单账户用户每封信都看见同一个地址，是噪音。 */}
+          {(currentFolderName || showAccountTag) && (
+            <div className="reader-meta-row">
+              {showAccountTag && (
+                <span className="mi-tag" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span
+                    className="dot"
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: 'var(--accent-color)',
+                      display: 'inline-block',
+                    }}
+                  />
+                  {ownerAccount?.email}
+                </span>
+              )}
+              {currentFolderName && <span className="mi-tag">{currentFolderName}</span>}
+            </div>
+          )}
 
           {/* ── 单封消息 thread-msg ──────────────────────── */}
           <div className="thread-msg">

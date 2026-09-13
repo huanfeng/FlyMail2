@@ -169,6 +169,8 @@
      主题预览卡靠「挂两个属性就得到一整套令牌」工作，这个别名会是其中唯一的破口，
      所以下面对每个色调块再声明一次（见 9 套色调令牌之后那条）。 */
   --accent-color: var(--accent);
+  /* 兜底：initTheme 写上 data-mode 之前的那一瞬。默认调是亮色 */
+  --focus-ring: var(--accent-ink);
 
   --shadow-sm: 0 1px 2px rgba(40,36,28,0.04), 0 0 0 1px rgba(40,36,28,0.04);
   --shadow-md: 0 4px 14px rgba(40,36,28,0.08), 0 0 0 1px rgba(40,36,28,0.05);
@@ -374,6 +376,23 @@
    一条规则覆盖全部 18 组，不必在每个色调块里各写一遍。 */
 [data-theme][data-mode] { --accent-color: var(--accent); }
 
+/* 焦点环的颜色。按亮/暗分别取值，理由是两边的失败方式**相反**：
+
+   - 亮色：`--accent` 对底色普遍不足（butter/light 对页面底 2.17、对选中行 1.94，
+     六组亮色不及格），焦点环基本看不见 → 要用更深的 `--accent-ink`。
+   - 暗色：`--accent` 本来就达标（5.78~7.94），而 `--accent-ink` 在暗色里是
+     接近正文色的浅色（slate/dark 对 --ink 只有 1.16），一刀切换过去会让焦点环
+     退化成一条"和正文同亮的随机白边"——WCAG 仍过，但"强调色 = 焦点"这条
+     辨识线索没了 → 暗色保留 `--accent`。
+
+   实测（按 mode 取值之后）：对四种底色最低 4.65，对 --ink 最低 1.39（暗色）/
+   1.25（slate/light，与本轮改动无关，一直如此）。
+
+   ⚠ 和上面 --accent-color 同理：必须挂在 [data-theme][data-mode] 这一层，
+   不能只写在 :root——自定义属性的 var() 在声明处求值。 */
+[data-theme][data-mode='light'] { --focus-ring: var(--accent-ink); }
+[data-theme][data-mode='dark'] { --focus-ring: var(--accent); }
+
 /* ════════════════════════════════════════════════════════════════════════
    MailMaster 基础重置与排版
    ════════════════════════════════════════════════════════════════════════ */
@@ -473,7 +492,10 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
 }
 /* 手柄现在可聚焦（方向键可调宽度），焦点态要和 hover 一样看得见：
    3px 宽的元素只靠全局那圈 outline 很难注意到。 */
-.col-resize:focus-visible { background: var(--accent); }
+/* 手柄的焦点表达就是这块底色，没有别的——所以它和 outline 那一族适用同一条
+   对比度门槛（WCAG 1.4.11，3:1）。--accent 在六组亮色主题下只有 2.0~3.0，
+   一条 3px 宽的分隔条聚焦与否几乎分不出来。 */
+.col-resize:focus-visible { background: var(--focus-ring); }
 .col-resize::after {
   content: ""; position: absolute;
   left: -3px; right: -3px; top: 0; bottom: 0;
@@ -821,7 +843,7 @@ mark.hl {
 }
 .list-col-resize:hover::after,
 .list-col-resize.dragging::after,
-.list-col-resize:focus-visible::after { background: var(--accent); }
+.list-col-resize:focus-visible::after { background: var(--focus-ring); }
 
 /* ⚠ 行高是与 MailList.tsx 的 estimateSize 绑定的硬契约：
    虚拟列表按 estimateSize 的间隔用 translateY 排布行槽位，行若比槽位高就会压到下一行头上，
@@ -1063,6 +1085,9 @@ mark.hl {
   font-family: var(--font-display); font-size: 20px; font-weight: 600;
   line-height: 1.35; letter-spacing: -0.01em; color: var(--ink);
   margin-bottom: 12px; text-wrap: pretty;
+  /* 主题里没有空格时（一长串 base64、URL、无分词的外文）默认不会断行，
+     会把整个阅读区顶出横向滚动条。列表行那侧靠 ellipsis 盖住了，这里没有。 */
+  overflow-wrap: anywhere;
 }
 .reader-meta-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -1116,8 +1141,27 @@ mark.hl {
   color: var(--accent-ink); font-family: var(--font-mono); font-size: 10px; font-weight: 600;
   border: 1px solid var(--rule);
 }
-.attach-card .ac-name { font-size: 13px; color: var(--ink); }
+/* 截断与撰写器侧的 .attach-chip .ac-name 保持一致：文件名是发件人给的，
+   "2026年第三季度财务报表最终版_修订3_确认稿.xlsx" 这种长度很常见，
+   不截断会把整张卡撑破。配套的 title 在 TSX 那侧给，截断后才看得到全名。 */
+.attach-card .ac-name {
+  font-size: 13px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 卡片是 flex 行，中间这块要能被压缩——min-width 默认是 auto，
+   不置 0 的话上面那条 ellipsis 永远不会触发（子项按内容撑开）。 */
+.attach-card .ac-text { min-width: 0; }
 .attach-card .ac-meta { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
+/* 附件折叠开关。与引用折叠（.quote-toggle）同一套外观——同一封邮件里
+   两个「还有更多，点开看」的入口，没有理由长得不一样。 */
+.attach-more {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px dashed var(--rule-strong);
+  background: transparent; color: var(--ink-3);
+  font-size: 12px; cursor: pointer;
+}
+.attach-more:hover { background: var(--bg-hover); }
 
 /* ── 远程图片拦截提示条（正文顶部）───────────────────────────────────────
    原来是一堆内联样式，抽成类是因为会话手风琴里每个展开项都要用一份。 */
@@ -1164,10 +1208,19 @@ mark.hl {
 .thread-item.active { border-color: var(--accent); }
 
 .thread-item .ti-head {
-  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto;
+  /* 首列是展开指示符。侧栏账户行（.account-row .caret）早就有一个，
+     而这里只有 cursor:pointer 和 hover 底色——同一个应用里两种折叠容器，
+     其中一种不告诉用户它可以折叠。 */
+  display: grid; grid-template-columns: 14px 32px minmax(0, 1fr) auto;
   gap: 10px; align-items: center;
   padding: 10px 14px; cursor: pointer;
 }
+/* 与 .account-row .caret 同一套（尺寸、颜色、旋转角度、过渡时长） */
+.thread-item .ti-caret {
+  width: 14px; height: 14px; display: grid; place-items: center;
+  color: var(--ink-3); transition: transform 0.15s;
+}
+.thread-item.expanded .ti-caret { transform: rotate(90deg); }
 .thread-item .ti-head:hover { background: var(--bg-hover); }
 .thread-item .ti-head .avatar-sq {
   width: 32px; height: 32px; font-size: 12px; border-radius: 8px;
@@ -1411,7 +1464,7 @@ mark.hl {
   background: transparent; transition: background 0.15s;
 }
 .slide-resize:hover, .slide-resize.dragging { background: var(--accent); }
-.slide-resize:focus-visible { background: var(--accent); }
+.slide-resize:focus-visible { background: var(--focus-ring); }
 
 /* ── 右键菜单（radix ContextMenu 主题化） ────────────────────────────── */
 .ctx-menu {
@@ -1524,7 +1577,9 @@ mark.hl {
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .compose-row input {
-  border: 0; outline: 0; background: transparent;
+  /* 同上：不能写 outline——撰写器的收件人/抄送/主题输入框曾经因此
+     完全没有焦点表达。行内无边框是有意的，焦点环由全局规则给。 */
+  border: 0; background: transparent;
   font-size: 14px; color: var(--ink); width: 100%;
 }
 .compose-row .from-account {
@@ -2032,27 +2087,39 @@ mark.hl {
 
 /* 全局兜底。逐个类去加焦点环是补不全的——工具栏、侧栏、设置的 15 个分区导航
    曾经全都没有，纯键盘用户 Tab 一圈看不出焦点在哪。
-   用 :where() 让特异性为 0，任何具体规则都能覆盖它。 */
-:where(a[href], button, select, [role='button'], [tabindex='0']):focus-visible {
-  outline: 2px solid var(--accent);
+   用 :where() 让特异性为 0，任何具体规则都能覆盖它。
+
+   ⚠ 用 --accent-ink 而不是 --accent。WCAG 1.4.11 要求焦点指示器对相邻底色
+   有 3:1；按公式逐主题算过（见 focus-ring.test.ts）：
+   --accent 在亮色主题下普遍不够——butter 对页面底色只有 2.17、对选中行的
+   accent-wash 只有 1.94，aqua / coral / warm / rose / mint 同样不及格，
+   六组亮色主题的选中行上焦点环基本看不见。暗色主题反而都在 5.8 以上。
+   （审查清单第 20 条猜的是"深色主题对比不足"，实测正好相反。）
+   --accent-ink 是同一色相的可及调，18 组 × 四种底色最低 4.65。 */
+:where(
+  a[href], button, select, input, textarea, [role='button'], [tabindex='0']
+):focus-visible {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
-/* 列表行用内缩焦点环，避免与相邻行的边界重叠 */
+/* 列表行用内缩焦点环，避免与相邻行的边界重叠。
+   内缩意味着它直接压在行底色上，而行底色有三种（surface / bg-alt / 选中的
+   accent-wash），所以这里对颜色的要求比别处更高——见上面那段。 */
 .mail-item:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 .chip:focus-visible,
 .lt-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
 /* 输入框把原生 outline 关掉了，得自己补一个焦点表达，否则 Tab 进去毫无反应 */
 .inline-input:focus-visible,
 .search-input input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 0;
 }
 
@@ -2282,10 +2349,31 @@ mark.hl {
   border: 1px solid var(--rule); border-radius: 6px;
   background: var(--surface); color: var(--ink);
   font-size: 13px; font-family: var(--font-body);
-  outline: none;
 }
+/* ⚠ 这里曾经写着 outline: none。它的特异性是 (0,1,1)，而全局那条焦点环规则用
+   :where() 特异性为 0——于是设置面板里所有 input / select 一律没有焦点环，
+   Tab 进去毫无反应。剩下的 :focus 只是把 1px 边框换成 --accent，
+   而那个颜色正是第 20 条算出来不达标的那个。
+   焦点环交给全局规则，这里只管常态外观。 */
 .settings-field > input:focus,
-.settings-field > select:focus { border-color: var(--accent); }
+.settings-field > select:focus { border-color: var(--accent-ink); }
+/* 撰写器 From 行里的下拉。
+   ⚠ 刻意不复用 .settings-field > select：那是堆叠式表单里的 32px 带框输入，
+   而这里是「发件人： [下拉]」这种行内位置，套上去会在一行文字中间插一个方框。
+   共用的是令牌与尺度，不是那条规则。
+
+   ⚠ 原先这 10 行是内联 style，其中带着 `outline: 0`——而内联样式优先级最高，
+   把全局那条 :focus-visible 焦点环也一起关掉了：Tab 到发件人下拉时屏幕上
+   毫无反应。抽成类之后那条 :where() 焦点规则正常生效（它特异性为 0，
+   任何具体规则都能覆盖，所以这里绝不能再写 outline）。 */
+.compose-select {
+  border: 0;
+  background: var(--bg-alt); color: var(--ink);
+  padding: 4px 8px; border-radius: 6px;
+  font-size: 13px; font-family: var(--font-body);
+  max-width: 100%;
+}
+
 .settings-check {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 0; font-size: 13px; color: var(--ink);

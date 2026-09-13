@@ -308,6 +308,56 @@ hr { border: 0; border-top: 1px solid #d8dee4; margin: 16px 0; }
 
 // ── 文档构建 ─────────────────────────────────────────────────────────────────
 
+/**
+ * 暗化正文用的样式。
+ *
+ * 邮件 HTML 假定白底（背景色、图片、表格底纹都是照白底配的），所以正文 iframe
+ * 一直强制白底——这本身是对的，把它改成深色会让一半邮件的文字变成白底白字。
+ * 代价是暗色主题下整个应用是深的，唯独正文是一块刺眼的白板。
+ *
+ * 这里用的是「整体反相再把媒体反回来」：
+ * - `filter: invert(1) hue-rotate(180deg)` 把整份文档反相，hue-rotate 把色相转回去，
+ *   于是蓝色链接仍然是蓝的，只有明度被翻转；
+ * - 图片 / 视频 / canvas / 带背景图的元素再反一次。
+ *
+ * ⚠ 第二步**不是无损还原**，别照着「反两次等于没反」去理解。CSS 的 hue-rotate
+ * 是一个固定的线性近似矩阵而不是真正的色相旋转，它与 invert 的复合不满足对合律
+ * （单独的 invert 才满足）。真实 Chromium 里实测双重反相后：
+ *
+ *     #cc0000 → #893232    #0b57d0 → #125ea6
+ *     #ffd400 → #e9be87    #808080 → #808080（无彩色不受影响）
+ *
+ * 也就是**饱和色每过一轮掉一截饱和度和明度**，照片和品牌 logo 会褪色发暗。
+ * 去掉两处 hue-rotate 可以让图片逐字节精确还原，代价是正文里每个蓝链接都变成橙色。
+ * 这里选择保留 hue-rotate：链接与彩色标题在邮件里出现的频率远高于饱和色图片，
+ * 而"每封信的链接都变色"是用户一直会撞到的。Dark Reader 的 filter 模式同样如此。
+ *
+ * ⚠ 覆盖面也有缺口，同样别高估：
+ * - `[style*="url("]` 只能命中写在 style 属性上的背景图（`background-image:url(…)`
+ *   与 `background:url(…)` 简写都算）。写在 `<style>` 块里、靠类选择器套上去的
+ *   背景图**完全覆盖不到**——而服务端净化是保留 `<style>` 的（htmlsan 的 finish()
+ *   会把净化后的样式表拼回文档头）。
+ * - `bgcolor` 属性的表格底纹跟着整体反相变深，这正是想要的，不需要排除。
+ *
+ * 综上它不完美，所以做成**默认关闭的开关**而不是跟着主题自动生效：
+ * 用户自己选了，就接受这些代价。
+ *
+ * ⚠ 必须同时给 html 一个白底：filter 只作用于元素自身的绘制结果，
+ * 反相之后 html 背景若是透明，露出的是 iframe 的白色画布，会在正文四周留白边。
+ */
+export const MAIL_BODY_DARK_CSS = `
+html {
+  filter: invert(1) hue-rotate(180deg);
+  background: #ffffff;
+}
+/* 只列真实可能出现的：内联 <svg> 被服务端净化整块丢弃（htmlsan 的 dropWithContent
+   含 svg/math），<canvas> 在无脚本沙箱里恒空白——把它们写在这里只会让人以为
+   内联 SVG 受支持。净化白名单真放宽时再加回来。 */
+img, video, [style*="url("], [background] {
+  filter: invert(1) hue-rotate(180deg);
+}
+`
+
 export interface FrameDocumentOptions {
   /** 已由服务端净化、并做过 cid 改写与引用标记的邮件 HTML */
   html: string
@@ -323,6 +373,8 @@ export interface FrameDocumentOptions {
    */
   nonce: string | null
   token: string | null
+  /** 暗化正文（用户在隐私设置里打开，且当前是暗色模式）。见 MAIL_BODY_DARK_CSS */
+  darkBody?: boolean
 }
 
 /**
@@ -341,7 +393,8 @@ export function buildFrameDocument(o: FrameDocumentOptions): string {
     // base target=_blank 是兜底：正常路径是注入脚本拦截点击后交给父窗口，
     // 万一脚本没跑起来，也不至于让链接把 iframe 里的邮件内容顶掉。
     `<base target="_blank">` +
-    `<style>${MAIL_BODY_CSS}${o.foldQuote ? o.quoteHideCss : ''}</style>` +
+    `<style>${MAIL_BODY_CSS}${o.darkBody ? MAIL_BODY_DARK_CSS : ''}` +
+    `${o.foldQuote ? o.quoteHideCss : ''}</style>` +
     (useScript ? bootstrapScript(o.nonce as string, o.token as string) : '') +
     o.html
   )

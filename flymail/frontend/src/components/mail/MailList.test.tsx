@@ -190,6 +190,42 @@ describe('MailList 的数据状态出口', () => {
     expect(container.textContent).toContain('boom')
     expect(container.textContent).not.toContain('list.noMessages')
   })
+
+  it('还有下一页且没在加载时，底部不留一条空白', async () => {
+    // 原先 .list-foot 无条件渲染，三种状态都不成立时里面是 null，
+    // 但容器那 12px 上下内边距照常生效——列表底下恒挂一条空白，
+    // 看起来像「还有一行没加载出来」。空的容器不是空的。
+    await mount({ hasNextPage: true, isFetchingNextPage: false, nextPageError: false })
+    expect(container.querySelector('.list-foot'), '底部挂了一个空容器').toBeNull()
+  })
+
+  it('正在加载下一页时底部照常给出提示', async () => {
+    // 上一条是「不该出现时没出现」，这条是「该出现时出现了」——
+    // 只写前者的话，把整个 .list-foot 删掉测试也会绿。
+    await mount({ hasNextPage: true, isFetchingNextPage: true })
+    expect(container.querySelector('.list-foot')?.textContent).toContain('list.loadingMore')
+  })
+
+  it('没有可投递的文件夹时，移动按钮禁用（而不是弹一个空菜单）', async () => {
+    // moveTargets 的空与非空**同时**决定按钮禁不禁用和菜单有没有项。
+    // 两处曾经用不同的集合（一处未过滤 \Noselect、一处过滤了），
+    // 全是 \Noselect 时按钮可用而菜单为空，点下去是个空白方框。
+    await mount({ moveTargets: [], selectedIds: new Set([1]) })
+    const btn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.getAttribute('aria-label') === 'list.batchMove',
+    )
+    expect(btn, '找不到批量移动按钮').toBeTruthy()
+    expect(btn!.disabled, '没有可投递目标时按钮却是可用的').toBe(true)
+  })
+
+  it('没有主题的邮件在列表里显示与阅读区同一句文案', async () => {
+    // 原先列表用字面量 '—' 而阅读区用 t('list.noSubject')，
+    // 同一封邮件点开前后显示不同；更别扭的是行的 aria-label 里用的一直是后者，
+    // 于是读屏念「（无主题）」而屏幕上写着一个破折号。
+    await mount({ messages: [{ ...msg(1), subject: '' }] })
+    const subject = container.querySelector('.mi-subject')
+    expect(subject?.textContent).toBe('list.noSubject')
+  })
 })
 
 describe('MailList 的列表语义与键盘导航', () => {

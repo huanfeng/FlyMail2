@@ -627,19 +627,10 @@ export function ComposeDialog({
           {multiFrom ? (
             <select
               id={`${fid}-from`}
+              className="compose-select"
               value={fromOption?.key ?? ''}
               onChange={(e) => set('fromOverride', e.target.value)}
               disabled={isBusy}
-              style={{
-                border: 0, outline: 0,
-                background: 'var(--bg-alt)',
-                padding: '4px 8px',
-                borderRadius: 6,
-                fontSize: 13,
-                color: 'var(--ink)',
-                fontFamily: 'var(--font-body)',
-                maxWidth: '100%',
-              }}
             >
               {fromOptions.map((o) => (
                 <option key={o.key} value={o.key}>{o.label}</option>

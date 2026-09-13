@@ -141,6 +141,62 @@ describe('buildFrameDocument', () => {
     const html = doc({ html: '<p>marker-body</p>' })
     expect(html.indexOf('<script')).toBeLessThan(html.indexOf('marker-body'))
   })
+
+  // ── 暗化正文 ──────────────────────────────────────────────────────────────
+  //
+  // 正文 iframe 一直强制白底（邮件 HTML 假定白底，改成深色会让一半邮件白底白字），
+  // 代价是暗色主题下整个应用是深的、唯独正文是一块刺眼的白板。暗化是**opt-in**
+  // 的补救：整体反相再把媒体反回来。
+  describe('darkBody', () => {
+    it('默认不注入暗化样式', () => {
+      // 默认关闭不是保守，是有理由的：反相对用背景图拼版式的邮件会显出接缝。
+      expect(doc()).not.toContain('invert(1)')
+      expect(doc({ darkBody: false })).not.toContain('invert(1)')
+    })
+
+    it('打开时整份文档反相，并给 html 补白底', () => {
+      const html = doc({ darkBody: true })
+      expect(html).toContain('filter: invert(1) hue-rotate(180deg)')
+      // filter 只作用于元素自身的绘制结果，html 背景透明时露出的是 iframe
+      // 的白色画布，正文四周会留一圈白边
+      expect(html).toMatch(/html\s*\{[^}]*background: #ffffff/)
+    })
+
+    it('图片/视频再反一次（近似还原，不是无损）', () => {
+      // 少了这一条，照片会直接变成底片——那比白板更糟。
+      //
+      // ⚠ 用例名刻意不写「回到原样」：CSS 的 hue-rotate 是线性近似矩阵，
+      //   与 invert 的复合不满足对合律，真实 Chromium 实测 #cc0000 双重反相后
+      //   是 #893232——饱和色会褪。这条只能守「有没有再反一次」，
+      //   守不了"还原得准不准"（jsdom 不渲染，量不了像素）。
+      //   初版这里写的是"回到原样"，把一个错误的信念钉进了测试名。
+      const html = doc({ darkBody: true })
+      expect(html).toMatch(/img,\s*video[^{]*\{[^}]*invert\(1\)/)
+    })
+
+    it('背景图两种写法都覆盖：background-image: 与 background: 简写', () => {
+      // 邮件里 `background:url(...)` 简写比 `background-image:` 更常见
+      // （为兼容 Outlook 通常和 <td background="…"> 成对写）。
+      // 只认长写法的话，简写那些块只反一次——文字变白、底图不变，直接不可读。
+      const html = doc({ darkBody: true })
+      expect(html).toContain('[style*="url("]')
+      expect(html).toContain('[background]')
+    })
+
+    it('暗化样式排在基础样式之后，能覆盖 body 的白底', () => {
+      const html = doc({ darkBody: true })
+      // 两条都在同一个 <style> 里，后来者胜——顺序反了就完全不生效
+      expect(html.indexOf('background: #ffffff; color: #1f2328')).toBeLessThan(
+        html.indexOf('filter: invert(1)'),
+      )
+    })
+
+    it('与引用折叠互不干扰', () => {
+      const html = doc({ darkBody: true, foldQuote: true })
+      expect(html).toContain('invert(1)')
+      expect(html).toContain('[data-fm-quote]{display:none}')
+    })
+  })
 })
 
 describe('isFrameEvent', () => {

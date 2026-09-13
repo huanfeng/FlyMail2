@@ -90,6 +90,25 @@ export function initTheme(): void {
   applyTheme(getTheme())
 }
 
+// ── 当前模式的外部存储（useSyncExternalStore 用）──────────────────────────────
+//
+// 有些地方要在**模式变化时重新渲染**（正文 iframe 的暗化样式是随 srcDoc 一次性
+// 注入的，不重渲染就不会更新）。做成订阅而不是让 applyTheme 挨个通知：
+// 盯 DOM 的结果比要求每个写入点都记得广播可靠——applyTheme 之外还有
+// initTheme，将来可能还有别的入口。
+
+/** 当前生效的亮/暗模式。直接读 applyTheme 写进去的那个属性，不会与它分叉。 */
+export function getThemeMode(): ThemeMode {
+  return document.documentElement.dataset.mode === 'dark' ? 'dark' : 'light'
+}
+
+/** 订阅模式变化；返回取消订阅函数（useSyncExternalStore 的 subscribe 契约）。 */
+export function subscribeThemeMode(onChange: () => void): () => void {
+  const ob = new MutationObserver(onChange)
+  ob.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
+  return () => ob.disconnect()
+}
+
 // ── 向后兼容：旧签名（Theme = 'light' | 'dark'）已废弃，保留类型别名避免外部编译报错 ──
 /** @deprecated 请改用 ThemePref / ThemeMode */
 export type Theme = ThemeMode

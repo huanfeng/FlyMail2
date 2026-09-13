@@ -18,6 +18,7 @@ import type { ListStyle } from '@/lib/list-prefs'
 import { formatParticipants, pickAvatarParticipant } from '@/lib/thread-format'
 import type { Folder, MessageListItem, ThreadListItem } from '@/lib/types'
 import { Icon } from '@/components/ui/Icon'
+import { DropMenu } from '@/components/ui/DropMenu'
 import { highlightText } from '@/components/ui/Highlight'
 import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
 import { RemoteSearchButton } from '@/components/mail/RemoteSearchButton'
@@ -173,6 +174,8 @@ interface Props {
   onBatchDelete: () => void
   onBatchMove: (folderId: number) => void
   /** 批量移动目标（已选邮件共同账户的文件夹；跨账户/为空时禁用移动） */
+  /** 可作为移动目标的文件夹。调用方已滤掉 \\Noselect：这里的空与非空
+   *  同时决定按钮禁不禁用和菜单有没有项，两者必须是同一个集合。 */
   moveTargets: Folder[]
   /** 偏好：始终显示行内选择框（无需先进入选择模式） */
   alwaysShowSelect: boolean
@@ -388,7 +391,7 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
 
         {/* 第二行：主题 */}
         <div className="mi-subject">
-          {msg.subject ? highlightText(msg.subject, terms) : '—'}
+          {msg.subject ? highlightText(msg.subject, terms) : t('list.noSubject')}
         </div>
 
         {/* 第三行：摘要（2 行截断由 CSS 控制）*/}
@@ -494,7 +497,7 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
 
       {/* 主题 + 摘要（单行，"— " 由 CSS ::before 注入）*/}
       <div className="mi-subject-preview">
-        <span className="mi-subject">{msg.subject ? highlightText(msg.subject, terms) : '—'}</span>
+        <span className="mi-subject">{msg.subject ? highlightText(msg.subject, terms) : t('list.noSubject')}</span>
         {msg.snippet && (
           <span className="mi-preview">{highlightText(msg.snippet, terms)}</span>
         )}
@@ -647,7 +650,7 @@ function ThreadRow({
           </div>
 
           <div className="mi-subject-preview">
-            <span className="mi-subject">{item.subject ? highlightText(item.subject, terms) : '—'}</span>
+            <span className="mi-subject">{item.subject ? highlightText(item.subject, terms) : t('list.noSubject')}</span>
             {item.snippet && <span className="mi-preview">{highlightText(item.snippet, terms)}</span>}
           </div>
 
@@ -697,7 +700,7 @@ function ThreadRow({
               <span className="mi-time">{relTime(item.date, lang)}</span>
             </div>
             <div className="mi-subject">
-              {item.subject ? highlightText(item.subject, terms) : '—'}
+              {item.subject ? highlightText(item.subject, terms) : t('list.noSubject')}
             </div>
             {item.snippet && <div className="mi-preview">{highlightText(item.snippet, terms)}</div>}
           </div>
@@ -908,7 +911,14 @@ export function MailList({
     }
   }, [])
 
-  // ── 批量移动下拉开关 ───────────────────────────────────────────────────────
+  /**
+   * 批量移动菜单的开合。
+   *
+   * 非受控（交给 radix）不够：菜单开着时**由程序**把 trigger 变 disabled 的路径
+   * radix 覆盖不到——用快捷键清空选中、或换了数据源，菜单会留在屏幕上，
+   * 而关闭时焦点回不到已 disabled 的 trigger，掉到 <body>。
+   * 这个开关只在那两处用，日常开合仍由 radix 驱动（onOpenChange 回写）。
+   */
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
 
   // ── 选择模式：由工具栏开关控制，控制行内复选框列是否出现 ──────────────────
@@ -1262,6 +1272,7 @@ export function MailList({
 
   function exitSelectMode() {
     setSelectMode(false)
+    // 菜单开着时清空选中会让 trigger 变 disabled，radix 不会因此关闭它
     setBatchMoveOpen(false)
     onClearSelection()
   }
@@ -1424,54 +1435,35 @@ export function MailList({
                 <Icon name="star" size={16} />
               </button>
 
-              {/* 移动下拉（跨账户/无目标时禁用）*/}
-              <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  className="lt-btn"
-                  onClick={() => setBatchMoveOpen((o) => !o)}
-                  disabled={selectedCount === 0 || moveTargets.length === 0}
-                  title={moveTargets.length === 0 ? t('list.batchMoveDisabled') : t('list.batchMove')}
-                  aria-label={t('list.batchMove')}
-                >
-                  <Icon name="folder" size={16} />
-                </button>
-                {batchMoveOpen && moveTargets.length > 0 && (
-                  <>
-                    <div onClick={() => setBatchMoveOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                    <div
-                      style={{
-                        position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41,
-                        minWidth: 170, maxHeight: 280, overflowY: 'auto',
-                        background: 'var(--surface)', border: '1px solid var(--rule)',
-                        borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 4,
-                      }}
-                    >
-                      {moveTargets
-                        .filter((f) => f.selectable)
-                        .map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => { setBatchMoveOpen(false); onBatchMove(f.id) }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                              padding: '7px 10px', border: 'none', background: 'transparent',
-                              borderRadius: 6, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-alt)' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-                          >
-                            <Icon name="folder" size={13} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)}
-                            </span>
-                          </button>
-                        ))}
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* 移动下拉（跨账户/无目标时禁用）。
+                  原先是手搓的：自绘遮罩层接关闭、硬编码 boxShadow（不是
+                  var(--shadow-md)）、靠 onMouseEnter/Leave 手改 style.background
+                  模拟 hover，于是同一个应用里两种菜单外观、且这一种没有键盘操作、
+                  没有焦点管理、Esc 关不掉。DropMenu 与右键菜单共用
+                  .ctx-menu / .ctx-item 与 CtxMenuItem 模型，radix 负责其余。 */}
+              <DropMenu
+                align="start"
+                open={batchMoveOpen}
+                onOpenChange={setBatchMoveOpen}
+                trigger={
+                  <button
+                    type="button"
+                    className="lt-btn"
+                    disabled={selectedCount === 0 || moveTargets.length === 0}
+                    title={moveTargets.length === 0 ? t('list.batchMoveDisabled') : t('list.batchMove')}
+                    aria-label={t('list.batchMove')}
+                  >
+                    <Icon name="folder" size={16} />
+                  </button>
+                }
+                items={moveTargets
+                  .map((f) => ({
+                    key: String(f.id),
+                    label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                    icon: 'folder' as const,
+                    onSelect: () => onBatchMove(f.id),
+                  }))}
+              />
 
               <button
                 type="button" className="lt-btn danger" disabled={selectedCount === 0}
@@ -1852,8 +1844,13 @@ export function MailList({
         )}
 
         {/* 底部加载状态。失败态排在「没有更多」之前：两者都表现为列表不再增长，
-            但一个是到头了、一个是出错了，混在一起就是把故障谎报成数据的尽头。 */}
-        {!loading && itemCount > 0 && (
+            但一个是到头了、一个是出错了，混在一起就是把故障谎报成数据的尽头。
+
+            ⚠ 外层的条件必须把「三种状态都不成立」也排掉。原先里面渲染 null
+            而 .list-foot 照常挂着它那 12px 上下内边距——还有下一页、正准备
+            自动加载的那段时间里，列表底下恒挂一条空白，看起来像「还有一行没
+            加载出来」。空的容器不是空的。 */}
+        {!loading && itemCount > 0 && (isFetchingNextPage || nextPageError || !hasNextPage) && (
           <div className="list-foot">
             {isFetchingNextPage ? (
               t('list.loadingMore')
@@ -1866,9 +1863,9 @@ export function MailList({
                 <span>{t('list.loadMoreFailed')}</span>
                 <span className="list-foot-retry-cta">{t('app.retry')}</span>
               </button>
-            ) : !hasNextPage ? (
+            ) : (
               t('list.noMore')
-            ) : null}
+            )}
           </div>
         )}
 

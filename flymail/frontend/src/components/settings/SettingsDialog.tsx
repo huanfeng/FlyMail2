@@ -23,7 +23,12 @@ import { getShortcutGroups } from '@/lib/shortcuts'
 import { setListStyle } from '@/lib/list-prefs'
 import { modalLayerOpen } from '@/lib/overlay-layers'
 import { useAccountSync } from '@/hooks/useAccountSync'
-import { getRemoteImageDefault, setRemoteImageDefault } from '@/lib/privacy-prefs'
+import {
+  getDarkBody,
+  getRemoteImageDefault,
+  setDarkBody,
+  setRemoteImageDefault,
+} from '@/lib/privacy-prefs'
 import { LAYOUT_LIMITS, loadLayoutWidths, saveLayoutWidths } from '@/lib/layout-prefs'
 import type { LayoutWidths } from '@/lib/layout-prefs'
 import {
@@ -421,6 +426,7 @@ function PrivacySection() {
   const [loadRemoteImages, setLoadRemoteImages] = React.useState<boolean>(() =>
     getRemoteImageDefault(),
   )
+  const [darkBody, setDarkBodyState] = React.useState<boolean>(() => getDarkBody())
 
   function handleRemoteImages(next: boolean) {
     setLoadRemoteImages(next)
@@ -431,12 +437,21 @@ function PrivacySection() {
     setRemoteImageDefault(next)
   }
 
+  function handleDarkBody(next: boolean) {
+    setDarkBodyState(next)
+    // 与上面同理：开关可订阅，已挂载的正文组件会重新渲染并重建 iframe 文档。
+    setDarkBody(next)
+  }
+
   return (
     <>
       <div className="settings-block">
         <h3>{t('settings.privacy.reading')}</h3>
         <Row label={t('settings.privacy.remoteImages')} help={t('settings.privacy.remoteImagesHint')}>
           <Toggle on={loadRemoteImages} onChange={handleRemoteImages} />
+        </Row>
+        <Row label={t('settings.privacy.darkBody')} help={t('settings.privacy.darkBodyHint')}>
+          <Toggle on={darkBody} onChange={handleDarkBody} />
         </Row>
       </div>
 

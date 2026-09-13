@@ -353,7 +353,15 @@ export function ShellPage() {
     }
     return acc
   }, [conversationView, selectedIds, selectedThreadIds, messages, threads])
-  const { data: moveTargets = [] } = useFolders(selectionAccountId)
+  const { data: selectionFolders = [] } = useFolders(selectionAccountId)
+  // 在源头就滤掉不可投递的文件夹（IMAP 的 \Noselect 容器，如 Gmail 的 "[Gmail]"）。
+  // 原先「按钮禁不禁用」看的是未过滤的列表、而菜单项用的是过滤后的——
+  // 全是 \Noselect 时按钮可用而菜单为空，点下去弹出一个空白方框。
+  // 同一个判据只能有一份。
+  const moveTargets = useMemo(
+    () => selectionFolders.filter((f) => f.selectable),
+    [selectionFolders],
+  )
 
   const batchDelete = useBatchDelete()
   const batchMove = useBatchMove()

@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react'
 import api from '@/lib/api'
 import { EMPTY_FILTER, applyFilterParams, filterKey } from '@/lib/list-filters'
 import type { ListFilter } from '@/lib/list-filters'
-import { getRemoteImageDefault, subscribeRemoteImageDefault } from '@/lib/privacy-prefs'
+import { getRemoteImageDefault, subscribePrivacyPrefs } from '@/lib/privacy-prefs'
 import {
   applyThreadUnreadDelta,
   applyUnreadDelta,
@@ -965,7 +965,7 @@ export function useMessageDetail(messageId: number | null, opts?: MessageDetailO
   // 订阅而不是直读：开关参与下面的 query key，只有让已挂载的详情查询
   // 在开关改变时重新渲染、先换 key 再取数，才不会按旧口径白白再请求一次。
   const defaultRemote = useSyncExternalStore(
-    subscribeRemoteImageDefault,
+    subscribePrivacyPrefs,
     getRemoteImageDefault,
     getRemoteImageDefault,
   )

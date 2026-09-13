@@ -10,6 +10,7 @@
 // 这时若去 invalidate 就会照着旧口径再请求一次——多打一趟网络，结果还是错的。
 
 const LOAD_REMOTE_IMAGES_KEY = 'flymail_load_remote_images'
+const DARK_BODY_KEY = 'flymail_dark_body'
 
 /** 开关变化的订阅者集合（useSyncExternalStore 用） */
 const listeners = new Set<() => void>()
@@ -44,10 +45,45 @@ export function setRemoteImageDefault(on: boolean): void {
   for (const fn of Array.from(listeners)) fn()
 }
 
-/** 订阅开关变化；返回取消订阅函数（useSyncExternalStore 的 subscribe 契约）。 */
-export function subscribeRemoteImageDefault(onChange: () => void): () => void {
+/**
+ * 订阅本文件里任一隐私开关的变化；返回取消订阅函数（useSyncExternalStore 的契约）。
+ *
+ * 一个订阅者集合服务两个开关，所以名字是中性的：订阅方拿到通知后各自重读自己
+ * 关心的那个 getter，值没变时 useSyncExternalStore 自己会跳过重渲染。
+ */
+export function subscribePrivacyPrefs(onChange: () => void): () => void {
   listeners.add(onChange)
   return () => {
     listeners.delete(onChange)
   }
+}
+
+// ── 暗化正文 ─────────────────────────────────────────────────────────────────
+//
+// 与上面那个开关放同一个文件：读者一样是「设置面板写、正文组件读」，
+// 而把两个同族偏好拆到两处正是上面那段注释说的那种"改一处漏一处"。
+
+/**
+ * 「暗化正文」是否打开。默认关闭。
+ *
+ * 关闭是有理由的而不是保守：暗化用的是整体反相（见 MAIL_BODY_DARK_CSS），
+ * 对用背景图拼版式的营销邮件会显出接缝。默认让邮件按发件人设计的样子显示，
+ * 想要护眼的人自己打开并接受这个代价。
+ */
+export function getDarkBody(): boolean {
+  try {
+    return localStorage.getItem(DARK_BODY_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+/** 写入「暗化正文」并通知订阅者。 */
+export function setDarkBody(on: boolean): void {
+  try {
+    localStorage.setItem(DARK_BODY_KEY, String(on))
+  } catch {
+    /* 存储不可用：本次会话内仍由组件 state 生效，只是不持久化 */
+  }
+  for (const fn of Array.from(listeners)) fn()
 }

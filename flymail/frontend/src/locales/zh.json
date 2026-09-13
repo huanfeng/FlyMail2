@@ -238,7 +238,13 @@
       "starAll": "整条加星标",
       "unstarAll": "整条取消星标",
       "moveAll": "整条移动到"
-    }
+    },
+    "downloading": "下载中…",
+    "downloadFailed": "附件下载失败",
+    "largeAttach": "下载这个 {{size}} 的附件？",
+    "largeAttachBody": "大附件需要完整下载完才会保存，期间没有进度显示。",
+    "attachShowAll": "显示全部 {{n}} 个附件",
+    "attachShowLess": "收起附件"
   },
   "account": {
     "add": "添加账户",
@@ -379,7 +385,8 @@
     "earlier": "更早",
     "older": "更久以前",
     "markAllRead": "全部已读",
-    "clear": "清空"
+    "clear": "清空",
+    "filterLabel": "通知筛选"
   },
   "shortcuts": {
     "title": "键盘快捷键",
@@ -701,7 +708,9 @@
         "remove": "移出信任名单",
         "deleteConfirm": "不再信任 {{address}}？",
         "deleteFailed": "移出失败，请稍后重试"
-      }
+      },
+      "darkBody": "暗化邮件正文",
+      "darkBodyHint": "邮件正文按白底设计，暗色主题下会是一块白板。打开后在暗色模式下把正文整体反相，图片会再反一次以接近原色（饱和度略有损失）；用背景图拼版式的邮件可能显出接缝。"
     },
     "page": {
       "sub": "管理外观、账户与邮件同步偏好",

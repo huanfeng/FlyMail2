@@ -238,7 +238,13 @@
       "starAll": "Star whole conversation",
       "unstarAll": "Unstar whole conversation",
       "moveAll": "Move whole conversation to"
-    }
+    },
+    "downloading": "Downloading…",
+    "downloadFailed": "Attachment download failed",
+    "largeAttach": "Download this {{size}} attachment?",
+    "largeAttachBody": "Large attachments are saved only after the download completes, with no progress shown in between.",
+    "attachShowAll": "Show all {{n}} attachments",
+    "attachShowLess": "Show fewer attachments"
   },
   "account": {
     "add": "Add Account",
@@ -379,7 +385,8 @@
     "earlier": "Earlier",
     "older": "Older",
     "markAllRead": "Mark all read",
-    "clear": "Clear"
+    "clear": "Clear",
+    "filterLabel": "Notification filters"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -701,7 +708,9 @@
         "remove": "Remove from trusted list",
         "deleteConfirm": "Stop trusting {{address}}?",
         "deleteFailed": "Failed to remove, please try again"
-      }
+      },
+      "darkBody": "Darken message body",
+      "darkBodyHint": "Messages are designed for a white background, which shows as a bright block in dark themes. When on, the body is inverted in dark mode; images are inverted back to approximate their original colours (with some loss of saturation). Emails that use background images for layout may show seams."
     },
     "page": {
       "sub": "Manage appearance, accounts and mail sync preferences",

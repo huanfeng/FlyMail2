@@ -74,7 +74,14 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
 
   // 按日分组
   function dayLabel(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime()
+    const ms = new Date(iso).getTime()
+    // ⚠ 这一句**不改变任何行为**，别把它当成修了一个 bug：NaN 让下面三个比较
+    // 全为 false，本来就会落到最后那个 return，结果同样是「更早」。
+    // 留着是因为「靠三次比较都失败来得到正确答案」是偶然对的——
+    // 谁把顺序改成从大到小判，非法时间戳就会跳进「今天」。
+    // （同文件的 fmtTime 与 MailList 的 relTime 守 NaN 则是真的有区别。）
+    if (Number.isNaN(ms)) return t('notif.older')
+    const diff = Date.now() - ms
     if (diff < 86_400_000) return t('notif.today')
     if (diff < 2 * 86_400_000) return t('notif.yesterday')
     if (diff < 7 * 86_400_000) return t('notif.earlier')
@@ -177,20 +184,58 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
 
       <div className="fullpage">
         {/* tab 行 */}
-        <div className="notif-tabs">
+        {/* 一组互斥的筛选器，语义上是 tablist 而不是六个孤立按钮：
+            没有 role 的话读屏既不报「第 2 项，共 6 项」也不报哪个是选中的，
+            而且 Tab 要按六次才能走完。加上 role 之后按 ARIA 惯例改成
+            roving tabindex——只有选中项进 Tab 序列，组内用方向键移动。 */}
+        <div className="notif-tabs" role="tablist" aria-label={t('notif.filterLabel')}>
           {tabs.map((x) => (
             <button
               key={x.id}
+              id={`notif-tab-${x.id}`}
               type="button"
+              role="tab"
+              aria-selected={tab === x.id}
+              aria-controls="notif-tabpanel"
+              tabIndex={tab === x.id ? 0 : -1}
               className={'notif-tab' + (tab === x.id ? ' active' : '')}
               onClick={() => setTab(x.id)}
+              onKeyDown={(e) => {
+                // 带修饰键的方向键让给系统/浏览器：Ctrl+← / ⌥+→ 是很多人的
+                // 词间移动习惯，吞掉它会变成"想移动光标结果换了筛选器"
+                if (e.ctrlKey || e.metaKey || e.altKey) return
+                const i = tabs.findIndex((y) => y.id === tab)
+                let target: number | null = null
+                if (e.key === 'ArrowRight') target = (i + 1) % tabs.length
+                else if (e.key === 'ArrowLeft') target = (i - 1 + tabs.length) % tabs.length
+                // Home / End 是 ARIA 对 tablist 的选配键位，键盘用户按惯例会试
+                else if (e.key === 'Home') target = 0
+                else if (e.key === 'End') target = tabs.length - 1
+                if (target == null) return
+                e.preventDefault()
+                setTab(tabs[target].id)
+                // 焦点跟着走，否则下一次方向键还是从原处算起
+                const all = e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                )
+                all?.[target]?.focus()
+              }}
             >
               <span>{t(x.labelKey)}</span>
             </button>
           ))}
         </div>
 
-        <div className="fp-body">
+        {/* tab 对应的面板。只做一半的 tablist 语义会让读屏报完「标签，已选中，
+            第 2 项共 6 项」之后，用户按惯例去找面板却找不到。
+            tabIndex=0：面板本身可滚动，键盘用户要能把焦点放进来翻页。 */}
+        <div
+          className="fp-body"
+          id="notif-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`notif-tab-${tab}`}
+          tabIndex={0}
+        >
           {!isLoading && filtered.length === 0 && (
             <div className="notif-empty">
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--ink-2)', marginBottom: 6 }}>

@@ -11,10 +11,11 @@
 // ⚠ 调用方必须以 key={detail.id} 挂载：showRemote / showQuote 是「这一封」的状态，
 // 换邮件不重置就会把上一封的选择带过去。
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
+import { useConfirm } from '@/components/ui/Confirm'
 import { apiErrorMessage } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
 import { openExternal } from '@/lib/platform'
@@ -26,6 +27,8 @@ import {
   parseFrameMessage,
   secureRandomHex,
 } from '@/lib/mail-frame'
+import { getDarkBody, subscribePrivacyPrefs } from '@/lib/privacy-prefs'
+import { getThemeMode, subscribeThemeMode } from '@/lib/theme'
 import { QUOTE_HIDE_CSS, markHtmlQuotes, splitTextQuote } from '@/lib/quote-fold'
 import { useAddTrustedSender, useMessageDetail } from '@/lib/queries'
 import type { MessageDetail } from '@/lib/types'
@@ -35,6 +38,22 @@ import {
   isPreviewable,
   rewriteCidLinks,
 } from '@/lib/attachments'
+
+/**
+ * 附件卡超过这个数就折叠。
+ *
+ * 群发的会议纪要动辄带一二十个附件，无条件全量渲染会把正文顶到屏幕外——
+ * 用户要滚过一整屏卡片才能看到邮件正文。6 张刚好占一屏的一小部分。
+ */
+const ATTACH_FOLD_AT = 6
+
+/**
+ * 超过这个大小的附件，下载前先问一句。
+ *
+ * 下载没有进度表达（blob 一次性拿完才落盘），200MB 的附件在慢网络上就是
+ * 「点了之后十几分钟毫无动静」。移动网络下更是直接烧流量。
+ */
+const LARGE_ATTACH_BYTES = 50 * 1024 * 1024
 
 interface MailBodyFrameProps {
   /** 服务端已净化、前端做过 cid 改写与引用标记的邮件 HTML */
@@ -72,6 +91,19 @@ export function MailBodyFrame({ html, title, allowRemote, foldQuote, onMailto }:
   // 拿不到密码学随机源时两者为 null，buildFrameDocument 会整段不注入脚本
   // （见 secureRandomHex 的说明），高度由下面的 400ms 兜底负责。
   const [frameIds] = useState(() => ({ token: secureRandomHex(16), nonce: secureRandomHex(12) }))
+
+  // 暗化正文：用户在隐私设置里打开、**且**当前处于暗色模式时才生效。
+  //
+  // 两个都必须是订阅式的：暗化样式随 srcDoc 一次性注入 iframe，
+  // 组件不重新渲染就不会重建文档——用户在设置面板里拨了开关或切了亮暗，
+  // 已经打开的那封邮件会停在旧样子，而他正看着它。
+  const darkPref = useSyncExternalStore(subscribePrivacyPrefs, getDarkBody, () => false)
+  const themeMode = useSyncExternalStore(
+    subscribeThemeMode,
+    getThemeMode,
+    () => 'light' as const, // SSR/快照时按亮色，反相是加法不是默认
+  )
+  const darkBody = darkPref && themeMode === 'dark'
 
   // 回调放进 ref：message 监听器只在 token 变化时重建（实际是永不重建），
   // 不能因为父组件每次渲染传来新的函数引用就把监听器拆了重装。
@@ -135,6 +167,7 @@ export function MailBodyFrame({ html, title, allowRemote, foldQuote, onMailto }:
         quoteHideCss: QUOTE_HIDE_CSS,
         nonce: frameIds.nonce,
         token: frameIds.token,
+        darkBody,
       })}
       // ⚠⚠ 绝不允许在这里加回 allow-same-origin：它与 allow-scripts 同时出现
       // 就等于把沙箱拆掉（邮件脚本可读 parent.document 与 localStorage 里的 token）。
@@ -192,6 +225,7 @@ interface MessageBodyProps {
 export function MessageBody({ detail, onMailto }: MessageBodyProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const confirm = useConfirm()
   // 用户在这一封上点了「显示图片」。默认值不看本地开关——
   // 「默认显示远程图片」已经由 useMessageDetail 翻译成请求上的 remote=1，
   // 开关打开时详情回来就是 remote_allowed=true，这里不需要也不应该再判一次。
@@ -238,6 +272,52 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
   const visibleAttachments = attachments
     ?.map((att, idx) => ({ att, idx }))
     .filter(({ att }) => !att.is_inline) ?? []
+
+  const [attachExpanded, setAttachExpanded] = useState(false)
+  /** 正在下载的那个附件的原始索引；null = 没有下载在进行（驱动界面） */
+  const [downloadingIdx, setDownloadingIdx] = useState<number | null>(null)
+  // 同一个值的同步副本，专供闸门判断。
+  // ⚠ 不能用上面那个 state 当闸门：它读的是闭包里的快照，同一 tick 内的两次
+  // 调用都会通过——那不是互斥，只是"看起来像互斥"。
+  const downloadingRef = useRef<number | null>(null)
+  const folded = !attachExpanded && visibleAttachments.length > ATTACH_FOLD_AT
+  const shownAttachments = folded ? visibleAttachments.slice(0, ATTACH_FOLD_AT) : visibleAttachments
+
+  /**
+   * 下载一个附件。
+   *
+   * 原先是 `void downloadAttachment(...)`——异常被整个吞掉，下载失败（令牌过期、
+   * 附件已被服务端清理、网络断）时界面上**毫无反应**，与「点了没生效」无法区分。
+   */
+  async function handleDownload(att: { filename: string; size: number }, idx: number) {
+    if (downloadingRef.current != null) return // 一次一个，避免重复点击叠加
+    if (att.size > LARGE_ATTACH_BYTES) {
+      const ok = await confirm({
+        title: t('reader.largeAttach', { size: formatBytes(att.size) }),
+        body: t('reader.largeAttachBody'),
+        confirmLabel: t('reader.download'),
+      })
+      if (!ok) return
+      // 再判一次：等确认框的这段时间闸门是开着的，用户可能已经点了别的附件
+      // （小附件不走确认框，直接就开始下了）。不判的话这里会把它顶掉，
+      // 而它下完之后的 finally 又会把本次的忙碌态清掉——大附件下载中却显示
+      // 文件大小、aria-busy 提前消失，读屏不再报忙碌。
+      if (downloadingRef.current != null) return
+    }
+    downloadingRef.current = idx
+    setDownloadingIdx(idx)
+    try {
+      await downloadAttachment(view.id, idx, att.filename)
+    } catch (e) {
+      toast(apiErrorMessage(e, t('reader.downloadFailed')))
+    } finally {
+      // 只清自己那一次：万一上面的判断仍有漏网，也不会清掉别人的忙碌态
+      if (downloadingRef.current === idx) {
+        downloadingRef.current = null
+        setDownloadingIdx(null)
+      }
+    }
+  }
 
   // 服务端报告有远程引用、且这一封尚未放行 → 显示拦截横幅
   const blockedRemote = view.remote_count > 0 && !view.remote_allowed
@@ -340,28 +420,36 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
       {/* 附件卡片 */}
       {visibleAttachments.length > 0 && (
         <div className="thread-attach">
-          {visibleAttachments.map(({ att, idx }) => {
+          {shownAttachments.map(({ att, idx }) => {
             const previewable = isPreviewable(att)
             const typeLabel = attachTypeLabel(att.filename, att.content_type)
+            const downloading = downloadingIdx === idx
             return (
               <div
                 key={`${att.filename}-${idx}`}
                 className="attach-card"
                 style={{ cursor: 'pointer' }}
-                onClick={() => void downloadAttachment(view.id, idx, att.filename)}
+                onClick={() => void handleDownload(att, idx)}
                 role="button"
                 tabIndex={0}
+                aria-busy={downloading}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
-                    void downloadAttachment(view.id, idx, att.filename)
+                    // 空格在 role="button" 上要拦掉默认行为，否则按一下
+                    // 既触发下载又把页面滚下去一屏
+                    e.preventDefault()
+                    void handleDownload(att, idx)
                   }
                 }}
               >
                 {/* 类型角标 */}
                 <div className="ac-ic">{typeLabel}</div>
-                <div>
-                  <div className="ac-name">{att.filename}</div>
-                  <div className="ac-meta">{formatBytes(att.size)}</div>
+                <div className="ac-text">
+                  {/* title：文件名由发件人给，截断之后只能靠它看到全名 */}
+                  <div className="ac-name" title={att.filename}>{att.filename}</div>
+                  <div className="ac-meta">
+                    {downloading ? t('reader.downloading') : formatBytes(att.size)}
+                  </div>
                 </div>
                 {/* 可预览时额外展示预览链接 */}
                 {previewable && (
@@ -384,6 +472,24 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
               </div>
             )
           })}
+
+          {/* 折叠开关。群发纪要带一二十个附件时，无条件全量渲染会把正文顶到
+              屏幕外——用户得滚过一整屏卡片才看得到邮件本身。 */}
+          {visibleAttachments.length > ATTACH_FOLD_AT && (
+            <button
+              type="button"
+              className="attach-more"
+              onClick={() => setAttachExpanded((o) => !o)}
+              aria-expanded={attachExpanded}
+            >
+              <Icon name={attachExpanded ? 'chevron-up' : 'more'} size={13} />
+              <span>
+                {attachExpanded
+                  ? t('reader.attachShowLess')
+                  : t('reader.attachShowAll', { n: visibleAttachments.length })}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

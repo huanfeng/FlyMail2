@@ -34,6 +34,15 @@ const (
 	dialBackoffMax  = 60 * time.Second
 	// syncSlotRetry 抢不到全局同步名额时的短重试延迟。
 	syncSlotRetry = 5 * time.Second
+	// staleAfter 是「连接闲置多久之后，复用前先探一次活」的阈值。
+	//
+	// 不是每次复用都探：连续处理任务时连接刚用过，再发一条 NOOP 只是白跑一个
+	// 来回。而真正会死的是**闲置**的连接——服务端、NAT 网关、负载均衡都会静默
+	// 掐掉长时间没有流量的 IMAP 连接。
+	//
+	// 取 30 秒：比轮询间隔（180 秒）小得多，所以定时轮询那一路一定会探；
+	// 又比一串连续任务之间的间隔大得多，不会给正常操作加开销。
+	staleAfter = 30 * time.Second
 )
 
 // errBreakerOpen 表示账户熔断打开、后台任务此刻被拒（前台任务不会收到此错误）。
@@ -72,6 +81,12 @@ type runner struct {
 	dialBackoff time.Duration
 	nextDialAt  time.Time
 
+	// lastUsedAt 是当前连接上最后一次成功收发的时刻，用于判定是否需要探活。
+	// 零值表示「没有可复用的连接」。
+	lastUsedAt time.Time
+	// staleAfter 可注入以便测试。
+	staleAfter time.Duration
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -80,16 +95,17 @@ type runner struct {
 // newRunner 构建 runner（尚未启动，调用 start）。
 func newRunner(accountID uint, cfg func() (types.IMAPConfig, error), dial func(types.IMAPConfig) (Session, error)) *runner {
 	r := &runner{
-		accountID: accountID,
-		cfg:       cfg,
-		dial:      dial,
-		breaker:   newBreaker(),
-		diag:      newRunnerDiag(time.Now),
-		fg:        make(chan task),
-		bg:        make(chan task, 64),
-		idleCh:    make(chan struct{}, 1),
-		idleClose: idleCloseInterval,
-		now:       time.Now,
+		accountID:  accountID,
+		cfg:        cfg,
+		dial:       dial,
+		breaker:    newBreaker(),
+		diag:       newRunnerDiag(time.Now),
+		fg:         make(chan task),
+		bg:         make(chan task, 64),
+		idleCh:     make(chan struct{}, 1),
+		idleClose:  idleCloseInterval,
+		staleAfter: staleAfter,
+		now:        time.Now,
 	}
 	// 熔断翻转记入诊断事件。
 	r.breaker.onChange = func(open bool) {
@@ -311,6 +327,11 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		r.diag.setMode(modeBreakerOpen)
 		return interval
 	}
+	// ⚠ 这条路径比 exec 更需要探活：轮询间隔（默认 180 秒）远大于 staleAfter，
+	// 上一轮留下的连接**必然**闲置超过阈值。不探的话，每一轮定时同步都可能
+	// 以一次 use-of-closed-network-connection 开场，在侧栏留下一个错误状态。
+	r.ensureAlive(sess)
+
 	if *sess == nil {
 		if !r.nextDialAt.IsZero() && r.now().Before(r.nextDialAt) {
 			r.diag.setMode(modeBackoff)
@@ -339,6 +360,7 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		}
 		_ = (*sess).Close()
 		*sess = nil
+		r.lastUsedAt = time.Time{}
 		r.diag.setConnected(false, false)
 		r.diag.markErr(err.Error())
 		r.diag.event("poll_error", err.Error())
@@ -346,6 +368,7 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		return interval
 	}
 	r.breaker.RecordSuccess()
+	r.lastUsedAt = r.now()
 	r.diag.markSync()
 	r.diag.event("poll_done", "耗时 "+r.now().Sub(start).Round(time.Millisecond).String())
 	return interval
@@ -400,6 +423,9 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 		}
 	}
 
+	// 复用一条闲置过久的连接前先探活。见 ensureAlive。
+	r.ensureAlive(sess)
+
 	if *sess == nil {
 		s, err := r.dialConn()
 		if err != nil {
@@ -418,6 +444,7 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 		// 任务失败：连接状态不确定，关闭以便下轮重建（延续旧代码「出错即重连」语义）。
 		_ = (*sess).Close()
 		*sess = nil
+		r.lastUsedAt = time.Time{}
 		r.diag.setConnected(false, false)
 		r.diag.markErr(err.Error())
 		r.diag.event("task_error", err.Error())
@@ -428,7 +455,59 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 		return
 	}
 	r.breaker.RecordSuccess()
+	r.lastUsedAt = r.now()
 	reply(t, nil)
+}
+
+/*
+ensureAlive 在复用一条**闲置过久**的连接前确认它还活着；确认不了就地关掉，
+交给调用方随后的懒建连重新拨。
+
+── 这修的是什么 ─────────────────────────────────────────────────────────────
+
+IMAP 连接会被服务端、NAT 网关、负载均衡静默掐掉，而 TCP 那侧不一定立刻有反馈：
+go-imap 读到 EOF 后会把底层 conn 关掉，但 runner 手上的 Session 仍然非 nil、
+看着完全能用。于是下一条真命令撞上
+
+	list folders failed: write tcp …: use of closed network connection
+
+这个错误会直接弹给用户。失败后的「出错即重连」让**第二次**点必然成功——
+所以现象是「放着不动一会儿，回来点同步，红字报错；再点一次就好」。
+真实部署里窗口比测试环境大得多：轮询间隔 180 秒，而 Gmail、Exchange
+以及中间任何 NAT 都会掐掉空闲连接。
+
+── 为什么是探活而不是失败后重试 ─────────────────────────────────────────────
+
+重试会把一条**已经送达服务端、只是响应丢了**的 MOVE / EXPUNGE 再执行一遍。
+NOOP 探活最坏只是白跑一个来回，不重复任何有副作用的操作。
+
+探活当然也有竞态：连接可能在 NOOP 之后、真命令之前才死。但那个窗口是毫秒级的，
+而不是「空闲三分钟后必然发生」——把一个确定的故障降成一个罕见的故障。
+剩下那种罕见情形仍走原来的「出错即重连」，语义不变。
+*/
+func (r *runner) ensureAlive(sess *Session) {
+	if *sess == nil || r.lastUsedAt.IsZero() {
+		return
+	}
+	if r.now().Sub(r.lastUsedAt) < r.staleAfter {
+		// 刚用过，不必为每个任务都白跑一个来回
+		return
+	}
+	probe, ok := (*sess).(interface{ Noop() error })
+	if !ok {
+		// 探活能力是可选的：测试里的假会话、以后别的实现都可能没有。
+		// 没有就退回原来的行为，而不是把连接一律丢掉重建。
+		return
+	}
+	if err := probe.Noop(); err != nil {
+		r.diag.event("stale_conn", "空闲连接已失效，重连："+err.Error())
+		_ = (*sess).Close()
+		*sess = nil
+		r.lastUsedAt = time.Time{}
+		r.diag.setConnected(false, false)
+	} else {
+		r.lastUsedAt = r.now()
+	}
 }
 
 // dialConn 取配置并建连；host 模式下顺带装 IDLE 新邮件回调（唤醒主循环去同步收件箱）。
@@ -452,6 +531,9 @@ func (r *runner) dialConn() (Session, error) {
 	}
 	r.diag.setConnected(true, s.CanIDLE())
 	r.diag.event("dial_ok", "")
+	// 新连接就是"刚用过"。不置的话，上一条连接留下的旧时间戳会让 ensureAlive
+	// 把这条刚拨通的连接判成陈旧，白发一次 NOOP。
+	r.lastUsedAt = r.now()
 	return s, nil
 }
 

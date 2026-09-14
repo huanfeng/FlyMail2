@@ -126,6 +126,26 @@ func Dial(cfg types.IMAPConfig) (*Session, error) {
 func (s *Session) CanIDLE() bool { return s.SupportsIDLE }
 
 // Close logs out and closes the connection.
+// Noop 发一条 NOOP，用来确认这条连接**此刻还活着**。
+//
+// 为什么需要它：IMAP 连接会被服务端、NAT 网关、负载均衡静默掐掉，而 TCP 那侧
+// 不一定立刻有反馈——go-imap 在读到 EOF 后会把底层 conn 关掉，但调用方手上的
+// *Session 仍然非 nil、看着像能用。下一条真正的命令才撞上
+// 「use of closed network connection」，而那时错误已经弹到用户脸上了。
+//
+// 复用池化连接前先探一次活，比「失败后重试」安全：重试可能把一条已经送达
+// 服务端、只是响应丢了的 MOVE / EXPUNGE 再执行一遍。NOOP 探活最坏只是白跑
+// 一个来回，不会重复任何有副作用的操作。
+//
+// 它当然也有竞态（连接可能在 NOOP 之后、真命令之前才死），但那个窗口是毫秒级、
+// 而不是「空闲三分钟后必然发生」——把一个确定的故障降成一个罕见的故障。
+func (s *Session) Noop() error {
+	if s.Client == nil {
+		return fmt.Errorf("not connected")
+	}
+	return s.Client.Noop().Wait()
+}
+
 func (s *Session) Close() error {
 	if s.Client == nil {
 		return nil

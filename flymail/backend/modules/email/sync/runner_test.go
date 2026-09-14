@@ -199,3 +199,182 @@ func TestRunner_DialBackoff(t *testing.T) {
 		t.Fatalf("退避内不应再 dial，dial 次数 = %d", dials)
 	}
 }
+
+// ── 空闲连接探活 ───────────────────────────────────────────────────────────
+
+// probeFake 是带 Noop 的假会话：记录探活次数，可令其失败。
+type probeFake struct {
+	*mgrFakeSession
+	noops    *int32
+	noopErr  error
+	onClose  func()
+	taskRuns *int32
+}
+
+func (f *probeFake) Noop() error {
+	atomic.AddInt32(f.noops, 1)
+	return f.noopErr
+}
+
+func (f *probeFake) Close() error {
+	if f.onClose != nil {
+		f.onClose()
+	}
+	return nil
+}
+
+// newProbeDial 返回一个 dial 函数：第 n 次拨出的连接，其 Noop 结果由 errsByDial 决定。
+func newProbeDial(errsByDial []error) (func(types.IMAPConfig) (Session, error), *int32, *int32, *int32) {
+	var dials, noops, closes int32
+	dial := func(types.IMAPConfig) (Session, error) {
+		n := atomic.AddInt32(&dials, 1)
+		var e error
+		if int(n) <= len(errsByDial) {
+			e = errsByDial[n-1]
+		}
+		return &probeFake{
+			mgrFakeSession: &mgrFakeSession{},
+			noops:          &noops,
+			noopErr:        e,
+			onClose:        func() { atomic.AddInt32(&closes, 1) },
+		}, nil
+	}
+	return dial, &dials, &noops, &closes
+}
+
+/*
+TestRunner_StaleConnectionProbed 是这组用例的核心。
+
+修复前的现象：放着不动一会儿，回来点同步，红字报
+
+	list folders failed: write tcp …: use of closed network connection
+
+再点一次就好。成因是服务端/NAT 静默掐掉了空闲连接，而 go-imap 读到 EOF 后
+关掉底层 conn，runner 手上的 Session 仍然非 nil、看着能用——直到下一条真命令
+撞上已关闭的 fd，而那时错误已经弹给用户了。
+
+这条钉：连接闲置超过 staleAfter 之后再来任务，必须先探活；探活失败就换一条
+新连接，任务照常成功（用户不该看到任何错误）。
+*/
+func TestRunner_StaleConnectionProbed(t *testing.T) {
+	// 第一条连接的 Noop 返回错误 = 它在闲置期间已经死了
+	dial, dials, noops, closes := newProbeDial([]error{errors.New("use of closed network connection")})
+	r := newRunner(1, okCfg, dial)
+	r.staleAfter = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.start(ctx)
+	defer r.stop()
+
+	run := func() error {
+		errc := make(chan error, 1)
+		r.submitBackground(func(Session) error { return nil })
+		// 用前台通道拿到确定的完成时机
+		go func() { errc <- r.submitForeground(context.Background(), func(Session) error { return nil }) }()
+		select {
+		case e := <-errc:
+			return e
+		case <-time.After(2 * time.Second):
+			t.Fatal("任务未在预期时间内完成")
+			return nil
+		}
+	}
+
+	if err := run(); err != nil {
+		t.Fatalf("第一次任务失败: %v", err)
+	}
+	if got := atomic.LoadInt32(noops); got != 0 {
+		t.Errorf("刚建的连接不该被探活，实际探了 %d 次", got)
+	}
+
+	// 让连接"闲置"过阈值
+	time.Sleep(20 * time.Millisecond)
+
+	if err := run(); err != nil {
+		t.Fatalf("陈旧连接上的任务不该报错给用户，实际: %v", err)
+	}
+	if got := atomic.LoadInt32(noops); got == 0 {
+		t.Error("闲置超过阈值却没有探活——用户仍会撞上 use-of-closed-network-connection")
+	}
+	if got := atomic.LoadInt32(closes); got == 0 {
+		t.Error("探活失败却没有关掉那条死连接")
+	}
+	if got := atomic.LoadInt32(dials); got < 2 {
+		t.Errorf("没有重新建连，dial 次数 = %d", got)
+	}
+}
+
+// TestRunner_FreshConnectionNotProbed 连续处理任务时不该为每个任务白发 NOOP。
+func TestRunner_FreshConnectionNotProbed(t *testing.T) {
+	dial, _, noops, _ := newProbeDial(nil) // Noop 恒成功
+	r := newRunner(1, okCfg, dial)
+	r.staleAfter = time.Hour // 永远不算陈旧
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.start(ctx)
+	defer r.stop()
+
+	for i := 0; i < 5; i++ {
+		if err := r.submitForeground(context.Background(), func(Session) error { return nil }); err != nil {
+			t.Fatalf("任务 %d 失败: %v", i, err)
+		}
+	}
+	if got := atomic.LoadInt32(noops); got != 0 {
+		t.Errorf("连接一直在用却探活了 %d 次——每个任务多一个来回是纯浪费", got)
+	}
+}
+
+/*
+TestRunner_ProbeDoesNotRetryTask 是**选择探活而不是失败重试**的理由。
+
+「失败后重试一次」看起来更简单，但它会把一条已经送达服务端、只是响应丢了的
+MOVE / EXPUNGE 再执行一遍——那是不可逆的数据操作。探活最坏只是白跑一个来回。
+
+所以：任务本身失败时，runner 必须原样把错误交回去，**不能**重跑它。
+*/
+func TestRunner_ProbeDoesNotRetryTask(t *testing.T) {
+	dial, _, _, _ := newProbeDial(nil)
+	r := newRunner(1, okCfg, dial)
+	r.staleAfter = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.start(ctx)
+	defer r.stop()
+
+	var runs int32
+	boom := errors.New("boom")
+	err := r.submitForeground(context.Background(), func(Session) error {
+		atomic.AddInt32(&runs, 1)
+		return boom
+	})
+
+	if !errors.Is(err, boom) {
+		t.Errorf("错误没有原样返回: %v", err)
+	}
+	if got := atomic.LoadInt32(&runs); got != 1 {
+		t.Errorf("任务被执行了 %d 次——重试可能把已送达的 MOVE/EXPUNGE 做第二遍", got)
+	}
+}
+
+// TestRunner_ProbeSkippedWhenUnsupported 假会话/别的实现没有 Noop 时退回原行为。
+func TestRunner_ProbeSkippedWhenUnsupported(t *testing.T) {
+	dial, dials, _ := newDialCounter() // rnFake 没有 Noop
+	r := newRunner(1, okCfg, dial)
+	r.staleAfter = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.start(ctx)
+	defer r.stop()
+
+	if err := r.submitForeground(context.Background(), func(Session) error { return nil }); err != nil {
+		t.Fatalf("首个任务失败: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if err := r.submitForeground(context.Background(), func(Session) error { return nil }); err != nil {
+		t.Fatalf("第二个任务失败: %v", err)
+	}
+	// 不支持探活就不该把好端端的连接丢掉重建
+	if got := atomic.LoadInt32(dials); got != 1 {
+		t.Errorf("dial 次数 = %d，期望复用单连接(1)", got)
+	}
+}

@@ -114,8 +114,7 @@ func (s *Session) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
 	var uidSet imapv2.UIDSet
 	uidSet.AddNum(uid)
 
-	// 空 BodySection 表示整封 BODY[]
-	section := &imapv2.FetchItemBodySection{}
+	section := newFullBodySection()
 	fetchOpts := &imapv2.FetchOptions{
 		UID:         true,
 		BodySection: []*imapv2.FetchItemBodySection{section},
@@ -147,6 +146,23 @@ func (s *Session) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
 	return raw, nil
 }
 
+// newFullBodySection 构造「整封原文」的抓取区段（空 Specifier = BODY[]）。
+//
+// ⚠ Peek 不是可选项，这是这个函数存在的**全部理由**。
+//
+// `BODY[]` 会让服务端给邮件置上 \Seen，而走这条路径的是附件下载、原文查看、
+// 以及**后台正文预取**——也就是说，少一个 PEEK，光是同步就会把用户邮箱里
+// 抓过的未读邮件全部标成已读，并且是在服务端：手机、网页版、其它客户端
+// 一起跟着变。未读状态一旦丢了就找不回来（没有"本来哪些是未读"的记录）。
+//
+// 标记已读必须是显式动作（回写队列里的 wbOpRead），绝不能是抓取的副作用。
+//
+// 收敛成一个构造函数而不是在两个调用点各写一次：这个缺陷的成因正是
+// 「threadHeaderSection 记得加 Peek，整封抓取那两处各自漏了」。
+func newFullBodySection() *imapv2.FetchItemBodySection {
+	return &imapv2.FetchItemBodySection{Peek: true}
+}
+
 // threadHeaderSection 是元数据抓取时附带的头字段区段：ENVELOPE 里没有 References，
 // 会话归并离不开它。PEEK 避免把邮件标成已读。
 var threadHeaderSection = &imapv2.FetchItemBodySection{
@@ -158,7 +174,7 @@ var threadHeaderSection = &imapv2.FetchItemBodySection{
 func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
 	var bodySection *imapv2.FetchItemBodySection
 	if opts.FetchBody {
-		bodySection = &imapv2.FetchItemBodySection{}
+		bodySection = newFullBodySection()
 	}
 
 	fetchOpts := &imapv2.FetchOptions{

@@ -33,17 +33,36 @@ export function clampWidth(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
 
-/** 从 localStorage 读取宽度，缺失/非法时回落默认值并夹紧到约束区间。 */
+/**
+ * 夹紧并取整到整像素。
+ *
+ * ⚠ 取整**只能**放在存取的边界上，不能放进 clampWidth——那个函数是拖拽累加器的
+ * 出口（`clamp(prev + dx, …)`，状态本身就是累加器）。在那里取整，分数缩放的显示器上
+ * 每次小于 0.5px 的位移都会被抹成 0，宽度永远推不动一格，拖拽彻底卡死。
+ * 源头的余量累加见 ResizeHandle。
+ */
+function clampPx(v: number, min: number, max: number): number {
+  // 顺序是「先夹紧、再取整」：反过来时取整可能把值推出区间一侧。
+  return Math.round(clampWidth(v, min, max))
+}
+
+/**
+ * 从 localStorage 读取宽度，缺失/非法时回落默认值，夹紧到约束区间并取整。
+ *
+ * 读取侧取整是为了**自愈**：小数是从早先的版本写进去的，只在写入侧取整的话，
+ * 用户得重新拖一次才恢复正常，在那之前设置里那一行仍会渲染成 `503.000003242px`
+ * 并撑出横向滚动条。
+ */
 export function loadLayoutWidths(): LayoutWidths {
   try {
     const raw = localStorage.getItem(LAYOUT_LS_KEY)
     if (raw) {
       const p = JSON.parse(raw) as Partial<LayoutWidths>
       return {
-        sidebar: clampWidth(p.sidebar ?? LAYOUT_DEFAULTS.sidebar, LAYOUT_LIMITS.sidebar.min, LAYOUT_LIMITS.sidebar.max),
-        list: clampWidth(p.list ?? LAYOUT_DEFAULTS.list, LAYOUT_LIMITS.list.min, LAYOUT_LIMITS.list.max),
-        slide: clampWidth(p.slide ?? LAYOUT_DEFAULTS.slide, LAYOUT_LIMITS.slide.min, LAYOUT_LIMITS.slide.max),
-        senderCol: clampWidth(p.senderCol ?? LAYOUT_DEFAULTS.senderCol, LAYOUT_LIMITS.senderCol.min, LAYOUT_LIMITS.senderCol.max),
+        sidebar: clampPx(p.sidebar ?? LAYOUT_DEFAULTS.sidebar, LAYOUT_LIMITS.sidebar.min, LAYOUT_LIMITS.sidebar.max),
+        list: clampPx(p.list ?? LAYOUT_DEFAULTS.list, LAYOUT_LIMITS.list.min, LAYOUT_LIMITS.list.max),
+        slide: clampPx(p.slide ?? LAYOUT_DEFAULTS.slide, LAYOUT_LIMITS.slide.min, LAYOUT_LIMITS.slide.max),
+        senderCol: clampPx(p.senderCol ?? LAYOUT_DEFAULTS.senderCol, LAYOUT_LIMITS.senderCol.min, LAYOUT_LIMITS.senderCol.max),
       }
     }
   } catch {
@@ -62,7 +81,15 @@ export function loadLayoutWidths(): LayoutWidths {
  * 侧栏会在拖拽中途弹回旧宽度。合并放在这里，两个调用方就都只需关心自己那份。
  */
 export function saveLayoutWidths(patch: Partial<LayoutWidths>): void {
-  const next: LayoutWidths = { ...loadLayoutWidths(), ...patch }
+  const merged: LayoutWidths = { ...loadLayoutWidths(), ...patch }
+  // 写入侧再取一次整：loadLayoutWidths 已经把存量洗干净了，但 patch 是调用方
+  // 直接给的，任何一个忘了取整的调用方都会把小数带进来。这里是唯一的写入口。
+  const next: LayoutWidths = {
+    sidebar: Math.round(merged.sidebar),
+    list: Math.round(merged.list),
+    slide: Math.round(merged.slide),
+    senderCol: Math.round(merged.senderCol),
+  }
   try {
     localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(next))
   } catch {

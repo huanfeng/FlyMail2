@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -6,6 +9,7 @@ import MockAdapter from 'axios-mock-adapter'
 import api from '@/lib/api'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
 import { ConfirmProvider } from '@/components/ui/Confirm'
+import { ToastProvider } from '@/components/ui/Toast'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Account, RealtimeEvent } from '@/lib/types'
 
@@ -88,6 +92,7 @@ describe('后台自动同步在侧栏可见', () => {
         activeFolderId={null}
         notifOpen={false}
         settingsOpen={false}
+        connState="open"
         activeAgg={null}
         aggCounts={{ inbox: 0, unread: 0, starred: 0 }}
         onSelectAccount={vi.fn()}
@@ -120,6 +125,10 @@ describe('后台自动同步在侧栏可见', () => {
   const rows = () => [...container.querySelectorAll('.account-row')]
   const progress = () => container.querySelectorAll('.sync-progress')
   const spinning = () => container.querySelectorAll('.spin-anim')
+  /** 后台同步的表达：账户行下沿那条绝对定位、不占布局的细条 */
+  const bgBar = () => container.querySelectorAll('.acct-sync-bar')
+  /** 同步按钮（进度对读屏的唯一出口，见 syncLabel） */
+  const syncBtns = () => [...container.querySelectorAll<HTMLElement>('.account-row-actions button')]
 
   beforeEach(async () => {
     emit = null
@@ -133,9 +142,13 @@ describe('后台自动同步在侧栏可见', () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={qc}>
-          <ConfirmProvider>
-            <Harness accounts={[account(1, 'alice'), account(2, 'bob')]} />
-          </ConfirmProvider>
+          {/* ToastProvider 与真实装配一致（main.tsx 里它包着路由根）：
+              账户块里的「全部标为已读」要用 toast 报结果。 */}
+          <ToastProvider>
+            <ConfirmProvider>
+              <Harness accounts={[account(1, 'alice'), account(2, 'bob')]} />
+            </ConfirmProvider>
+          </ToastProvider>
         </QueryClientProvider>,
       )
     })
@@ -152,6 +165,50 @@ describe('后台自动同步在侧栏可见', () => {
     expect(rows().length).toBe(2)
     expect(spinning().length).toBe(0)
     expect(progress().length).toBe(0)
+    expect(bgBar().length).toBe(0)
+  })
+
+  /**
+   * ── 后台同步不得推动布局（用户报的第 7 条）────────────────────────────────
+   *
+   * 上一轮把后台自动同步接进 `.sync-progress` 时，漏掉了这个仓库里已经写明的判据
+   * ——`.list-refresh-bar` 的注释：「绝对定位使它不占布局……刷新相当频繁，
+   * 任何占位的指示都会让标题栏反复抖动」。
+   *
+   * 结果是：每个账户每 180 秒自己插入一个约 24px 的块、几秒后收回，
+   * 下面的文件夹列表和其它账户整体上下跳。用户没做任何操作。
+   *
+   * jsdom 没有布局（offsetHeight 恒为 0），所以不能量高度。改为钉**结构**：
+   * 同步态切换前后，账户块在正常流里的子节点必须一个不多一个不少——
+   * 占位元素只可能从这里进来。
+   */
+  it('后台同步开始与结束都不改变账户块的流内结构', async () => {
+    const block = () => rows()[1].closest('div')!.parentElement!
+    const flowKids = () =>
+      [...block().children].filter((el) => {
+        // 绝对定位的元素不占布局，不计入。jsdom 不算样式表，
+        // 只能按类名认——所以这里同时也钉住了"细条必须是这个类"。
+        return !el.classList.contains('acct-sync-bar')
+      }).length
+
+    const before = flowKids()
+    expect(before, '取到的不是账户块').toBeGreaterThan(0)
+
+    await fire({ type: 'sync_status', account_id: 2, phase: 'messages', folders_total: 12, folders_done: 3 })
+    expect(flowKids(), '后台同步往正常流里插了元素，侧栏会跳').toBe(before)
+
+    await fire({ type: 'sync_status', account_id: 2, phase: 'done' })
+    expect(flowKids()).toBe(before)
+  })
+
+  it('细条本身必须是绝对定位的——它是整条不变量的依托', () => {
+    // 上一条把 .acct-sync-bar 排除在"流内子节点"之外，前提是它真的不占布局。
+    // 那个前提写在 CSS 里，而 jsdom 不会去读——所以在这里单独核对一次，
+    // 否则上一条会变成「把一个确实占位的元素排除掉」的自欺。
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
+    const rule = /\.acct-sync-bar\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(rule, '.acct-sync-bar 规则不存在').not.toBe('')
+    expect(rule, '细条不是绝对定位，它照样会把内容顶下去').toMatch(/position:\s*absolute/)
   })
 
   it('账户行只观察缓存，绝不发同步状态请求', async () => {
@@ -178,22 +235,26 @@ describe('后台自动同步在侧栏可见', () => {
     })
 
     expect(spinning().length, '没有任何账户在转圈——后台同步依然不可见').toBe(1)
-    expect(progress().length).toBe(1)
 
-    const bar = container.querySelector('[role="progressbar"]')!
-    expect(bar.getAttribute('aria-valuenow')).toBe('3')
-    expect(bar.getAttribute('aria-valuemax')).toBe('12')
-    expect(container.textContent).toContain('folder.inbox')
+    // ⚠ 后台同步**不**展开 .sync-progress：那个块在正常流里，每 180 秒插入
+    // 再收回一次，会把下面的文件夹列表和其它账户顶得来回跳（用户报的第 7 条）。
+    expect(progress().length, '后台同步展开了占位的进度块，侧栏会自己抖').toBe(0)
+    // 取而代之的是账户行下沿那条绝对定位的细条
+    expect(bgBar().length).toBe(1)
+
+    // 进度对读屏的出口：按钮名。刻意不是 live region——每 180 秒播报一次
+    // 「正在同步邮件」是视觉抖动对读屏用户的等价物，而且更难忽略。
+    const label = syncBtns()[1].getAttribute('aria-label') ?? ''
+    expect(label).toContain('sync.folderProgress:3/12')
+    expect(label).toContain('folder.inbox')
   })
 
   it('进度只出现在正在同步的那个账户上', async () => {
     await fire({ type: 'sync_status', account_id: 2, phase: 'messages', folders_total: 4 })
-    // 侧栏里账户 1 排在前面；进度行必须挂在账户 2 的块里
-    const blocks = [...container.querySelectorAll('.sync-progress')]
-    expect(blocks.length).toBe(1)
-    // 用 parentElement 而不是 closest('div')：后者会先命中元素自身
-    // （.sync-progress 本身就是 div），拿到的其实还是父元素，读起来像在找祖先。
-    const owner = blocks[0].parentElement
+    // 侧栏里账户 1 排在前面；细条必须挂在账户 2 的行里
+    const bars = [...bgBar()]
+    expect(bars.length).toBe(1)
+    const owner = bars[0].parentElement
     expect(owner?.textContent).toContain('bob')
     expect(owner?.textContent).not.toContain('alice')
   })
@@ -205,6 +266,7 @@ describe('后台自动同步在侧栏可见', () => {
     await fire({ type: 'sync_status', account_id: 2, phase: 'done' })
     expect(spinning().length, 'done 之后还在转圈').toBe(0)
     expect(progress().length).toBe(0)
+    expect(bgBar().length).toBe(0)
   })
 
   it('排队阶段也算在同步——那段时间同样要有表达', async () => {
@@ -212,7 +274,8 @@ describe('后台自动同步在侧栏可见', () => {
     // 用户看到的是"什么都没发生"，而实际上后台正在等名额。
     await fire({ type: 'sync_status', account_id: 1, phase: 'queued' })
     expect(spinning().length).toBe(1)
-    expect(container.textContent).toContain('sync.queued')
+    expect(bgBar().length).toBe(1)
+    expect(syncBtns()[0].getAttribute('aria-label')).toBe('sync.queued')
   })
 
   it('同步失败不残留在同步态', async () => {
@@ -220,6 +283,7 @@ describe('后台自动同步在侧栏可见', () => {
     await fire({ type: 'sync_status', account_id: 1, phase: 'error', error: 'boom' })
     expect(spinning().length).toBe(0)
     expect(progress().length).toBe(0)
+    expect(bgBar().length).toBe(0)
   })
 
   it('在途的旧轮询响应不能把已完成的同步改回进行中', async () => {
@@ -256,6 +320,7 @@ describe('后台自动同步在侧栏可见', () => {
     })
     expect(spinning().length, '旧快照把已完成的同步改回了进行中，而且不会自愈').toBe(0)
     expect(progress().length).toBe(0)
+    expect(bgBar().length).toBe(0)
   })
 
   it('SSE 重连后对账，错过的 done 不会让账户永久转圈', async () => {

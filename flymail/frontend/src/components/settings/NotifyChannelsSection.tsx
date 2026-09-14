@@ -118,7 +118,7 @@ export function NotifyChannelsSection() {
       ))}
 
       <button type="button" className="pill-btn" style={{ marginTop: 14 }} onClick={openAdd}>
-        <Icon name="plus" size={12} /> {t('settings.notify.addChannel')}
+        <Icon name="plus" size={12} />{t('settings.notify.addChannel')}
       </button>
 
       {/* 添加/编辑对话框 */}

@@ -217,7 +217,7 @@ export function RulesSection() {
       ))}
 
       <button type="button" className="pill-btn" style={{ marginTop: 14 }} onClick={openAdd}>
-        <Icon name="plus" size={12} /> {t('settings.rules.addRule')}
+        <Icon name="plus" size={12} />{t('settings.rules.addRule')}
       </button>
 
       <RuleDialog open={dialogOpen} rule={editing} onOpenChange={setDialogOpen} />

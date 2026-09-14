@@ -24,7 +24,51 @@ import {
   restoreMail,
 } from '@/lib/optimistic'
 import type { ThreadPatch } from '@/lib/optimistic'
-import type { Account, AccountHealth, AccountInput, AccountStats, Alias, AliasInput, AppSettings, BlockEntry, BodySyncMode, ConnectionTestResult, Contact, DiagnosticsResponse, Draft, DraftRequest, Folder, MessageDetail, MessageListItem, MonitoringOverview, Notification, NotifyChannel, NotifyChannelInput, NotifyLog, OAuthCompleteInput, OAuthFlowStatus, OAuthProviderInfo, OAuthStartInput, OAuthStartResponse, Profile, RemoteSearchResult, Rule, RuleInput, RuleRun, RuleTestResult, SendRequest, Signature, SignatureInput, SyncStatus, ThreadCursor, ThreadPage, TrustedSender } from '@/lib/types'
+import type {
+  Account,
+  AccountHealth,
+  AccountInput,
+  AccountStats,
+  Alias,
+  AliasInput,
+  AppSettings,
+  BlockEntry,
+  BodySyncMode,
+  ConnectionTestResult,
+  Contact,
+  DiagnosticsResponse,
+  Draft,
+  DraftRequest,
+  Folder,
+  MessageDetail,
+  MessageListItem,
+  MonitoringOverview,
+  Notification,
+  NotifyChannel,
+  NotifyChannelInput,
+  NotifyLog,
+  OAuthCompleteInput,
+  OAuthFlowStatus,
+  OAuthProviderInfo,
+  OAuthStartInput,
+  OAuthStartResponse,
+  Profile,
+  RemoteSearchResult,
+  Rule,
+  RuleInput,
+  RuleRun,
+  RuleTestResult,
+  SendRequest,
+  Signature,
+  SignatureInput,
+  SyncStatus,
+  ThreadCursor,
+  ThreadPage,
+  TrustedSender,
+  PortableBundle,
+  ImportMode,
+  ImportResult,
+} from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
 async function fetchFolders(accountId: number): Promise<Folder[]> {
@@ -392,6 +436,66 @@ export function useBatchRead() {
     },
     onError: (_e, _v, snap) => restoreMail(qc, snap),
     onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/**
+ * 把一个文件夹里的未读邮件全部标为已读。
+ *
+ * ⚠ 刻意**不**做成「前端先拉未读 id 再调 /batch/read」：一个文件夹可能有几万封
+ * 未读，那等于把几万个 id 在网络上传两趟，而且前端拿不到没分页到的那些。
+ * 服务端一条 SQL 就能查出来，还能顺手按 IMAP 命令长度上限分批回写。
+ *
+ * 乐观更新只做**角标**不做列表行：列表里可见的那几十行会被随后的 invalidate
+ * 拉回来，而角标是用户盯着的那个数字，等一个来回才归零会显得没反应。
+ */
+export function useFolderReadAll() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (folderId: number) => {
+      const res = await api.post<{ marked: number }>(`/folders/${folderId}/read-all`)
+      return res.data
+    },
+    onSettled: () => invalidateMailCaches(qc),
+  })
+}
+
+/**
+ * 导出账户配置。
+ *
+ * ⚠ 用 POST 而不是 GET，尽管它不改状态：include_passwords 若走查询串，
+ * 就会在反向代理与浏览器的访问日志、历史记录里留下一行
+ * 「这个请求的响应含明文密码」的路标。理由同后端 exportAccounts 的注释。
+ */
+export function useExportAccounts() {
+  return useMutation({
+    mutationFn: async (v: { ids: number[]; includePasswords: boolean }) => {
+      const res = await api.post<PortableBundle>('/accounts/export', {
+        ids: v.ids,
+        include_passwords: v.includePasswords,
+      })
+      return res.data
+    },
+  })
+}
+
+/** 导入账户配置。 */
+export function useImportAccounts() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { bundle: PortableBundle; mode: ImportMode; only: string[] }) => {
+      const res = await api.post<ImportResult>('/accounts/import', {
+        bundle: v.bundle,
+        mode: v.mode,
+        only: v.only,
+      })
+      return res.data
+    },
+    // 账户列表、侧栏、文件夹全都要重来：导入可能新建也可能改了现有账户
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['folders'] })
+    },
   })
 }
 

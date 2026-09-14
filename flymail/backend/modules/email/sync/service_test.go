@@ -23,8 +23,10 @@ import (
 
 // fakeSession 实现 syncmod.Session 接口，线程安全记录方法调用。
 type fakeSession struct {
-	mu              gosync.Mutex
-	markReadUIDs    []imapv2.UID
+	mu           gosync.Mutex
+	markReadUIDs []imapv2.UID
+	// 按调用分组的 MarkRead 记录（一次调用 = 一条 IMAP STORE）
+	markReadBatches [][]imapv2.UID
 	markUnreadUIDs  []imapv2.UID
 	markStarredUIDs []imapv2.UID
 	markUnstarred   []imapv2.UID
@@ -93,6 +95,10 @@ func (f *fakeSession) MarkRead(uids ...imapv2.UID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.markReadUIDs = append(f.markReadUIDs, uids...)
+	// 按**调用**再记一份：markReadUIDs 是拍平的，看不出分了几批。
+	// 而一次调用 = 一条 IMAP STORE 命令，命令的 UID 集合有长度上限——
+	// 「分成了几批」正是文件夹级全标已读要守的那件事（见 markFolderReadChunk）。
+	f.markReadBatches = append(f.markReadBatches, append([]imapv2.UID(nil), uids...))
 	return nil
 }
 

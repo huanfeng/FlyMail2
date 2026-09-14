@@ -62,12 +62,23 @@ export function ResizeHandle({
     el.classList.add('dragging')
     document.body.classList.add('is-resizing')
 
-    let lastX = e.clientX
+    // 已经发出去的位置，不是最后一次事件的位置——两者的差就是攒着的亚像素余量。
+    let emittedX = e.clientX
 
     function onMove(ev: PointerEvent) {
-      const dx = ev.clientX - lastX
-      lastX = ev.clientX
-      onDelta(dx)
+      // 只发整数增量：调用方是 `clamp(prev + dx, …)`，状态本身就是累加器，
+      // 小数一旦进去就再也出不来（宽度变成 503.000003242，设置里那一行
+      // 原样渲染出来，把行撑宽并逼出横向滚动条）。
+      //
+      // 余量留在 emittedX 里而不是抹掉：分数缩放的显示器上每帧可能只走 0.6px，
+      // 逐次取整会把它们全部丢掉，拖拽彻底推不动。攒够 1px 再发，拖拽依旧跟手。
+      //
+      // 用 Math.trunc 而不是 Math.floor：floor(-0.4) = -1，向左的微小抖动会被
+      // 放大成整整 1px、向右却是 0，拖拽会朝一侧漂。trunc 对两个方向对称。
+      const step = Math.trunc(ev.clientX - emittedX)
+      if (step === 0) return
+      emittedX += step
+      onDelta(step)
     }
     function onUp(ev: PointerEvent) {
       el.releasePointerCapture(ev.pointerId)

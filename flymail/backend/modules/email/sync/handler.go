@@ -46,6 +46,9 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.POST("/batch/move", h.batchMove)
 	rg.POST("/batch/read", h.batchRead)
 	rg.POST("/batch/flag", h.batchFlag)
+	// 文件夹级"全部标为已读"。不做成前端先拉 id 再调 /batch/read：
+	// 一个文件夹可能有几万封未读，那等于把几万个 id 传两趟。
+	rg.POST("/folders/:id/read-all", h.folderReadAll)
 	// 服务端搜索兜底：与 message 模块的 GET /search/messages 同前缀，但要走 runner 连接，所以挂在这里
 	rg.POST("/search/remote", h.remoteSearch)
 
@@ -192,6 +195,22 @@ func (h *handler) batchRead(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// folderReadAll 把一个文件夹里的未读邮件全部标为已读。
+func (h *handler) folderReadAll(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid folder id"})
+		return
+	}
+	n, err := h.svc.MarkFolderRead(uint(id))
+	if err != nil {
+		// 带上 marked：分批执行时前面的批次已经生效了，报 0 会让用户以为什么都没发生。
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "marked": n})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "marked": n})
 }
 
 func (h *handler) batchFlag(c *gin.Context) {

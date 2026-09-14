@@ -657,3 +657,60 @@ export interface Signature {
 }
 
 export type SignatureInput = Pick<Signature, 'body_html' | 'use_on_new' | 'use_on_reply'>
+
+// ── 账户配置的导出 / 导入 ────────────────────────────────────────────────────
+//
+// 与后端 modules/email/account/portable.go 一一对应。
+
+/** 一个账户的可搬运配置。 */
+export interface PortableAccount {
+  name: string
+  email: string
+  username?: string
+  /**
+   * 仅当导出时勾选了「包含密码」才有值。
+   *
+   * ⚠ 区分 undefined 与 ''：前者是「这份导出不含密码」，后者会在导入时
+   * 把现有账户的密码**清空**。后端按指针判定，前端也不能把它归一化成空串。
+   */
+  password?: string
+  auth_type: string
+  imap_host: string
+  imap_port: number
+  imap_security: string
+  smtp_host: string
+  smtp_port: number
+  smtp_security: string
+  proxy_type?: string
+  proxy_host?: string
+  proxy_port?: number
+  proxy_username?: string
+  proxy_password?: string
+  enabled: boolean
+}
+
+/** 导出文件的顶层结构。 */
+export interface PortableBundle {
+  version: number
+  /** 密码字段是不是密文。当前恒为 false——见 portable.go 顶部的说明。 */
+  encrypted: boolean
+  exported_at: string
+  accounts: PortableAccount[]
+}
+
+/** 导入时遇到同邮箱账户的处理方式。 */
+export type ImportMode = 'skip' | 'overwrite'
+
+export interface ImportOutcome {
+  email: string
+  action: 'created' | 'updated' | 'skipped' | 'failed'
+  error?: string
+}
+
+export interface ImportResult {
+  created: number
+  updated: number
+  skipped: number
+  failed: number
+  outcomes: ImportOutcome[]
+}

@@ -62,4 +62,41 @@ describe('布局宽度偏好', () => {
     expect(clampWidth(300, 100, 200)).toBe(200)
     expect(clampWidth(150, 100, 200)).toBe(150)
   })
+
+  /**
+   * ── 宽度必须是整数 ───────────────────────────────────────────────────────
+   *
+   * 分数缩放的显示器上 `ev.clientX` 带小数，拖拽是「状态 + dx」逐次累加的，
+   * 于是宽度会变成 503.000003242。它不只是难看：设置里那一行把它原样渲染成
+   * `503.000003242px`，把设置行撑宽、逼出横向滚动条（用户报的第 4 条）。
+   *
+   * 取整**不能**放进 clampWidth：那里是累加器的出口，小于 0.5px 的位移会被
+   * 反复抹成 0，拖拽在分数缩放下彻底卡死。真正的修法是在 ResizeHandle 里只
+   * 发整数增量、余量留到下次（见 ResizeHandle.test.tsx）。这里守的是另外两道：
+   * 写入时取整、读取时自愈。
+   */
+  it('写进去的小数被取整', () => {
+    saveLayoutWidths({ list: 503.000003242, sidebar: 247.6 })
+    const raw = JSON.parse(localStorage.getItem(LAYOUT_LS_KEY)!)
+    expect(raw.list, '小数落进了 localStorage').toBe(503)
+    expect(raw.sidebar).toBe(248)
+  })
+
+  it('已被污染的旧值在读取时自愈', () => {
+    // 用户手上那份 localStorage 已经是脏的了。只在写入侧取整的话，
+    // 得等他重新拖一次才恢复正常——横向滚动条在那之前一直在。
+    localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify({ list: 503.000003242 }))
+    expect(loadLayoutWidths().list).toBe(503)
+  })
+
+  it('取整发生在夹紧之后，不会被顶出区间', () => {
+    // 先取整再夹紧的话，上限是 680 而值是 680.4 → 取整成 680、没问题；
+    // 但下限 300 遇到 299.6 会取整成 300 后再夹紧仍是 300——巧合正确。
+    // 真正会出事的是 max 为奇数小数的情形，所以顺序固定成「夹紧 → 取整」。
+    localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify({ list: 99999.7, sidebar: -0.4 }))
+    const w = loadLayoutWidths()
+    expect(w.list).toBe(LAYOUT_LIMITS.list.max)
+    expect(w.sidebar).toBe(LAYOUT_LIMITS.sidebar.min)
+    expect(Number.isInteger(w.list) && Number.isInteger(w.sidebar)).toBe(true)
+  })
 })

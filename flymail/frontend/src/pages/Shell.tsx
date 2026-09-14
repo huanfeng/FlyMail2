@@ -194,7 +194,7 @@ export function ShellPage() {
   const [announce, setAnnounce] = useState<{ text: string; seq: number }>({ text: '', seq: 0 })
 
   // 订阅 SSE 实时推送：new_mail 刷新缓存，notify 走提醒（桌面通知 / 提示音 / 播报）
-  const { offline } = useRealtimeSync({
+  const { offline, state: realtimeState } = useRealtimeSync({
     // 必须走 openMailById 而不是 selectMessage：点通知时用户多半停在别的账户、
     // 聚合视图或搜索结果里，只写 message 参数会切不过去；会话视图下更是直接一片空白。
     onOpenMessage: (id) => void openMailById(id),
@@ -1150,6 +1150,9 @@ export function ShellPage() {
       activeFolderId={folderId}
       notifOpen={notifOpen}
       settingsOpen={settingsOpen}
+      // 三态合并在这里而不是侧栏里：offline 的阈值语义（连不上持续 ≥6 秒）
+      // 归 useRealtimeSync 管，侧栏只负责把三个值画成三种颜色。
+      connState={offline ? 'offline' : realtimeState}
       activeAgg={agg}
       aggCounts={aggCounts}
       onSelectAccount={selectAccount}

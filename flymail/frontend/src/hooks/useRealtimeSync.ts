@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { reconcileSyncStatus } from '@/lib/queries'
-import { connectRealtime } from '@/lib/sse'
+import { connectRealtime, type RealtimeState } from '@/lib/sse'
 import { writeSyncStatus } from '@/lib/sync-cache'
 import type { SyncStatus } from '@/lib/types'
 import { getNotifyPrefs } from '@/lib/notify-prefs'
@@ -34,8 +34,25 @@ export interface RealtimeOptions {
  */
 const OFFLINE_AFTER_MS = 6000
 
-/** 订阅 SSE，并返回连接是否**看起来已经断了**（见 OFFLINE_AFTER_MS）。 */
-export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean } {
+/**
+ * 订阅 SSE 的结果。
+ *
+ * 两个字段**不是**同一件事的两种说法，界面上也由两个不同的元件消费：
+ *
+ * - `offline` 是「连不上已经持续了一会儿」（≥ OFFLINE_AFTER_MS），给那条横幅用。
+ *   它带防抖，因为横幅是打扰性的，为一次一秒的重连弹出来只会烦人。
+ * - `state` 是**此刻**的原始状态，给标题栏那颗常驻状态灯用。它不防抖：
+ *   状态灯本来就常驻在那儿、不打扰任何人，反而应该如实反映短暂的重连，
+ *   否则断开的头六秒里界面上没有任何迹象（横幅还没到阈值）——
+ *   而那六秒里新邮件既不刷新列表也不弹通知。
+ */
+export interface RealtimeStatus {
+  offline: boolean
+  state: RealtimeState
+}
+
+/** 订阅 SSE，返回连接状态（见 RealtimeStatus）。 */
+export function useRealtimeSync(opts: RealtimeOptions = {}): RealtimeStatus {
   const qc = useQueryClient()
   // 回调每次渲染都是新引用，放进依赖会让 SSE 连接反复重建（每次都要重新取票）。
   // 同步放在 effect 里而不是 render 期赋值：后者正是 react-hooks/refs 拦的东西，
@@ -46,6 +63,9 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean 
   })
 
   const [offline, setOffline] = useState(false)
+  // 初值取 'connecting'：connectRealtime 建连前就会先报一次 connecting，
+  // 但那要等到 effect 跑完。用 'open' 做初值会让首帧闪一下绿灯。
+  const [state, setState] = useState<RealtimeState>('connecting')
 
   useEffect(() => {
     // 计时器在 effect 作用域内，与连接同生共死：卸载时一并清掉，
@@ -113,8 +133,9 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean 
         if (prefs.sound && claimChime()) playChime()
       }
     },
-    (state) => {
-      if (state === 'open') {
+    (next) => {
+      setState(next)
+      if (next === 'open') {
         clearOfflineTimer()
         setOffline(false)
         void reconcileSyncStatus(qc)
@@ -132,5 +153,5 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): { offline: boolean 
     }
   }, [qc])
 
-  return { offline }
+  return { offline, state }
 }

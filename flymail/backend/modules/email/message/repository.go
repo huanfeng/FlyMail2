@@ -431,6 +431,22 @@ func (r *Repository) UnreadCountByFolder(folderID uint) (int64, error) {
 	return n, err
 }
 
+// UnreadIDsByFolder 返回该文件夹里全部未读邮件的主键，升序。
+//
+// 只取 id 而不是整行：调用方（文件夹级"全部标为已读"）只需要主键，
+// 而这个集合可能有几万条——整行捞出来就是几十 MB 的正文片段与头部。
+//
+// 也**只查未读**，不是查全部再过滤：已读的那些既不需要改本地、也不需要回写，
+// 带上它们只会让 IMAP STORE 的 UID 集合白白膨胀几倍。
+func (r *Repository) UnreadIDsByFolder(folderID uint) ([]uint, error) {
+	var ids []uint
+	err := r.db.Model(&Message{}).
+		Where("folder_id = ? AND seen = ?", folderID, false).
+		Order("id ASC").
+		Pluck("id", &ids).Error
+	return ids, err
+}
+
 // GetByIDs 按主键批量取行（分块防绑定变量上限），不存在的 id 直接缺席；结果按 id 升序。
 func (r *Repository) GetByIDs(ids []uint) ([]Message, error) {
 	var out []Message

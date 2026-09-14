@@ -82,7 +82,7 @@ export function BlocklistSection() {
           aria-label={t('settings.blocklist.note')}
         />
         <button type="button" className="pill-btn" onClick={handleAdd} disabled={addBlock.isPending} style={{ flexShrink: 0, height: 36 }}>
-          <Icon name="plus" size={12} /> {t('settings.blocklist.add')}
+          <Icon name="plus" size={12} />{t('settings.blocklist.add')}
         </button>
       </div>
       {error && <div style={{ fontSize: '0.8125rem', color: 'var(--destructive)', marginTop: 8 }}>{error}</div>}

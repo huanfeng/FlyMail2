@@ -18,6 +18,9 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	g.PUT("/:id", h.update)
 	g.DELETE("/:id", h.delete)
 	g.POST("/test", h.testConnection)
+	// 配置导出/导入。用 POST 导出的理由见 exportAccounts 的注释。
+	g.POST("/export", h.exportAccounts)
+	g.POST("/import", h.importAccounts)
 	g.POST("/:id/enabled", h.setEnabled)
 	registerIdentityRoutes(g, h)
 	registerOAuthRoutes(g, h)
@@ -142,4 +145,56 @@ func (h *handler) testConnection(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, h.svc.TestConnection(req))
+}
+
+// ── 配置导出 / 导入 ─────────────────────────────────────────────────────────
+
+// exportAccounts 导出账户配置。
+//
+// ⚠ 用 POST 而不是 GET，尽管它不改变任何状态。理由是 include_passwords：
+// GET 的查询串会落进反向代理与浏览器的访问日志、也留在历史记录里，
+// 那就等于到处留下一行「这个请求的响应里有明文密码」的路标。
+// 同理，导出的 id 列表也放在请求体里。
+func (h *handler) exportAccounts(c *gin.Context) {
+	var body struct {
+		IDs              []uint `json:"ids"`
+		IncludePasswords bool   `json:"include_passwords"`
+	}
+	// 允许空body：整体导出、不含密码
+	_ = c.ShouldBindJSON(&body)
+
+	bundle, err := h.svc.Export(body.IDs, body.IncludePasswords)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// 含密码的导出物绝不能被任何中间层缓存下来
+	if body.IncludePasswords {
+		c.Header("Cache-Control", "no-store, max-age=0")
+	}
+	c.JSON(http.StatusOK, bundle)
+}
+
+// importAccounts 按上传的配置建立/更新账户。
+func (h *handler) importAccounts(c *gin.Context) {
+	var body struct {
+		Bundle *PortableBundle `json:"bundle"`
+		Mode   string          `json:"mode"`
+		Only   []string        `json:"only"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Bundle == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	res, err := h.svc.Import(body.Bundle, ImportMode(body.Mode), body.Only)
+	if err != nil {
+		// 版本不认与"加密的还读不了"都是用户能看懂并据此行动的，给 400 而不是 500
+		if errors.Is(err, ErrPortableVersion) || errors.Is(err, ErrPortableEncrypted) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }

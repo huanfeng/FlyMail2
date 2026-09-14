@@ -2,9 +2,10 @@
 // 参考 .dev/mailmaster/src_extracted/03_f2308e64.js + app.css
 // 所有颜色严格使用 CSS 设计令牌，不写死任何颜色值
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfirm } from '@/components/ui/Confirm'
+import { useToast } from '@/components/ui/Toast'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/Icon'
 import { CtxMenu, type CtxMenuItem } from '@/components/ui/ContextMenu'
@@ -16,12 +17,45 @@ import {
   useSetAccountEnabled,
   useDeleteAccount,
   useSyncStatus,
+  useFolderReadAll,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { isSyncActive } from '@/lib/types'
 import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
 import { folderName } from '@/lib/mail-format'
+
+/** 实时连接的三态。'offline' = 连不上已持续 ≥ OFFLINE_AFTER_MS。 */
+export type ConnState = 'open' | 'connecting' | 'offline'
+
+/**
+ * 品牌栏右侧的实时连接指示灯。
+ *
+ * 这个位置原本是一颗写死成 `var(--ink-4)` 的装饰圆点——不可点击、没有 title、
+ * 不随任何状态变化。但它长在标题栏里、又是个小圆点，看上去就像状态灯，
+ * 用户第一反应就是问「这个圆点是做什么的」。既然它已经在传达"某种状态"，
+ * 那就让它真的传达状态，而不是把误导留在那儿。
+ *
+ * 它与那条 `.conn-banner` 横幅**不重复**，两者覆盖的时间段不同：
+ * 横幅要等断开满 6 秒才弹（它是打扰性的，为一次一秒的重连弹出来只会烦人），
+ * 而断开的**头六秒**里界面上此前没有任何迹象——那六秒里新邮件既不刷新列表
+ * 也不弹通知。这颗灯补的正是那段空窗。
+ *
+ * 用 title 而不是 aria-live：连接状态每次重连都会变，做成 live region 就是
+ * 每次切网络都对读屏用户念一遍。真正需要打断的情形（断了很久）由横幅负责，
+ * 那里已经有 role="status"。
+ */
+function ConnDot({ state }: { state: ConnState }) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className={`brand-dot brand-dot-${state}`}
+      title={t(`realtime.state.${state}`)}
+      role="img"
+      aria-label={t(`realtime.state.${state}`)}
+    />
+  )
+}
 
 /**
  * 同步进度行。
@@ -133,6 +167,9 @@ function nameInitials(name: string): string {
     .toUpperCase()
 }
 
+/** 未读超过这个数时，「全部标为已读」先弹确认。比一屏多一点。 */
+const READ_ALL_CONFIRM_AT = 20
+
 // ── 文件夹类型 → 图标名称映射 ─────────────────────────────
 const FOLDER_ICON: Record<string, IconName> = {
   inbox: 'inbox',
@@ -180,6 +217,13 @@ interface Props {
   notifOpen: boolean
   /** 设置浮层是否打开，用于高亮齿轮 */
   settingsOpen: boolean
+  /**
+   * SSE 实时连接状态，画在品牌栏那颗点上。
+   *
+   * 'connecting' 与 'offline' 的区别是**持续了多久**（阈值归 useRealtimeSync 管）：
+   * 前者是一次寻常的重连，后者是已经断了一会儿、那条横幅也已经弹出来了。
+   */
+  connState: ConnState
   /** 当前激活的聚合入口（null 表示未选中聚合） */
   activeAgg: AggregateView | null
   /** 聚合入口徽标计数 */
@@ -280,12 +324,88 @@ function AccountBlock({
   // 这样「谁在同步」不再依赖父组件传下来的那一个 id——后台自动同步没有触发者，
   // 父组件根本不知道它在跑。缓存由三方写入：手动触发那一路的轮询、
   // SSE 推送（手动与后台都走它）、以及触发成功时的乐观播种。
+  const confirm = useConfirm()
+  const { toast } = useToast()
+  const readAll = useFolderReadAll()
   const { data: syncStatus } = useSyncStatus(acc.id, false)
   const syncing = isSyncActive(syncStatus?.phase)
 
+  /**
+   * 这一轮同步是不是用户自己点出来的。
+   *
+   * ── 为什么要分 ───────────────────────────────────────────────────────────
+   *
+   * 进度块（`.sync-progress`，约 24px）在正常流里。上一轮把后台自动同步也接进
+   * 这套表达之后，它变成**每 180 秒每个账户自己插入一次**——用户没做任何操作，
+   * 下面的文件夹列表和其它账户整体往下跳一次、几秒后又跳回来。
+   *
+   * 这个仓库里其实已经解过一次同样的问题，判据就写在 `.list-refresh-bar` 上：
+   * 「绝对定位使它不占布局——刷新相当频繁，任何占位的指示都会让标题栏反复抖动」。
+   * 上一轮我没把那条判据搬到侧栏来。
+   *
+   * 但两处不完全一样：列表那条只需要表达"在刷新"，而这里还有一行文字
+   * （「第 3 / 12 个文件夹 · 收件箱」），塞不进 2px 的条里。所以按**来源**分：
+   *
+   *   用户点了同步  → 完整进度块。此刻他正盯着这里，块展开是**反馈**不是抖动。
+   *   后台自动同步  → 只留账户行上那条 2px 的绝对定位进度条 + 转圈的点，
+   *                   零布局影响。想看细节可以 hover（title 里有）。
+   *
+   * ── 归属判定 ─────────────────────────────────────────────────────────────
+   *
+   * 建模成「**这一轮**同步归谁」，而不是「此刻是不是用户点的」。
+   *
+   * ⚠ 不能写成「同步结束就复位」：BodyPrefetchNote 恰恰是在同步**结束后**
+   * （phase=done 且还有待补正文）才显示的，那样两个条件永远凑不齐，
+   * 正文回补的进度就再也不会出现——一个看起来很合理、实则把功能改没了的写法。
+   *
+   * 复位点是**下一轮同步开始**（syncing 假→真）：那时候消费掉 armed 标记，
+   * 没被 arm 过的就是后台自己跑的。owned 因此能一直活到下一轮开始，
+   * 覆盖住正文回补那段。
+   */
+  const [owned, setOwned] = useState(false)
+  const armedRef = useRef(false)
+  const prevSyncingRef = useRef(syncing)
+  useEffect(() => {
+    if (syncing && !prevSyncingRef.current) {
+      setOwned(armedRef.current)
+      armedRef.current = false
+    }
+    prevSyncingRef.current = syncing
+  }, [syncing])
+
+  function triggerSync() {
+    // 立刻置真而不是只 arm：用户点了就该马上有反馈，不必等状态回来。
+    // 右键菜单那一项在同步进行中也可点（后端会 409），此时用户显然是想看进度，
+    // 直接显示正合其意。
+    setOwned(true)
+    armedRef.current = true
+    onSync()
+  }
+
+  /**
+   * 同步按钮的名字：闲时是动作名，同步中换成进度描述。
+   *
+   * 后台同步那一路不渲染带 aria-live 的进度块（见 owned 处），读屏用户的信息
+   * 全靠这里。把文件夹进度也拼进来，Tab 过去就能听到「第 3 / 12 个文件夹 · 收件箱」，
+   * 而不是只有一句"正在同步"。
+   */
+  const syncFolderTotal = syncStatus?.folders_total ?? 0
+  const syncLabel = !syncing
+    ? t('sync.trigger')
+    : syncFolderTotal > 0
+      ? `${t('sync.messages')} ${t('sync.folderProgress', {
+          done: syncStatus?.folders_done ?? 0,
+          total: syncFolderTotal,
+        })}${
+          syncStatus?.current_folder
+            ? ` · ${folderName(syncStatus.current_folder_type ?? '', syncStatus.current_folder, t)}`
+            : ''
+        }`
+      : t(syncStatus?.phase === 'queued' ? 'sync.queued' : 'sync.messages')
+
   // 账户右键菜单：同步 / 编辑 / 启停 / 删除
   const accountCtxItems: CtxMenuItem[] = [
-    { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: onSync, disabled: !acc.enabled },
+    { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: triggerSync, disabled: !acc.enabled },
     { key: 'edit', label: t('ctx.editAccount'), icon: 'compose', onSelect: onEdit },
     {
       key: 'enabled',
@@ -296,10 +416,49 @@ function AccountBlock({
     { key: 'sep', separator: true },
     { key: 'del', label: t('ctx.deleteAccount'), icon: 'trash', destructive: true, onSelect: onDelete },
   ]
-  // 文件夹右键菜单：立即同步该账户
-  const folderCtxItems: CtxMenuItem[] = [
-    { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: onSync, disabled: !acc.enabled },
-  ]
+  /**
+   * 文件夹右键菜单。按**每个文件夹**构造，不是全账户共用一份——
+   * 「全部标为已读」要按该文件夹自己的未读数决定可不可点。
+   *
+   * 未读为 0 时置灰而不是隐藏：菜单项的位置固定下来，用户不必每次去找它在哪。
+   */
+  function folderCtxItems(f: Folder): CtxMenuItem[] {
+    const unreadHere = f.unread_count ?? 0
+    return [
+      {
+        key: 'read-all',
+        label: t('ctx.markFolderRead'),
+        icon: 'check',
+        disabled: unreadHere === 0 || readAll.isPending,
+        onSelect: () => void markFolderRead(f),
+      },
+      { key: 'sep', separator: true },
+      { key: 'sync', label: t('ctx.syncNow'), icon: 'circle-dot', onSelect: triggerSync, disabled: !acc.enabled },
+    ]
+  }
+
+  /**
+   * 全部标为已读。
+   *
+   * 数量大时先确认：这个操作**不可撤销**（未读状态没有历史），而入口在右键菜单里，
+   * 很容易误点。阈值取 20——比一屏多一点，少于这个数用户自己也能一封封点回来。
+   */
+  async function markFolderRead(f: Folder) {
+    const n = f.unread_count ?? 0
+    if (n === 0) return
+    if (n > READ_ALL_CONFIRM_AT) {
+      const ok = await confirm({
+        title: t('ctx.markFolderReadConfirmTitle'),
+        body: t('ctx.markFolderReadConfirmBody', { count: n, folder: folderName(f.type, f.display_name, t) }),
+        confirmLabel: t('ctx.markFolderRead'),
+      })
+      if (!ok) return
+    }
+    readAll.mutate(f.id, {
+      onSuccess: (res) => toast(t('ctx.markFolderReadDone', { count: res.marked })),
+      onError: () => toast(t('ctx.markFolderReadFailed')),
+    })
+  }
 
   return (
     <div>
@@ -340,12 +499,18 @@ function AccountBlock({
           <button
             type="button"
             className="icon-btn compact"
-            title={t('sync.trigger')}
-            aria-label={t('sync.trigger')}
+            // 同步中时按钮名换成进度描述。
+            //
+            // 后台同步不再渲染那个带 aria-live 的进度块，所以读屏用户需要另一条
+            // 通路。**刻意不做成 live region**：后台同步每 180 秒一轮，播报出去
+            // 就是每三分钟念一句「正在同步邮件」——那是视觉抖动对读屏用户的等价物，
+            // 而且更难忽略。放在按钮名里是「按需可查」：用户 Tab 过来才听到。
+            title={syncLabel}
+            aria-label={syncLabel}
             // 停用的账户后端会直接拒（500），同步中再点会 409——两种都只换来一条
             // 错误提示。右键菜单里那一项本来就判了 acc.enabled，这个按钮漏了。
             disabled={syncing || !acc.enabled}
-            onClick={(e) => { e.stopPropagation(); onSync() }}
+            onClick={(e) => { e.stopPropagation(); triggerSync() }}
           >
             {/* 判据只看「这个账户在不在同步」。原先是 `syncing && active`——
                 那个 active 让同步非当前账户时屏幕上完全没有变化。 */}
@@ -356,6 +521,32 @@ function AccountBlock({
             />
           </button>
         </div>
+
+        {/* 后台自动同步的进度：压在账户行下沿的 2px 细条。
+            绝对定位，**不占布局**——这正是 .list-refresh-bar 的做法，
+            同一个判据：后台同步每 180 秒一轮，任何占位的指示都会让侧栏反复抖动。
+            用户主动点的那一路走上面的完整进度块，不重复画这条。 */}
+        {syncing && !owned && (
+          <span
+            className={
+              'acct-sync-bar' +
+              ((syncStatus?.folders_total ?? 0) > 0 ? '' : ' indeterminate')
+            }
+            aria-hidden="true"
+          >
+            {(syncStatus?.folders_total ?? 0) > 0 && (
+              <span
+                className="acct-sync-fill"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    ((syncStatus?.folders_done ?? 0) / (syncStatus?.folders_total ?? 1)) * 100,
+                  )}%`,
+                }}
+              />
+            )}
+          </span>
+        )}
           </div>
         }
       />
@@ -364,11 +555,18 @@ function AccountBlock({
           圆点在转——用户无从判断是在动、卡住了、还是快好了。
           现在阶段与文件夹进度都来自后端（手动触发走轮询，后台自动同步走 SSE 推送，
           两者写同一个缓存键）。 */}
-      {syncing && <SyncProgress status={syncStatus ?? null} />}
+      {/* ⚠ 只有**用户自己点出来的**同步才展开这个占位的块。
+          后台自动同步每 180 秒一轮、没有任何用户操作，展开它就是让侧栏自己跳
+          （用户报的第 7 条）。后台那一路的表达在账户行上：一条绝对定位、
+          不占布局的 2px 进度条，加上本来就在转的那个点。判据与 .list-refresh-bar
+          一致——见 owned 处的注释。 */}
+      {syncing && owned && <SyncProgress status={syncStatus ?? null} />}
       {/* 正文回补：与同步**并行**的一条弱表达，刻意不转圈也不做成同步阶段。
           此刻邮件列表已经完整，缺的只是正文——用同步中的转圈表达它，
-          会让用户以为邮件还没收全，那是错的信息。 */}
-      {!syncing && <BodyPrefetchNote status={syncStatus ?? null} />}
+          会让用户以为邮件还没收全，那是错的信息。
+          同样只在用户主动触发后显示：它比同步更长（5000 封跨一个多小时），
+          后台冒出来的话侧栏会在整段时间里多一行、结束时再少一行。 */}
+      {!syncing && owned && <BodyPrefetchNote status={syncStatus ?? null} />}
 
       {/* 展开的文件夹列表 */}
       {expanded && (
@@ -396,7 +594,7 @@ function AccountBlock({
                       : undefined
                   }
                   onClick={() => onSelectFolder(f.id)}
-                  ctxItems={folderCtxItems}
+                  ctxItems={folderCtxItems(f)}
                 />
               )
             })}
@@ -427,6 +625,7 @@ export function AccountSidebar({
   activeFolderId,
   notifOpen,
   settingsOpen,
+  connState,
   activeAgg,
   aggCounts,
   onSelectAccount,
@@ -502,8 +701,7 @@ export function AccountSidebar({
         <div className="brand-mark" aria-hidden="true">F</div>
         {/* 品牌名 */}
         <div className="brand-name">{t('app.name')}</div>
-        {/* brand-dot：视觉装饰 */}
-        <div className="brand-dot" />
+        <ConnDot state={connState} />
         {/* 铃铛按钮：开关通知浮层 */}
         <button
           type="button"

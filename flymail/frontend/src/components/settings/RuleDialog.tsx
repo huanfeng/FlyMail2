@@ -417,7 +417,7 @@ function RuleForm({ rule, onSaved }: RuleFormProps) {
               </div>
             ))}
             <button type="button" className="pill-btn" style={{ alignSelf: 'flex-start' }} onClick={addCondition}>
-              <Icon name="plus" size={12} /> {t('settings.rules.addCondition')}
+              <Icon name="plus" size={12} />{t('settings.rules.addCondition')}
             </button>
           </div>
         </Field>
@@ -465,7 +465,7 @@ function RuleForm({ rule, onSaved }: RuleFormProps) {
               </div>
             ))}
             <button type="button" className="pill-btn" style={{ alignSelf: 'flex-start' }} onClick={addAction}>
-              <Icon name="plus" size={12} /> {t('settings.rules.addAction')}
+              <Icon name="plus" size={12} />{t('settings.rules.addAction')}
             </button>
           </div>
         </Field>

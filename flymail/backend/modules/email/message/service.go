@@ -693,6 +693,11 @@ func (s *Service) UnreadCountByFolder(folderID uint) (int64, error) {
 	return s.repo.UnreadCountByFolder(folderID)
 }
 
+// UnreadIDsByFolder 返回文件夹里全部未读邮件的主键（升序）。
+func (s *Service) UnreadIDsByFolder(folderID uint) ([]uint, error) {
+	return s.repo.UnreadIDsByFolder(folderID)
+}
+
 // SetFlaggedLocal 本地标记星标/取消星标。
 func (s *Service) SetFlaggedLocal(id uint, flagged bool) error {
 	return s.repo.SetFlagged(id, flagged)

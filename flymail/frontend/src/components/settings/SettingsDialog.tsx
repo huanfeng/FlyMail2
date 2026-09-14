@@ -10,6 +10,7 @@ import { useConfirm } from '@/components/ui/Confirm'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
+import { PortabilityDialog } from '@/components/settings/PortabilityDialog'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { BrowserNotifySection } from '@/components/settings/BrowserNotifySection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
@@ -647,6 +648,10 @@ function AccountsSection() {
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingAccount, setEditingAccount] = React.useState<Account | null>(null)
+  // null = 未打开；'export' / 'import' 决定进哪一半。
+  // 两个动作共用一个对话框：它们的账户勾选列表与交互形态一致，
+  // 拆成两个组件会把那份列表抄两遍。
+  const [portable, setPortable] = React.useState<'export' | 'import' | null>(null)
 
   function handleAdd() {
     setEditingAccount(null)
@@ -691,16 +696,28 @@ function AccountsSection() {
         ))
       )}
 
-      {/* 添加账户按钮 */}
-      <button
-        type="button"
-        className="pill-btn"
-        style={{ marginTop: 14 }}
-        onClick={handleAdd}
-      >
-        <Icon name="plus" size={12} />
-        {t('settings.account.add')}
-      </button>
+      {/* 账户操作：添加 / 导出 / 导入。
+          三个按钮同排：它们都是"对账户整体做点什么"，分开放会让用户
+          以为导出属于某一个账户。 */}
+      <div className="settings-actions">
+        <button type="button" className="pill-btn" onClick={handleAdd}>
+          <Icon name="plus" size={12} />
+          {t('settings.account.add')}
+        </button>
+        <button
+          type="button"
+          className="pill-btn"
+          onClick={() => setPortable('export')}
+          disabled={accounts.length === 0}
+        >
+          <Icon name="archive" size={12} />
+          {t('settings.portable.exportTitle')}
+        </button>
+        <button type="button" className="pill-btn" onClick={() => setPortable('import')}>
+          <Icon name="cloud" size={12} />
+          {t('settings.portable.importTitle')}
+        </button>
+      </div>
 
       {/* AccountDialog 复用 */}
       <AccountDialog
@@ -708,6 +725,18 @@ function AccountsSection() {
         account={editingAccount}
         onOpenChange={setDialogOpen}
       />
+
+      {/* 打开时才挂载：对话框内部的初始状态因此每次都是干净的，
+          不需要一个「open 变真就重置一遍」的 effect（那会在 effect 里
+          同步 setState、触发级联渲染）。 */}
+      {portable != null && (
+        <PortabilityDialog
+          open
+          mode={portable}
+          accounts={accounts}
+          onOpenChange={(o) => { if (!o) setPortable(null) }}
+        />
+      )}
     </div>
   )
 }
@@ -1023,17 +1052,15 @@ function ProfileSection() {
       <h3>{t('settings.profile.title')}</h3>
       <p className="help">{t('settings.profile.help')}</p>
 
-      {/* 头像 + 用户名概览 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '12px 0 6px' }}>
-        <div
-          className="ac-avatar"
-          style={{ background: 'var(--accent)', width: 48, height: 48, fontSize: 18 }}
-          aria-hidden="true"
-        >
+      {/* 头像 + 用户名概览。尺寸与形状全部交给 .settings-identity：
+          此前尺寸写在内联样式里、形状（圆角/居中/白字）指望 .account-card 下的
+          规则，而这里根本不在 .account-card 内——于是只剩一个直角色块。 */}
+      <div className="settings-identity">
+        <div className="ac-avatar" aria-hidden="true">
           {nameInitials(avatarName)}
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="ac-name" style={{ fontSize: 15 }}>{me?.username ?? '—'}</div>
+        <div className="ac-text">
+          <div className="ac-name">{me?.username ?? '—'}</div>
           <div className="ac-mail">{me?.email || t('settings.profile.noEmail')}</div>
         </div>
       </div>

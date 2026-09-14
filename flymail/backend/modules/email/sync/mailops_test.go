@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	imapv2 "github.com/emersion/go-imap/v2"
+
 	"flymail-core/types"
 
 	"flymail/internal/database"
@@ -190,5 +192,130 @@ func TestMoveMessageCrossAccountRejected(t *testing.T) {
 	// 失败后本地行应仍在。
 	if _, err := mrepo.GetByID(msgID); err != nil {
 		t.Errorf("移动失败后本地行应保留: %v", err)
+	}
+}
+
+// ── 文件夹级「全部标为已读」────────────────────────────────────────────────
+
+func TestMarkFolderReadOnlyTouchesUnread(t *testing.T) {
+	svc, frepo, mrepo, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+
+	// 三封未读、两封已读
+	var unread []uint
+	for uid := uint32(1); uid <= 3; uid++ {
+		unread = append(unread, seedMsg(t, mrepo, 1, inboxID, uid))
+	}
+	for uid := uint32(4); uid <= 5; uid++ {
+		id := seedMsg(t, mrepo, 1, inboxID, uid)
+		if err := mrepo.SetSeenByIDs([]uint{id}, true); err != nil {
+			t.Fatalf("预置已读: %v", err)
+		}
+	}
+
+	n, err := svc.MarkFolderRead(inboxID)
+	if err != nil {
+		t.Fatalf("MarkFolderRead: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("标记封数 = %d, want 3（只该动未读的那三封）", n)
+	}
+
+	// 本地全部变已读
+	left, err := mrepo.UnreadCountByFolder(inboxID)
+	if err != nil {
+		t.Fatalf("UnreadCountByFolder: %v", err)
+	}
+	if left != 0 {
+		t.Errorf("还剩 %d 封未读", left)
+	}
+
+	// 回写只带未读那三个 UID：已读的那两封本来就不用回写，
+	// 带上它们只会让 IMAP STORE 的 UID 集合白白变长。
+	sess.mu.Lock()
+	got := append([]imapv2.UID(nil), sess.markReadUIDs...)
+	sess.mu.Unlock()
+	if len(got) != 3 {
+		t.Fatalf("回写了 %d 个 UID: %v，want 3", len(got), got)
+	}
+	for _, u := range got {
+		if u > 3 {
+			t.Errorf("回写里混进了本来就已读的 UID %d", u)
+		}
+	}
+
+	// 文件夹未读角标要同步刷新，否则侧栏还挂着旧数字
+	f, err := frepo.GetByID(inboxID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if f.UnreadCount != 0 {
+		t.Errorf("文件夹未读角标 = %d, want 0", f.UnreadCount)
+	}
+}
+
+// TestMarkFolderReadChunksWriteback 是分批的**全部理由**。
+//
+// enqueueWritebackUIDs 把一组 UID 拼成**一条**记录（joinUIDs 是逗号连接，
+// 全链路没有任何分块），applyWriteback 又把它作为**一条** IMAP STORE 发出去。
+// 界面上的批量操作受列表分页约束、最多几十条，所以至今没人撞到上限；
+// 而"全部标为已读"一次就可能是几万封——拼出来的命令行几百 KB，
+// 绝大多数服务端会直接拒，表现为「点了没反应，服务器那边没变」。
+//
+// 不分批的话这条会看到 1 个批次、1200 个 UID。
+func TestMarkFolderReadChunksWriteback(t *testing.T) {
+	svc, frepo, mrepo, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+
+	const total = 1200 // 跨过 500 的分批阈值两次多
+	for uid := uint32(1); uid <= total; uid++ {
+		seedMsg(t, mrepo, 1, inboxID, uid)
+	}
+
+	n, err := svc.MarkFolderRead(inboxID)
+	if err != nil {
+		t.Fatalf("MarkFolderRead: %v", err)
+	}
+	if n != total {
+		t.Errorf("标记封数 = %d, want %d", n, total)
+	}
+
+	sess.mu.Lock()
+	batches := append([][]imapv2.UID(nil), sess.markReadBatches...)
+	flat := len(sess.markReadUIDs)
+	sess.mu.Unlock()
+
+	if len(batches) < 2 {
+		t.Fatalf("只发了 %d 条 STORE——UID 没有分批，真实服务端会因命令过长直接拒", len(batches))
+	}
+	for i, b := range batches {
+		if len(b) > 500 {
+			t.Errorf("第 %d 批有 %d 个 UID，超过了分批上限", i, len(b))
+		}
+	}
+	// 分批不能把邮件漏掉：总数必须仍然对得上
+	if flat != total {
+		t.Errorf("回写的 UID 总数 = %d, want %d——分批把邮件漏掉了", flat, total)
+	}
+}
+
+func TestMarkFolderReadEmptyFolderIsNoop(t *testing.T) {
+	svc, frepo, _, sess := newMailops(t)
+	inboxID := seedFolder(t, frepo, 1, "INBOX", "inbox")
+
+	n, err := svc.MarkFolderRead(inboxID)
+	if err != nil {
+		t.Fatalf("MarkFolderRead: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("空文件夹标记了 %d 封", n)
+	}
+	// 一封未读都没有时不该发出任何 IMAP 命令——否则每次点"全标已读"
+	// 都会白占一次连接（而这个入口在右键菜单里，很容易被误点）。
+	sess.mu.Lock()
+	calls := len(sess.markReadBatches)
+	sess.mu.Unlock()
+	if calls != 0 {
+		t.Errorf("没有未读却发了 %d 条 STORE", calls)
 	}
 }

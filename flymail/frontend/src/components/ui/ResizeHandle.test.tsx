@@ -103,4 +103,88 @@ describe('ResizeHandle', () => {
     expect(onDelta).not.toHaveBeenCalled()
     expect(onJump).not.toHaveBeenCalled()
   })
+
+  /**
+   * ── 拖拽只发整数增量，余量留到下次 ────────────────────────────────────────
+   *
+   * 调用方是 `clamp(prev + dx, …)`——**状态本身就是累加器**。分数缩放的显示器上
+   * `ev.clientX` 带小数，dx 原样传出去，宽度就变成 503.000003242，设置里那一行
+   * 把它渲染成 `503.000003242px`，撑出横向滚动条（用户报的第 4 条）。
+   *
+   * 修法有两种，选错一种会换来更糟的毛病：
+   *
+   *   ✗ 在调用方 `Math.round(prev + dx)`：每次小于 0.5px 的位移都被抹成 0，
+   *     余量无处可存，**拖拽在分数缩放下彻底推不动**。
+   *   ✓ 在这里只发整数部分、把余数留在 lastX 里：小位移会攒够 1px 再发出去，
+   *     拖拽依然跟手，而调用方拿到的永远是整数。
+   *
+   * 下面两个用例分别钉这两件事，缺一不可。
+   */
+  describe('拖拽的亚像素处理', () => {
+    function pointer(type: string, clientX: number) {
+      // jsdom 没有 PointerEvent。MouseEvent 带得动 clientX，再补上 pointerId 即可。
+      const ev = new MouseEvent(type, { clientX, bubbles: true }) as MouseEvent & {
+        pointerId?: number
+      }
+      ev.pointerId = 1
+      return ev as unknown as PointerEvent
+    }
+
+    function startDrag(el: HTMLElement, atX: number) {
+      // jsdom 的 Element 上没有这两个方法，组件里直接调用会抛
+      const stub = el as HTMLElement & Record<string, unknown>
+      stub.setPointerCapture = () => {}
+      stub.releasePointerCapture = () => {}
+      el.dispatchEvent(pointer('pointerdown', atX))
+    }
+
+    it('小数位移不泄漏给调用方', async () => {
+      const { onDelta } = await mount()
+      const el = handle()
+
+      await act(async () => startDrag(el, 100))
+      // 典型的分数缩放轨迹：每帧 1.2px
+      for (const x of [101.2, 102.4, 103.6, 104.8, 106.0]) {
+        await act(async () => el.dispatchEvent(pointer('pointermove', x)))
+      }
+
+      expect(onDelta.mock.calls.length, '一次移动都没发出去').toBeGreaterThan(0)
+      for (const [dx] of onDelta.mock.calls) {
+        expect(Number.isInteger(dx), `发出了小数增量 ${dx}`).toBe(true)
+      }
+    })
+
+    it('余量会累加，不会被丢掉', async () => {
+      // 这条是上一条的必要补充：全部返回 0 也能让上面那条通过（整数），
+      // 但那正是「拖不动」。总位移 6px，发出去的总和必须也是 6。
+      const { onDelta } = await mount()
+      const el = handle()
+
+      await act(async () => startDrag(el, 100))
+      for (const x of [101.2, 102.4, 103.6, 104.8, 106.0]) {
+        await act(async () => el.dispatchEvent(pointer('pointermove', x)))
+      }
+
+      const total = onDelta.mock.calls.reduce((s: number, call: unknown[]) => s + (call[0] as number), 0)
+      expect(total, '亚像素余量被丢掉了，拖拽会比手慢').toBe(6)
+    })
+
+    it('反向拖动同样不丢余量', async () => {
+      // 负方向用 Math.trunc 而不是 Math.floor：floor(-0.4) = -1 会让向左的
+      // 微小抖动被放大成整整 1px，向右却是 0——拖拽会朝一侧漂。
+      const { onDelta } = await mount()
+      const el = handle()
+
+      await act(async () => startDrag(el, 100))
+      for (const x of [98.8, 97.6, 96.4, 95.2, 94.0]) {
+        await act(async () => el.dispatchEvent(pointer('pointermove', x)))
+      }
+
+      const total = onDelta.mock.calls.reduce((s: number, call: unknown[]) => s + (call[0] as number), 0)
+      expect(total).toBe(-6)
+      for (const [dx] of onDelta.mock.calls) {
+        expect(Number.isInteger(dx)).toBe(true)
+      }
+    })
+  })
 })

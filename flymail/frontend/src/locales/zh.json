@@ -2,7 +2,8 @@
   "common": {
     "cancel": "取消",
     "confirm": "确定",
-    "delete": "删除"
+    "delete": "删除",
+    "close": "关闭"
   },
   "app": {
     "name": "FlyMail",
@@ -35,7 +36,12 @@
     "editAccount": "编辑账户",
     "enableAccount": "启用账户",
     "disableAccount": "停用账户",
-    "deleteAccount": "删除账户"
+    "deleteAccount": "删除账户",
+    "markFolderRead": "全部标为已读",
+    "markFolderReadConfirmTitle": "全部标为已读",
+    "markFolderReadConfirmBody": "将「{{folder}}」里的 {{count}} 封未读邮件全部标为已读？此操作无法撤销。",
+    "markFolderReadDone": "已标记 {{count}} 封为已读",
+    "markFolderReadFailed": "标记已读失败"
   },
   "login": {
     "subtitle": "登录以继续",
@@ -142,11 +148,11 @@
       "filteredCount": "筛选出 {{count}} 个会话",
       "searchCount": "命中 {{count}} 个会话",
       "delete": "删除会话",
-      "readAll": "整条标为已读",
-      "unreadAll": "整条标为未读",
-      "starAll": "整条加星标",
-      "unstarAll": "整条取消星标",
-      "moveAll": "整条移动到",
+      "readAll": "本会话全部标为已读",
+      "unreadAll": "本会话全部标为未读",
+      "starAll": "本会话全部加星标",
+      "unstarAll": "本会话全部取消星标",
+      "moveAll": "移动整个会话到",
       "deletedToast": "已删除 {{count}} 条会话"
     },
     "deletedCountToast": "已删除 {{count}} 封",
@@ -178,7 +184,12 @@
     "bodies": "正在补齐正文 {{done}} / {{total}}"
   },
   "realtime": {
-    "offline": "实时连接已断开，正在重连…"
+    "offline": "实时连接已断开，正在重连…",
+    "state": {
+      "open": "实时连接正常",
+      "connecting": "正在连接实时推送…",
+      "offline": "实时连接已断开，正在重连"
+    }
   },
   "reader": {
     "welcome": "选择一封邮件",
@@ -235,11 +246,11 @@
       "missing": "会话不存在或已被移除",
       "missingHint": "它可能已被整条删除，或在重建会话归属后并入了别的会话",
       "deleteOne": "删除这一封",
-      "readAll": "整条标为已读",
-      "unreadAll": "整条标为未读",
-      "starAll": "整条加星标",
-      "unstarAll": "整条取消星标",
-      "moveAll": "整条移动到"
+      "readAll": "本会话全部标为已读",
+      "unreadAll": "本会话全部标为未读",
+      "starAll": "本会话全部加星标",
+      "unstarAll": "本会话全部取消星标",
+      "moveAll": "移动整个会话到"
     },
     "downloading": "下载中…",
     "downloadFailed": "附件下载失败",
@@ -831,6 +842,46 @@
       "syncDone": "同步完成",
       "syncError": "同步失败",
       "none": "暂无账户，点击「添加账户」开始"
+    },
+    "portable": {
+      "exportTitle": "导出配置",
+      "importTitle": "导入配置",
+      "exportHelp": "把账户的服务器设置导出成一个 JSON 文件，用于换机或重装前留档。邮件、规则、签名不在其中——整库备份请用 flymail db backup。",
+      "importHelp": "选择一个先前导出的 JSON 文件。可以只挑其中几个账户导入。",
+      "pickAccounts": "选择账户",
+      "noAccounts": "还没有账户",
+      "includePasswords": "包含密码",
+      "plaintextTitle": "密码将以明文写入文件",
+      "plaintextBody": "账户密码在数据库里是加密存放的，但密钥属于当前这台部署——换一台机器就解不开。所以导出必须先解密，文件里是明文。请当作密码本对待：不要放进网盘、聊天记录或代码仓库，用完尽快删除。",
+      "plaintextAck": "我明白文件里是明文密码，会妥善保管",
+      "doExport": "导出",
+      "doImport": "导入",
+      "exportDone": "已导出 {{count}} 个账户",
+      "exportFailed": "导出失败",
+      "importFailed": "导入失败",
+      "chooseFile": "选择文件…",
+      "tagNew": "新账户",
+      "tagExists": "已存在",
+      "tagHasPassword": "含密码",
+      "conflictTitle": "已存在同邮箱的账户时",
+      "conflictSkip": "跳过，不改动现有账户",
+      "conflictOverwrite": "用文件里的配置覆盖",
+      "resultSummary": "新建 {{created}} · 更新 {{updated}} · 跳过 {{skipped}} · 失败 {{failed}}",
+      "action": {
+        "created": "已新建",
+        "updated": "已更新",
+        "skipped": "已跳过",
+        "failed": "失败"
+      },
+      "errNotBundle": "这不像是 FlyMail 的账户配置文件",
+      "errNotJson": "文件不是有效的 JSON",
+      "errNoVersion": "文件缺少版本号，无法确认格式",
+      "errNewerVersion": "文件由更新版本的 FlyMail 导出，本版本读不了",
+      "errEncrypted": "这是加密的导出文件，当前版本还不支持",
+      "errEmpty": "文件里没有账户",
+      "errNoEmail": "文件里有账户缺少邮箱地址",
+      "errTooLarge": "文件过大，多半选错了",
+      "errUnreadable": "文件读取失败"
     }
   },
   "dateGroup": {

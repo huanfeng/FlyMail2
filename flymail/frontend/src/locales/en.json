@@ -2,7 +2,8 @@
   "common": {
     "cancel": "Cancel",
     "confirm": "Confirm",
-    "delete": "Delete"
+    "delete": "Delete",
+    "close": "Close"
   },
   "app": {
     "name": "FlyMail",
@@ -35,7 +36,12 @@
     "editAccount": "Edit account",
     "enableAccount": "Enable account",
     "disableAccount": "Disable account",
-    "deleteAccount": "Delete account"
+    "deleteAccount": "Delete account",
+    "markFolderRead": "Mark all as read",
+    "markFolderReadConfirmTitle": "Mark all as read",
+    "markFolderReadConfirmBody": "Mark all {{count}} unread messages in \"{{folder}}\" as read? This cannot be undone.",
+    "markFolderReadDone": "Marked {{count}} as read",
+    "markFolderReadFailed": "Could not mark as read"
   },
   "login": {
     "subtitle": "Sign in to continue",
@@ -178,7 +184,12 @@
     "bodies": "Fetching bodies {{done}} / {{total}}"
   },
   "realtime": {
-    "offline": "Live connection lost, reconnecting…"
+    "offline": "Live connection lost, reconnecting…",
+    "state": {
+      "open": "Live connection active",
+      "connecting": "Connecting to live updates…",
+      "offline": "Live connection lost, reconnecting"
+    }
   },
   "reader": {
     "welcome": "Select a message",
@@ -831,6 +842,46 @@
       "syncDone": "Sync complete",
       "syncError": "Sync failed",
       "none": "No accounts yet. Click \"Add Account\" to get started."
+    },
+    "portable": {
+      "exportTitle": "Export config",
+      "importTitle": "Import config",
+      "exportHelp": "Export account server settings to a JSON file, for moving machines or keeping a copy before a reinstall. Messages, rules and signatures are not included — use flymail db backup for a full backup.",
+      "importHelp": "Choose a previously exported JSON file. You can import just some of the accounts.",
+      "pickAccounts": "Select accounts",
+      "noAccounts": "No accounts yet",
+      "includePasswords": "Include passwords",
+      "plaintextTitle": "Passwords will be written in plain text",
+      "plaintextBody": "Account passwords are encrypted in the database, but the key belongs to this deployment — another machine cannot decrypt them. Export therefore has to decrypt first, so the file contains plain text. Treat it like a password list: keep it off cloud drives, chats and repositories, and delete it when done.",
+      "plaintextAck": "I understand the file contains plain-text passwords",
+      "doExport": "Export",
+      "doImport": "Import",
+      "exportDone": "Exported {{count}} account(s)",
+      "exportFailed": "Export failed",
+      "importFailed": "Import failed",
+      "chooseFile": "Choose file…",
+      "tagNew": "New",
+      "tagExists": "Exists",
+      "tagHasPassword": "has password",
+      "conflictTitle": "When an account with the same address exists",
+      "conflictSkip": "Skip, leave the existing account alone",
+      "conflictOverwrite": "Overwrite with the settings from the file",
+      "resultSummary": "Created {{created}} · Updated {{updated}} · Skipped {{skipped}} · Failed {{failed}}",
+      "action": {
+        "created": "created",
+        "updated": "updated",
+        "skipped": "skipped",
+        "failed": "failed"
+      },
+      "errNotBundle": "This does not look like a FlyMail account config file",
+      "errNotJson": "The file is not valid JSON",
+      "errNoVersion": "The file has no version, format cannot be confirmed",
+      "errNewerVersion": "The file came from a newer FlyMail and cannot be read",
+      "errEncrypted": "This is an encrypted export, not supported yet",
+      "errEmpty": "The file contains no accounts",
+      "errNoEmail": "An account in the file has no email address",
+      "errTooLarge": "File is too large, probably the wrong one",
+      "errUnreadable": "Could not read the file"
     }
   },
   "dateGroup": {

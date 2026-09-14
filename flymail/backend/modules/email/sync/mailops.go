@@ -197,6 +197,47 @@ func (s *Service) BatchSetRead(ids []uint, read bool) error {
 	}, true)
 }
 
+// markFolderReadChunk 是文件夹级"全部标为已读"每批处理的邮件数。
+//
+// 为什么必须分批：`enqueueWritebackUIDs` 把一组 UID **拼成一条**回写记录
+// （joinUIDs 是逗号连接，没有任何分块），而 applyWriteback 又把它作为**一条**
+// IMAP STORE 命令发出去。界面上的批量操作受列表分页约束、最多几十条，
+// 所以至今没人撞到上限；而"全部标为已读"一次就可能是几万封——
+// 拼出来的命令行有几百 KB，绝大多数 IMAP 服务端会直接拒（命令行长度上限通常
+// 在 8~64KB），表现为"点了没反应，服务器那边没变"。
+//
+// 500 × 最长 10 位数字 + 分隔符 ≈ 5.5KB，留足了余量。
+const markFolderReadChunk = 500
+
+// MarkFolderRead 把一个文件夹里的未读邮件全部标为已读，返回实际标记的封数。
+//
+// 只捞未读的主键（不是整行、也不是全部邮件）：这个集合可能有几万条，
+// 而已读的那些既不用改本地也不用回写，带上只会让 STORE 的 UID 集合白白膨胀。
+//
+// 分批调用 BatchSetRead 而不是自己写一遍：本地更新、未读角标刷新、回写入队
+// 三件事已经在那条路径上验过了，重写一遍只会多一处要同步维护的逻辑。
+func (s *Service) MarkFolderRead(folderID uint) (int, error) {
+	ids, err := s.messages.UnreadIDsByFolder(folderID)
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	for start := 0; start < len(ids); start += markFolderReadChunk {
+		end := start + markFolderReadChunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := s.BatchSetRead(ids[start:end], true); err != nil {
+			// 已经处理完的批次不回滚：本地已改、回写也已入队，而且它们本来就是
+			// 独立的幂等操作。返回已完成数让调用方能如实告诉用户改了多少。
+			return start, err
+		}
+	}
+	return len(ids), nil
+}
+
 // BatchSetFlagged 批量加/取消星标：本地立即改，STORE 入回写队列。
 func (s *Service) BatchSetFlagged(ids []uint, flagged bool) error {
 	op := wbOpUnstar

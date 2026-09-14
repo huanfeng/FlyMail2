@@ -181,7 +181,7 @@ function AliasList({ accountId }: { accountId: number }) {
       ) : (
         <button type="button" className="pill-btn" style={{ marginTop: 14 }} onClick={openAdd}>
           <Icon name="plus" size={12} />
-          <span style={{ marginLeft: 4 }}>{t('settings.aliases.add')}</span>
+          {t('settings.aliases.add')}
         </button>
       )}
     </>

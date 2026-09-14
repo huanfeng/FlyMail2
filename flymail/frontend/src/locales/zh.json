@@ -307,7 +307,10 @@
     "oauthNeedsReauth": "该账户的授权已失效，收发邮件已停止。请重新授权。",
     "oauthManaged": "该账户通过 {{provider}} 授权登录，无需密码。",
     "oauthReauthorize": "重新授权",
-    "oauthLoopbackWarning": "注意：当前回调地址指向你本机的 127.0.0.1，而 FlyMail 是远程访问的，授权很可能无法完成。请让部署方配置 oauth.redirect_base_url 为 FlyMail 的公开地址。"
+    "oauthLoopbackWarning": "注意：当前回调地址指向你本机的 127.0.0.1，而 FlyMail 是远程访问的，授权很可能无法完成。请让部署方配置 oauth.redirect_base_url 为 FlyMail 的公开地址。",
+    "reset": "清空",
+    "resetHint": "把表单恢复到初始状态",
+    "draftRestored": "已恢复上次未完成的填写"
   },
   "compose": {
     "title": "写邮件",

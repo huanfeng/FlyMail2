@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { isDirty, useDismissGuard } from '@/lib/dismiss-guard'
 import { useCreateNotifyChannel, useUpdateNotifyChannel } from '@/lib/queries'
 import type { NotifyChannel } from '@/lib/types'
 
@@ -71,6 +72,14 @@ export function ChannelDialog({ open, channel, onOpenChange }: ChannelDialogProp
     }
   }, [channel, open])
 
+  // 有内容时拦住"点框外关闭"：渠道要填名称、URL、密钥、事件勾选，
+  // 误点一次全部重来。基线与上面那个初始化 effect 用同一个表达式。
+  const baseline = React.useMemo(
+    () => (channel ? formFromChannel(channel) : defaultForm()),
+    [channel],
+  )
+  const { contentRef, dismissProps } = useDismissGuard(() => isDirty(form, baseline))
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -115,6 +124,8 @@ export function ChannelDialog({ open, channel, onOpenChange }: ChannelDialogProp
           style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}
         />
         <Dialog.Content
+          ref={contentRef}
+          {...dismissProps}
           className="fixed left-1/2 top-1/2 z-[80] -translate-x-1/2 -translate-y-1/2 w-[460px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden rounded-xl shadow-xl flex flex-col gap-0 outline-none"
           style={{ background: 'var(--surface)', color: 'var(--ink)' }}
           aria-describedby={undefined}

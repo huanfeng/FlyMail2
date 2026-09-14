@@ -307,7 +307,10 @@
     "oauthNeedsReauth": "This account’s authorization has expired and mail sync has stopped. Please re-authorize.",
     "oauthManaged": "This account signs in via {{provider}}; no password is needed.",
     "oauthReauthorize": "Re-authorize",
-    "oauthLoopbackWarning": "Heads up: the callback points at 127.0.0.1 on your own machine while FlyMail is accessed remotely, so authorization will likely fail. Ask the deployer to set oauth.redirect_base_url to FlyMail’s public address."
+    "oauthLoopbackWarning": "Heads up: the callback points at 127.0.0.1 on your own machine while FlyMail is accessed remotely, so authorization will likely fail. Ask the deployer to set oauth.redirect_base_url to FlyMail’s public address.",
+    "reset": "Reset",
+    "resetHint": "Restore the form to its initial state",
+    "draftRestored": "Restored your unfinished input"
   },
   "compose": {
     "title": "Compose",

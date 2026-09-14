@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Icon } from '@/components/ui/Icon'
+import { isDirty, useDismissGuard } from '@/lib/dismiss-guard'
 import { apiErrorMessage } from '@/lib/api'
 import { useAccounts, useCreateRule, useFoldersOfAccounts, useTestRule, useUpdateRule } from '@/lib/queries'
 import {
@@ -130,6 +131,17 @@ export function RuleDialog({ open, rule, onOpenChange }: RuleDialogProps) {
   const { t } = useTranslation()
   const isEdit = rule !== null
 
+  /*
+   * 「填到一半点了框外」的防误触。规则可能配了好几条条件和动作，重来代价很高。
+   *
+   * 表单状态在子组件 RuleForm 里，而 Dialog.Content 在这一层。dirty 用 ref
+   * 从子组件报上来，**不用 state**：它只在"点了框外"那一刻被读一次，
+   * 完全不需要参与渲染。用 state 的话得在子组件的 effect 里往父组件 setState，
+   * 那是一次没有必要的级联渲染。
+   */
+  const dirtyRef = React.useRef(false)
+  const { contentRef, dismissProps } = useDismissGuard(() => dirtyRef.current)
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -138,6 +150,8 @@ export function RuleDialog({ open, rule, onOpenChange }: RuleDialogProps) {
           style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}
         />
         <Dialog.Content
+          ref={contentRef}
+          {...dismissProps}
           className="fixed left-1/2 top-1/2 z-[80] -translate-x-1/2 -translate-y-1/2 w-[560px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden rounded-xl shadow-xl flex flex-col gap-0 outline-none"
           style={{ background: 'var(--surface)', color: 'var(--ink)' }}
           aria-describedby={undefined}
@@ -159,7 +173,7 @@ export function RuleDialog({ open, rule, onOpenChange }: RuleDialogProps) {
           </div>
 
           {/* key 切换编辑目标时丢弃旧表单状态与旧的试运行结果 */}
-          <RuleForm key={rule?.id ?? 'new'} rule={rule} onSaved={() => onOpenChange(false)} />
+          <RuleForm key={rule?.id ?? 'new'} rule={rule} dirtyRef={dirtyRef} onSaved={() => onOpenChange(false)} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -168,10 +182,12 @@ export function RuleDialog({ open, rule, onOpenChange }: RuleDialogProps) {
 
 interface RuleFormProps {
   rule: Rule | null
+  /** 把"表单改过没有"报给外壳（见 RuleDialog 里的说明）。 */
+  dirtyRef: React.MutableRefObject<boolean>
   onSaved: () => void
 }
 
-function RuleForm({ rule, onSaved }: RuleFormProps) {
+function RuleForm({ rule, dirtyRef, onSaved }: RuleFormProps) {
   const { t } = useTranslation()
   const isEdit = rule !== null
 
@@ -179,6 +195,26 @@ function RuleForm({ rule, onSaved }: RuleFormProps) {
   const [error, setError] = React.useState<RuleValidationError | null>(null)
   // 保存失败时后端返回的文案（校验错误走 error，两者显示在同一处）
   const [saveError, setSaveError] = React.useState<string | null>(null)
+
+  /*
+   * 把"表单改过没有"同步给外壳，供防误触在关闭那一刻读取。
+   *
+   * ⚠ isDirty 必须按**结构**比较：表单里是 ConditionRow[] / ActionRow[]，
+   * 按引用比会恒判 dirty，对话框就永远点不掉外面了——防误触变成关不掉的框，
+   * 比它要解决的问题更糟（见 dismiss-guard.ts）。
+   *
+   * 写在 effect 里而不是渲染期：渲染期写 ref 正是 react-hooks/refs 拦的东西，
+   * 而守卫只在"点了框外"那一刻读它，那时 effect 早跑完了。
+   * cleanup 里复位：RuleForm 是按 key 重挂载的（见文件头），
+   * 换编辑目标时旧表单的 dirty 不能留给新的。
+   */
+  const baseline = React.useMemo(() => initialForm(rule), [rule])
+  React.useEffect(() => {
+    dirtyRef.current = isDirty(form, baseline)
+    return () => {
+      dirtyRef.current = false
+    }
+  }, [form, baseline, dirtyRef])
 
   const { data: accounts = [] } = useAccounts()
   const createRule = useCreateRule()

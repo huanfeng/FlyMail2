@@ -16,8 +16,25 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
+  /* ⚠ 这两个**刻意不**指向 --accent / --accent-foreground。
+   *
+   * 这两个名字在两套体系里语义**相反**：
+   *   本项目：--accent = 品牌主色（饱和，用来强调）
+   *   shadcn：--accent = 悬停时的浅底色（应当很淡）
+   * 而 Button 的 outline / ghost 变体写的是
+   * `hover:bg-accent hover:text-accent-foreground`——照直映射的话，鼠标一悬停，
+   * 按钮底就变成整块饱和品牌色，文字却是 shadcn 那个静态的 --accent-foreground
+   * （亮色近黑、暗色近白）。实测 18 组主题里 11 组悬停文字对比低于 4.5:1，
+   * 8 组暗色主题全部落在 1.60~2.45 —— 浅色品牌底上压近白字，读不出来。
+   *
+   * ⚠ 也不能改在下面的 :root 桥接块里：--accent 是在
+   * `[data-theme][data-mode]`（特异性 0,3,0）里定义的，:root（0,1,0）盖不住它。
+   * 必须改在这里 —— @theme inline 决定的是**工具类展开成什么**，
+   * 与 --accent 自身的取值无关。
+   *
+   * 守卫见 lib/dialog-buttons.test.ts。 */
+  --color-accent: var(--bg-hover);
+  --color-accent-foreground: var(--ink);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -2839,4 +2856,60 @@ mark.hl {
 .portable-outcome span:first-child {
   font-family: var(--font-mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   shadcn Button 在本项目里的可见性修正
+   ────────────────────────────────────────────────────────────────────────
+   outline 变体的静息态是 `border + bg-background`，而 --background 被桥接成
+   var(--surface)——也就是**和对话框底色完全一样**。于是按钮唯一的视觉边界
+   就是那条 1px 边框，实测它对底色的对比只有 1.39~1.64（18 组主题全部
+   低于 WCAG 1.4.11 要求的 3:1）。用户的原话是「几乎看不清，但又有底框」，
+   说的正是这个：看得见一圈线，但它不像个按钮。
+
+   这里只抬边框、不动 --border 令牌本身：那个令牌被 `* { @apply border-border }`
+   用在所有 Tailwind 组件上，一起加深会让输入框等控件跟着变重。
+   --ink-4 实测最低只有 2.34 仍不达标，--ink-3 最低 4.73，是现有令牌里能满足
+   3:1 的最淡的一个。
+   ════════════════════════════════════════════════════════════════════════ */
+[data-slot='button'][data-variant='outline'] {
+  border-color: var(--ink-3);
+}
+/* 悬停时边框再深一档，让「可点」这件事在边框上也有表达（不只靠底色变化，
+   高对比度模式与部分色觉类型下底色差异可能感知不到）。 */
+[data-slot='button'][data-variant='outline']:hover:not(:disabled) {
+  border-color: var(--ink-2);
+}
+
+/* 账户对话框的草稿恢复提示条。
+   内容跨关闭保留之后，重新打开会看到已填字段——这一行说明来源并给出丢弃入口。 */
+.acct-draft-note {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 24px;
+  background: var(--accent-wash, var(--bg-alt));
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px; color: var(--ink-2);
+}
+.acct-draft-note span { flex: 1; min-width: 0; }
+.acct-draft-discard {
+  flex-shrink: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--accent-ink); font-size: 12.5px; padding: 2px 4px;
+  border-radius: 4px; text-decoration: underline;
+}
+.acct-draft-discard:hover { background: var(--bg-hover); }
+
+/* 对话框防误触时的反馈抖动。
+   点了框外却什么都没发生，本身就是另一种困惑（"是不是卡住了？"），
+   所以拦下时轻轻抖一下，表示"收到了，但不能这么关"。
+   幅度刻意很小：这是提示，不是报错。 */
+@keyframes dialogNudge {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  25%      { transform: translate(calc(-50% - 5px), -50%) scale(1.005); }
+  75%      { transform: translate(calc(-50% + 5px), -50%) scale(1.005); }
+}
+.dlg-nudge { animation: dialogNudge 0.32s ease-in-out; }
+/* 前庭敏感人群的典型触发源是位移动画。停掉位移，改用一圈短暂的描边表达
+   同一件事——信息不丢，只是换个通道。 */
+@media (prefers-reduced-motion: reduce) {
+  .dlg-nudge { animation: none; outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 }

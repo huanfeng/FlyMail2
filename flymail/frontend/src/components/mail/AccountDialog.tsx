@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Icon } from '@/components/ui/Icon'
+import { isDirty, useDismissGuard } from '@/lib/dismiss-guard'
 import { presetForEmail } from '@/lib/providers'
 import { useCreateAccount, useUpdateAccount, useTestConnection, useOAuthProviders } from '@/lib/queries'
 import { OAuthPanel } from '@/components/mail/OAuthPanel'
@@ -152,15 +153,59 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
   const { data: oauthProviders } = useOAuthProviders()
   const availableProviders = (oauthProviders ?? []).filter((p) => p.configured)
 
-  // 打开时根据模式初始化表单
+  /*
+   * 表单的初始化与**保留**。
+   *
+   * ── 原先的问题 ───────────────────────────────────────────────────────────
+   *
+   * 这里过去是 `if (open) setForm(...)`——**每次打开都重置**。而 radix Dialog
+   * 默认点遮罩就关闭，于是「填到一半手滑点了对话框外面」= 全部白填。
+   * 添加账户要填邮箱、密码、两组服务器地址端口，重填一遍代价相当高，
+   * 而触发它只需要一次误点。
+   *
+   * ── 现在的判据 ───────────────────────────────────────────────────────────
+   *
+   * 只在**目标变了**的时候才初始化：换了另一个账户、或在"新建/编辑"之间切换。
+   * 同一个目标重新打开时，上一次填的内容原样还在（组件常驻挂载，state 本来
+   * 就活着，是这个 effect 一直在抹掉它）。
+   *
+   * 保存成功后要显式清掉草稿（见 handleSave），否则下次点"添加账户"会看到
+   * 刚存过的那份数据。
+   */
+  const targetKey = account ? `edit:${account.id}` : 'new'
+  const initializedFor = React.useRef<string | null>(null)
+  const [restoredDraft, setRestoredDraft] = React.useState(false)
+
   React.useEffect(() => {
-    if (open) {
-      setForm(account ? formFromAccount(account) : defaultForm())
-      setAdvancedOpen(false)
-      setAutoFilled(false)
-      setOAuthWith(null)
+    if (!open) return
+    if (initializedFor.current === targetKey) {
+      // 同一个目标再次打开：保留用户填到一半的内容，并告诉他"这是上次留下的"
+      // ——不说的话，重新打开看到一堆已填字段会让人以为是系统记住了账号。
+      setRestoredDraft(true)
+      return
     }
-  }, [account, open])
+    initializedFor.current = targetKey
+    setForm(account ? formFromAccount(account) : defaultForm())
+    setAdvancedOpen(false)
+    setAutoFilled(false)
+    setOAuthWith(null)
+    setRestoredDraft(false)
+  }, [account, open, targetKey])
+
+  /**
+   * 有没有值得保护的未保存内容。
+   *
+   * 基线就是 resetForm 会恢复到的那个状态——两处共用同一个概念，
+   * 免得出现「点清空回到 A，但 dirty 判定拿 B 当基线」这种自相矛盾。
+   */
+  const baseline = React.useMemo(
+    () => (account ? formFromAccount(account) : defaultForm()),
+    [account],
+  )
+  // OAuth 授权面板占据整个对话框时不拦：那时表单不可见，用户点外面
+  // 想的是"退出这个授权流程"，拦住只会让人莫名其妙。
+  const dirty = !oauthWith && isDirty(form, baseline)
+  const { contentRef, dismissProps } = useDismissGuard(() => dirty)
 
   // 便捷 setter
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -171,6 +216,20 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
   const createAccount = useCreateAccount()
   const updateAccount = useUpdateAccount()
   const testConnection = useTestConnection()
+  // 声明放在这里而不是下面：resetForm 要用它。函数声明虽然会提升、
+  // 实际调用也在渲染之后，但让读的人去推断"这时候它初始化了没有"是没必要的负担。
+  const resetTest = testConnection.reset
+
+  /** 清空重置：回到该目标的初始状态（新建=空表单，编辑=账户当前值）。 */
+  function resetForm() {
+    setForm(account ? formFromAccount(account) : defaultForm())
+    setAdvancedOpen(false)
+    setAutoFilled(false)
+    setValidationError(null)
+    setRestoredDraft(false)
+    resetTest()
+  }
+
 
   // ── Build input ──────────────────────────────────────────────────────────────
   function buildInput(): AccountInput {
@@ -261,20 +320,20 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
 
     const input = buildInput()
 
+    // 保存成功后丢弃草稿：留着的话，下次点"添加账户"会看到刚存过的那份内容。
+    const done = () => {
+      initializedFor.current = null
+      setRestoredDraft(false)
+      onOpenChange(false)
+    }
     if (isEdit && account) {
-      updateAccount.mutate(
-        { id: account.id, input },
-        { onSuccess: () => onOpenChange(false) },
-      )
+      updateAccount.mutate({ id: account.id, input }, { onSuccess: done })
     } else {
-      createAccount.mutate(input, {
-        onSuccess: () => onOpenChange(false),
-      })
+      createAccount.mutate(input, { onSuccess: done })
     }
   }
 
   // 重新打开时清掉上一次的测试结果（避免旧状态残留在底栏）
-  const resetTest = testConnection.reset
   React.useEffect(() => {
     if (open) resetTest()
   }, [open, resetTest])
@@ -312,6 +371,8 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
         {/* 对话框内容：外层 overflow-hidden 保住四角圆角（滚动条如出现在内层，
             不会盖住右侧圆角），标题栏/底栏固定，仅中间表单区滚动 */}
         <Dialog.Content
+          ref={contentRef}
+          {...dismissProps}
           className="fixed left-1/2 top-1/2 z-[80] -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden rounded-xl shadow-xl flex flex-col gap-0 outline-none"
           style={{ background: 'var(--surface)', color: 'var(--ink)' }}
           aria-describedby={undefined}
@@ -334,6 +395,19 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
               </button>
             </Dialog.Close>
           </div>
+
+          {/* 草稿恢复提示。
+              内容跨"关闭再打开"保留之后，用户重新打开会看到一堆已填字段——
+              不说一句的话，很容易被理解成"系统记住了我的账号"。这一行把
+              「这是你上次填到一半的」讲明白，并给出就地丢弃的入口。 */}
+          {restoredDraft && !oauthWith && (
+            <div className="acct-draft-note" role="status">
+              <span>{t('account.draftRestored')}</span>
+              <button type="button" className="acct-draft-discard" onClick={resetForm}>
+                {t('account.reset')}
+              </button>
+            </div>
+          )}
 
           {/* 表单主体（唯一滚动区） */}
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-6 py-5">
@@ -580,8 +654,19 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
               {testStatus}
             </span>
 
-            {/* 右侧：取消 + 保存 */}
+            {/* 右侧：清空 + 取消 + 保存 */}
             <div className="flex items-center gap-2 shrink-0">
+              {/* 表单内容现在会跨"关闭再打开"保留（见 initializedFor 处的说明），
+                  所以必须给一个显式的丢弃入口——否则用户没有办法回到空表单。 */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={resetForm}
+                disabled={isSaving || testPending}
+                title={t('account.resetHint')}
+              >
+                {t('account.reset')}
+              </Button>
               <Dialog.Close asChild>
                 <Button variant="outline" size="sm" disabled={isSaving}>
                   {t('account.cancel')}

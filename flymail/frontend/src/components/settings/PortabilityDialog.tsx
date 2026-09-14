@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
+import { useDismissGuard } from '@/lib/dismiss-guard'
 import { useExportAccounts, useImportAccounts } from '@/lib/queries'
 import { downloadJson } from '@/lib/download'
 import { parseBundle } from '@/lib/portable-file'
@@ -130,6 +131,18 @@ export function PortabilityDialog({ open, mode, accounts, onOpenChange }: Portab
     }
   }
 
+  /*
+   * 防误触只覆盖**导入侧、且已经载入文件**的情形：
+   * 那时用户已经选过文件、勾过账户，误点一次要从头再来。
+   *
+   * 导出侧不拦——它只是几个勾选框，重来很便宜，加阻力纯属烦人。
+   * 已经出结果（result 非空）时也不拦：那时没有任何待提交的输入，
+   * 用户多半就是想关掉它。
+   */
+  const { contentRef, dismissProps } = useDismissGuard(
+    () => mode === 'import' && bundle != null && result == null,
+  )
+
   const exporting = doExport.isPending
   const importing = doImport.isPending
   // 勾了含密码就必须先确认风险，否则导出按钮不可用
@@ -142,7 +155,7 @@ export function PortabilityDialog({ open, mode, accounts, onOpenChange }: Portab
           className="fixed inset-0 z-[70]"
           style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}
         />
-        <Dialog.Content className={shellClass} style={{ background: 'var(--surface)', color: 'var(--ink)' }} aria-describedby={undefined}>
+        <Dialog.Content ref={contentRef} {...dismissProps} className={shellClass} style={{ background: 'var(--surface)', color: 'var(--ink)' }} aria-describedby={undefined}>
           <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--rule)' }}>
             <Dialog.Title className="text-base font-semibold" style={{ margin: 0 }}>
               {t(mode === 'export' ? 'settings.portable.exportTitle' : 'settings.portable.importTitle')}

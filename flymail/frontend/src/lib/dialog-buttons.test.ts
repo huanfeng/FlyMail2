@@ -22,6 +22,13 @@ import { describe, it, expect } from 'vitest'
  *    按钮唯一的边界是那条 1px 边框，而它对底色的对比只有 1.39~1.64，
  *    18 组全部低于 WCAG 1.4.11 要求的 3:1。这正是「看得见一圈线，但不像按钮」。
  *
+ * 3. 真正的病根（上面两条修完用户仍报「没解决」才找到的）：index.css 里
+ *    **不分层**地写了 `button { background: none; border: 0; padding: 0 }`。
+ *    Tailwind v4 的工具类在 @layer utilities 里，而不分层的规则在层叠里
+ *    无条件压过所有分层规则、与权重无关——于是 bg-primary / border / px-3
+ *    全部作废，四个按钮（含主按钮）都是透明无边框的裸文字。前两条只是在
+ *    调一个根本没画出来的边框的颜色。见文件末尾「层叠」那组断言。
+ *
  * ── 这条测试钉的是结果，不是写法 ───────────────────────────────────────────
  *
  * 它从 CSS 里把工具类**实际会展开成**的令牌解析出来再算颜色。
@@ -209,5 +216,96 @@ describe('对话框按钮的可读性（全部 18 组主题）', () => {
       if (c != null && c < 4.5) bad.push(`${name} ${c.toFixed(2)}`)
     }
     expect(bad).toEqual([])
+  })
+})
+
+/**
+ * 层叠：元素级重置不能裸写在 @layer 之外。
+ *
+ * 上面三组对比度断言全部通过的那个版本，按钮在浏览器里仍然是裸文字——
+ * 它们算的是「工具类展开成的颜色」，默认了工具类会生效。而只要 index.css
+ * 里有一条不分层的 `button { border: 0 }`，工具类就一个都不会生效：
+ * CSS 层叠里，未分层样式 > 任何 @layer 内的样式，权重再高也没用。
+ *
+ * jsdom 不实现 @layer 的层叠，所以这里退一步钉住结构：任何**未分层**的规则，
+ * 只要选择器里有裸的 button / input / textarea / select 类型选择器，就不许
+ * 动 background / border / padding / color 这四样——它们正是 shadcn 变体
+ * 靠工具类设置的东西。放进 @layer base 就不受此限。
+ */
+describe('元素级重置不得压掉工具类（层叠）', () => {
+  /** 未分层的规则列表：[选择器, 声明块]。 */
+  function unlayeredRules(): Array<[string, string]> {
+    const out: Array<[string, string]> = []
+    // 逐字符扫描，记录当前所在的 @layer / @theme / @keyframes 嵌套深度
+    let i = 0
+    const stack: Array<'layer' | 'other'> = []
+    let selStart = 0
+    while (i < css.length) {
+      const ch = css[i]
+      if (ch === '{') {
+        const head = css.slice(selStart, i).trim()
+        // 找到与之配对的 '}'，判断这是声明块还是嵌套块
+        let depth = 1
+        let j = i + 1
+        for (; j < css.length && depth > 0; j++) {
+          if (css[j] === '{') depth++
+          else if (css[j] === '}') depth--
+        }
+        const body = css.slice(i + 1, j - 1)
+        const isBlockAt = /^@(layer|theme|media|supports|keyframes|container)/.test(head)
+        const nested = /\{/.test(body)
+        if (isBlockAt || nested) {
+          stack.push(/^@(layer|theme)\b/.test(head) ? 'layer' : 'other')
+          i++
+          selStart = i
+          continue
+        }
+        if (!stack.includes('layer') && !head.startsWith('@')) out.push([head, body])
+        i = j
+        selStart = i
+        continue
+      }
+      if (ch === '}') {
+        stack.pop()
+        i++
+        selStart = i
+        continue
+      }
+      i++
+    }
+    return out
+  }
+
+  const bareElement = /(^|[\s,>+~])(button|input|textarea|select)(?=$|[\s,:>+~])/
+
+  it('前提：能解析出未分层规则，且 base 层里确实有 button 重置', () => {
+    const rules = unlayeredRules()
+    expect(rules.length).toBeGreaterThan(50)
+    expect(css, 'button 的基础重置应在 @layer base 里').toMatch(
+      // 同一个 @layer base 块里前面还可以有别的声明块（如 input, button, textarea {…}）
+      /@layer base\s*\{(?:[^{}]*\{[^}]*\})*[^{}]*button\s*\{[^}]*background:\s*none/,
+    )
+  })
+
+  it('未分层规则里裸的 button/input/textarea/select 不许设 background/border/padding/color', () => {
+    const bad: string[] = []
+    for (const [sel, body] of unlayeredRules()) {
+      const selectors = sel.split(',').map((x) => x.trim())
+      // 只看**整个选择器就是裸元素**的那种（如 `button`、`input, button`），
+      // 带类名/属性限定的（`.mode-toggle button`）作用范围是明确的，不在此列。
+      if (!selectors.some((x) => /^(button|input|textarea|select)$/.test(x))) continue
+      const hit = /(^|;)\s*(background|border|padding|color)(-[\w-]+)?\s*:/.exec(body)
+      if (hit) bad.push(`${sel} { …${hit[2]}… }`)
+    }
+    expect(
+      bad,
+      '这些裸写的元素重置会无条件压过 @layer utilities，让 shadcn Button 的工具类全部失效',
+    ).toEqual([])
+  })
+
+  it('（自检）裸元素选择器的判定能识别 `input, button, textarea`', () => {
+    expect(bareElement.test('input, button, textarea')).toBe(true)
+    expect(bareElement.test('.mode-toggle button')).toBe(true)
+    expect(bareElement.test('.pill-btn')).toBe(false)
   })
 })

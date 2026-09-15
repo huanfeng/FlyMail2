@@ -425,8 +425,17 @@ body {
   letter-spacing: -0.005em;
   overflow: hidden;
 }
-input, button, textarea { font-family: inherit; color: inherit; }
-button { background: none; border: 0; cursor: pointer; padding: 0; }
+/* ⚠ 元素级重置必须放在 @layer base 里，不能裸写。
+   Tailwind v4 把工具类放在 @layer utilities，而**不分层的规则在层叠里无条件
+   压过所有分层规则**，与选择器权重无关。裸写 `button { background: none;
+   border: 0; padding: 0 }` 的后果是 shadcn Button 上的 bg-primary / border /
+   px-3 全部作废——对话框里「测试连接 / 取消 / 保存」退化成裸文字，
+   连主按钮都是透明的。放进 base 层后：项目自己带类名的按钮（不分层）照旧
+   得到这份重置，而带工具类的按钮由工具类接管。守卫见 lib/dialog-buttons.test.ts。 */
+@layer base {
+  input, button, textarea { font-family: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; padding: 0; }
+}
 h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.02em; margin: 0; }
 
 /* ════════════════════════════════════════════════════════════════════════

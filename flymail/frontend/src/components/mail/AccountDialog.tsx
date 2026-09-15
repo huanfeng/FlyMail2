@@ -179,8 +179,8 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
   React.useEffect(() => {
     if (!open) return
     if (initializedFor.current === targetKey) {
-      // 同一个目标再次打开：保留用户填到一半的内容，并告诉他"这是上次留下的"
-      // ——不说的话，重新打开看到一堆已填字段会让人以为是系统记住了账号。
+      // 同一个目标再次打开：保留用户填到一半的内容。这里只记"是重开"，
+      // 提示条渲染时还要看 dirty——空表单重开没有草稿，不该弹提示。
       setRestoredDraft(true)
       return
     }
@@ -399,8 +399,10 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
           {/* 草稿恢复提示。
               内容跨"关闭再打开"保留之后，用户重新打开会看到一堆已填字段——
               不说一句的话，很容易被理解成"系统记住了我的账号"。这一行把
-              「这是你上次填到一半的」讲明白，并给出就地丢弃的入口。 */}
-          {restoredDraft && !oauthWith && (
+              「这是你上次填到一半的」讲明白，并给出就地丢弃的入口。
+              ⚠ 要同时满足 dirty：只是打开看了一眼、一个字没填就关掉，
+              再打开时没有任何"草稿"可言，弹这一行只会让人莫名其妙。 */}
+          {restoredDraft && dirty && (
             <div className="acct-draft-note" role="status">
               <span>{t('account.draftRestored')}</span>
               <button type="button" className="acct-draft-discard" onClick={resetForm}>

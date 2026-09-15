@@ -162,6 +162,28 @@ describe('账户对话框的草稿保留', () => {
     ).toBe(false)
   })
 
+  it('一个字没填就关闭再打开，不显示草稿提示', async () => {
+    // 用户反馈：只是点开看了一眼、没填、关掉、再打开，也弹「已恢复上次未保存的内容」。
+    // 空表单重开没有任何"草稿"可言，这条提示只会让人莫名其妙。
+    await render(true, null)
+    await render(false, null)
+    await render(true, null)
+    expect(document.querySelector('.acct-draft-note'), '没填任何东西却弹了草稿提示').toBeNull()
+  })
+
+  it('填过内容再打开才显示草稿提示，清空后提示消失', async () => {
+    await render(true, null)
+    await type(inputs()[0], '填了一半')
+    await render(false, null)
+    await render(true, null)
+    const note = document.querySelector('.acct-draft-note')
+    expect(note, '有草稿却没有提示，用户会以为是系统记住了账号').not.toBeNull()
+
+    await act(async () => note!.querySelector('button')!.click())
+    expect(inputs()[0].value).toBe('')
+    expect(document.querySelector('.acct-draft-note'), '清空后提示条还挂着').toBeNull()
+  })
+
   it('提供显式的清空入口', async () => {
     // 内容既然会保留，就必须有办法回到空表单——否则用户无路可走。
     await render(true, null)

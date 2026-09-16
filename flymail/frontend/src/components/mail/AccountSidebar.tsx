@@ -18,6 +18,7 @@ import {
   useDeleteAccount,
   useSyncStatus,
   useFolderReadAll,
+  useFolders,
 } from '@/lib/queries'
 import type { AggregateView } from '@/lib/queries'
 import { isSyncActive } from '@/lib/types'
@@ -207,10 +208,8 @@ interface Props {
   /** 账户列表加载失败（与「一个账户都没有」是两回事，必须分开表达） */
   accountsError?: unknown
   onRetryAccounts?: () => void
-  folders: Folder[]
-  /** 当前账户的文件夹加载失败 */
-  foldersError?: unknown
-  onRetryFolders?: () => void
+  // 文件夹不再由外面传进来：每个展开的账户各自取（见 AccountBlock 里的说明），
+  // 否则只有当前账户有文件夹，别的账户展开是一片空。
   activeAccountId: number | null
   activeFolderId: number | null
   /** 通知浮层是否打开，用于高亮铃铛 */
@@ -283,10 +282,6 @@ interface AccountBlockProps {
   acc: Account
   expanded: boolean
   active: boolean
-  folders: Folder[]
-  /** 文件夹加载失败（仅激活账户会传：非激活账户压根没发这个请求） */
-  foldersError?: unknown
-  onRetryFolders?: () => void
   activeFolderId: number | null
   /** 账户级未读数（后端去重口径，见 useAccountUnread） */
   unread: number
@@ -304,9 +299,6 @@ function AccountBlock({
   acc,
   expanded,
   active,
-  folders,
-  foldersError,
-  onRetryFolders,
   activeFolderId,
   unread,
   onToggleExpand,
@@ -328,6 +320,21 @@ function AccountBlock({
   const { toast } = useToast()
   const readAll = useFolderReadAll()
   const { data: syncStatus } = useSyncStatus(acc.id, false)
+
+  // ⚠ 每个展开的账户各自取自己的文件夹。
+  //
+  // 原先只有**激活**账户拿得到文件夹（父组件写死 `acc.id === activeAccountId ? folders : []`），
+  // 于是同时展开两个账户时，非激活的那个整棵树是空的，只剩本地草稿箱那一行
+  // ——而侧栏默认就展开前两个账户，一打开就能看到。展开本来也没有「只能展开一个」
+  // 的限制，所以补的是取数，不是加限制。
+  //
+  // 折叠时 enabled=false，不发请求也不轮询；展开的账户与父组件共用
+  // ['folders', accountId] 这份缓存，当前账户不会因此多发一次。
+  const foldersQuery = useFolders(acc.id, expanded)
+  const folders = foldersQuery.data ?? []
+  // 只认「没有数据可显示」的失败：有缓存时后台刷新失败不该把列表换成错误条
+  const foldersError =
+    foldersQuery.isLoadingError && !foldersQuery.isFetching ? foldersQuery.error : null
   const syncing = isSyncActive(syncStatus?.phase)
 
   /**
@@ -572,7 +579,7 @@ function AccountBlock({
       {expanded && (
         <div className="folder-list">
           {foldersError != null && (
-            <SideError text={t('sidebar.foldersError')} onRetry={onRetryFolders} />
+            <SideError text={t('sidebar.foldersError')} onRetry={() => void foldersQuery.refetch()} />
           )}
           {folders
             .filter((f) => f.selectable)
@@ -618,9 +625,6 @@ export function AccountSidebar({
   accounts,
   accountsError,
   onRetryAccounts,
-  folders,
-  foldersError,
-  onRetryFolders,
   activeAccountId,
   activeFolderId,
   notifOpen,
@@ -771,10 +775,6 @@ export function AccountSidebar({
             acc={acc}
             expanded={!!expanded[acc.id]}
             active={inMail && activeAgg == null && acc.id === activeAccountId}
-            // 只有激活账户才传入文件夹，其余传空数组节省渲染
-            folders={acc.id === activeAccountId ? folders : []}
-            foldersError={acc.id === activeAccountId ? foldersError : undefined}
-            onRetryFolders={onRetryFolders}
             activeFolderId={activeFolderId}
             unread={accountUnread[acc.id] ?? 0}
             onToggleExpand={() => {

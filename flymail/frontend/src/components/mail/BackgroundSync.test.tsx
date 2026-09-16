@@ -87,7 +87,6 @@ describe('后台自动同步在侧栏可见', () => {
     return (
       <AccountSidebar
         accounts={accounts}
-        folders={[]}
         activeAccountId={1}
         activeFolderId={null}
         notifOpen={false}

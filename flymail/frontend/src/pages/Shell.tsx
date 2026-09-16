@@ -142,8 +142,6 @@ export function ShellPage() {
   // refetch-on-mount 还没落地就先闪一下红色错误行，自愈之后又消失。
   const accountsError =
     accountsQuery.isLoadingError && !accountsQuery.isFetching ? accountsQuery.error : null
-  const foldersError =
-    foldersQuery.isLoadingError && !foldersQuery.isFetching ? foldersQuery.error : null
   // 账户识别色：聚合/搜索视图把多个账户的邮件混在一列里，
   // 全用同一个 accent 底色就看不出哪封属于哪个邮箱。
   const acctColors = useMemo(() => accountColorMap(accounts), [accounts])
@@ -1143,9 +1141,6 @@ export function ShellPage() {
       accounts={accounts}
       accountsError={accountsError}
       onRetryAccounts={() => void accountsQuery.refetch()}
-      folders={folders}
-      foldersError={foldersError}
-      onRetryFolders={() => void foldersQuery.refetch()}
       activeAccountId={accountId}
       activeFolderId={folderId}
       notifOpen={notifOpen}

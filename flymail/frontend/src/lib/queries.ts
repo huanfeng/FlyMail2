@@ -87,10 +87,16 @@ export function useAccounts() {
   })
 }
 
-export function useFolders(accountId: number | null) {
+/**
+ * 取某个账户的文件夹。
+ *
+ * `enabled` 用于侧栏：折叠着的账户不必发请求。展开的账户各自调用本 hook，
+ * 共用 `['folders', accountId]` 这份缓存，所以当前账户不会因此多发一次请求。
+ */
+export function useFolders(accountId: number | null, enabled = true) {
   return useQuery({
     queryKey: ['folders', accountId],
-    enabled: accountId != null,
+    enabled: enabled && accountId != null,
     // 轮询兜底：桌面端（Wails）SSE 经 WebView2 自定义协议可能失效/缓冲，
     // 新账户初始同步逐步发现文件夹时也没有 SSE 事件，定时刷新保证列表自更新。
     refetchInterval: 30_000,

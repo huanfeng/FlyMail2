@@ -87,15 +87,45 @@ func ExtractAttachments(r io.Reader) ([]AttachmentData, error) {
 // text/plain 与 text/html 内联部件归入正文（text/html）；其余内联部件（如内联图）与
 // 普通附件均归入 atts。captureContent 为 true 时读取内容字节到 Content，否则仅丢弃读取以计算大小。
 func walkParts(mr *mail.Reader, captureContent bool) (text, html string, atts []AttachmentData) {
+	// 连续多少个「不知道会不会前进」的错误之后收尾。取小值即可：
+	// 真实邮件里坏部件是零星的，而卡死那类错误第一次就会无限重复。
+	const maxConsecutivePartErrs = 8
+	consecutiveErrs := 0
+
 	for {
 		p, err := mr.NextPart()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			// 跳过畸形部件，而非中断整封解析
+			// ⚠ 判据是「读取器还会不会前进」，不是「错误严不严重」。
+			//
+			// 两类错误长得一样，后果天差地别：
+			//
+			//   会前进  未知字符集 / 未知传输编码——坏的是这一个部件的头，
+			//           边界已经吃掉了，下一次调用能拿到后面的部件。跳过是对的。
+			//   不前进  multipart 被截断、结束边界缺失——底层
+			//           textproto.MultipartReader 每次都返回同一个
+			//           `multipart: NextPart: unexpected EOF` 且**不消耗任何输入**，
+			//           而 mail.Reader 只在 io.EOF 时才把这个读取器弹出栈，
+			//           返回其它错误时栈原样不动。于是 continue 就是死循环。
+			//
+			// 2026-09-16 线上就是栽在第二类：某封 163 邮件的 multipart 被截断，
+			// 同步 goroutine 占满一个核、那个账户从此不再同步；而它既没报错也没断连，
+			// 诊断接口还显示 connected=true，外面完全看不出异常。
+			//
+			// 所以：已知会前进的按原样跳过；其余的允许连续错几次（可能是一串坏部件），
+			// 超过就收尾——把「不前进」的情况变成有界的，而不是赌它一定会前进。
+			if message.IsUnknownCharset(err) || message.IsUnknownEncoding(err) {
+				continue
+			}
+			consecutiveErrs++
+			if consecutiveErrs > maxConsecutivePartErrs {
+				break
+			}
 			continue
 		}
+		consecutiveErrs = 0
 
 		switch h := p.Header.(type) {
 		case *mail.InlineHeader:

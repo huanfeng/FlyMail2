@@ -200,7 +200,7 @@ func (s *Service) IncrementalSync(accountID, folderID uint, folderPath string, p
 		// 首次同步（本地为空）则按序号抓最近 syncDepth 封作基线。
 		maxUID, _ := s.repo.MaxUID(folderID)
 		if maxUID > 0 {
-			emails, ferr := c.FetchByUIDRange(imapv2.UID(maxUID+1), 0, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+			emails, ferr := c.FetchByUIDRange(imapv2.UID(maxUID+1), 0, coreimap.FetchOptions{})
 			if ferr != nil {
 				return nil, nil, ferr
 			}
@@ -279,7 +279,7 @@ func (s *Service) fetchSeqRangeBatched(accountID, folderID uint, from, end uint3
 		if batchEnd > end || batchEnd < start {
 			batchEnd = end
 		}
-		emails, err := c.FetchBySeqRange(start, batchEnd, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+		emails, err := c.FetchBySeqRange(start, batchEnd, coreimap.FetchOptions{})
 		if err != nil {
 			return err
 		}
@@ -301,7 +301,7 @@ func (s *Service) fetchRangeBatched(accountID, folderID uint, from, end imapv2.U
 		if batchEnd > end || batchEnd < start { // 上限裁剪 + uint32 溢出保护
 			batchEnd = end
 		}
-		emails, err := c.FetchByUIDRange(start, batchEnd, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+		emails, err := c.FetchByUIDRange(start, batchEnd, coreimap.FetchOptions{})
 		if err != nil {
 			return err
 		}

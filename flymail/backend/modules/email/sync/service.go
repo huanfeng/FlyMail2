@@ -478,7 +478,7 @@ func (s *Service) MessageDetail(messageID uint) (*message.MessageDetail, error) 
 			}
 			emails, err := sess.FetchByUIDs(
 				[]imapv2.UID{imapv2.UID(m.UID)},
-				coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true},
+				coreimap.FetchOptions{FetchBody: true},
 			)
 			if err != nil {
 				return err

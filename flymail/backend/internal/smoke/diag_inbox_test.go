@@ -69,7 +69,7 @@ func TestDiagInbox(t *testing.T) {
 		if sel.NumMessages < 5 {
 			from = 1
 		}
-		emails, err := sess.FetchBySeqRange(from, sel.NumMessages, coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true})
+		emails, err := sess.FetchBySeqRange(from, sel.NumMessages, coreimap.FetchOptions{})
 		if err != nil {
 			t.Logf("FetchBySeqRange(%d,%d) 失败: %v", from, sel.NumMessages, err)
 		} else {

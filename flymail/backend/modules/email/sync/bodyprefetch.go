@@ -150,7 +150,7 @@ func (m *Manager) fetchBodies(folderPath string, msgs []message.Message, sess Se
 	for start := 0; start < len(uids); start += bodyFetchBatch {
 		end := min(start+bodyFetchBatch, len(uids))
 		emails, err := sess.FetchByUIDs(uids[start:end], coreimap.FetchOptions{
-			FetchBody: true, FallbackHeaders: true,
+			FetchBody: true,
 		})
 		if err != nil {
 			logger.Warn("sync-body: 抓正文失败",

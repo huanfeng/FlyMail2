@@ -13,8 +13,8 @@ type ParsedEmail struct {
 
 	// 线程头（RFC 5322 §3.6.4）。两者都已去掉尖括号；References 为空格分隔的 Message-ID 列表，
 	// 保持原信中的顺序（最早的在前，直接被回复的那封在最后）。
-	// 元数据抓取（不取正文）时经 BODY.PEEK[HEADER.FIELDS (References In-Reply-To)] 取得，
-	// 整封抓取时由 parser 从头里填。
+	// 两种抓取都由 parser 从邮件头里填：元数据抓取取 BODY.PEEK[HEADER]，
+	// 整封抓取取完整邮件。
 	InReplyTo  string `json:"in_reply_to,omitempty"`
 	References string `json:"references,omitempty"`
 

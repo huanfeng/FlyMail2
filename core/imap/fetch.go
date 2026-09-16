@@ -1,11 +1,8 @@
 package imap
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
-	"io"
-	"net/textproto"
 	"strings"
 
 	imapv2 "github.com/emersion/go-imap/v2"
@@ -19,10 +16,11 @@ import (
 type FetchOptions struct {
 	// FetchBody requests the full RFC 5322 body for parsing text/html/attachments.
 	// When false, only envelope metadata is returned (faster).
+	//
+	// 两种取法拿到的信封字段是同一套：整封抓取由 parser 从完整邮件头里填，
+	// 元数据抓取由 parser 从 BODY.PEEK[HEADER.FIELDS (…)] 区段里填。
+	// 不存在「没取正文所以某些字段缺」这回事。
 	FetchBody bool
-
-	// FallbackHeaders fills envelope fields from headers if missing.
-	FallbackHeaders bool
 }
 
 // FetchByUIDs fetches messages by specific UIDs from the currently selected folder.
@@ -158,17 +156,57 @@ func (s *Session) FetchRawMessage(uid imapv2.UID) ([]byte, error) {
 // 标记已读必须是显式动作（回写队列里的 wbOpRead），绝不能是抓取的副作用。
 //
 // 收敛成一个构造函数而不是在两个调用点各写一次：这个缺陷的成因正是
-// 「threadHeaderSection 记得加 Peek，整封抓取那两处各自漏了」。
+// 「取头的那个区段记得加 Peek，整封抓取那两处各自漏了」。
 func newFullBodySection() *imapv2.FetchItemBodySection {
 	return &imapv2.FetchItemBodySection{Peek: true}
 }
 
-// threadHeaderSection 是元数据抓取时附带的头字段区段：ENVELOPE 里没有 References，
-// 会话归并离不开它。PEEK 避免把邮件标成已读。
-var threadHeaderSection = &imapv2.FetchItemBodySection{
-	Specifier:    imapv2.PartSpecifierHeader,
-	HeaderFields: []string{"References", "In-Reply-To"},
-	Peek:         true,
+// envelopeHeaderSection 是元数据抓取取的头字段区段——**取代 ENVELOPE**。
+//
+// ── 为什么不用 ENVELOPE ─────────────────────────────────────────────────────
+//
+// ENVELOPE 是服务端替我们把邮件头解析成十个字段。省一点带宽，代价是把解析的
+// 正确性交给了对方，而对方可能算错：
+//
+//	QQ   某些邮件只给九个字段，go-imap 严格按 RFC 解析直接报
+//	     `expected SP, got ")"`，还**连带拆掉整条连接**——一封坏邮件让整个
+//	     账户的同步永远跑不完（2026-09-16 线上事故）。MailKit 2018 年就为
+//	     QQ 的同一类缺陷加过绕行，八年了 QQ 没修。
+//	GreenMail  ENVELOPE 里不带 In-Reply-To（实测），会话归并本来就得靠头。
+//
+// 所以统一从头里取、自己解析：少一个出错来源，整类「某家服务商的信封不标准」
+// 的兼容问题一起消失，而且与整封抓取走的是同一套解析代码。
+//
+// ⚠ 这里**不要**回头再加 Envelope: true。守卫见 envelope_free_test.go：
+// 那条用例的假服务端一旦被问到 ENVELOPE 就返回 QQ 那种畸形值。
+//
+// ── ⚠ 为什么取整个头，而不是只列需要的几个字段 ─────────────────────────────
+//
+// `HEADER.FIELDS (…)` 只要几百字节，本该是首选。但 go-imap 把字段名一律写成
+// **带引号的字符串**：
+//
+//	BODY.PEEK[HEADER.FIELDS ("Date" "Subject" "From" …)]
+//
+// RFC 3501 的 header-fld-name 是 astring，加引号完全合法，可是实测有服务器
+// 只认不加引号的原子写法，对加引号的一律返回空内容：
+//
+//	            不加引号   加引号   整个 HEADER
+//	GreenMail      157       0        362
+//	QQ             326       2       1926
+//	Gmail / 163    正常     正常      正常
+//
+// 偏偏 QQ 就是要修的那一家。而引号是 go-imap 编码器加的，调不掉。
+// 「取了字段表却拿回空内容」是最坏的失败方式——不报错，只是所有邮件都没有
+// 主题和发件人。既有的线程头区段其实一直踩着这个坑：docs/flymail/m10-threads.md
+// 记的「GreenMail 对 HEADER.FIELDS 返回空」就是它，只是当时还有 ENVELOPE 兜底，
+// 没暴露成事故。
+//
+// 所以取整个头。代价是每封多几 KB（实测 GreenMail 0.4KB、QQ 1.9KB、
+// Gmail 5.5KB、163 最长 17KB），只在首次全量同步时明显；换来的是不依赖任何
+// 服务端的字段表实现。PEEK 避免把邮件标成已读。
+var envelopeHeaderSection = &imapv2.FetchItemBodySection{
+	Specifier: imapv2.PartSpecifierHeader,
+	Peek:      true,
 }
 
 func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.ParsedEmail, error) {
@@ -177,18 +215,18 @@ func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.Par
 		bodySection = newFullBodySection()
 	}
 
+	// ⚠ 没有 Envelope: true，是有意的——见 envelopeHeaderSection 的说明。
 	fetchOpts := &imapv2.FetchOptions{
 		UID:          true,
-		Envelope:     true,
 		InternalDate: true,
 		Flags:        true,
 		RFC822Size:   true,
 	}
 	if bodySection != nil {
+		// 整封抓取时头就在 BODY[] 里，由 parser 一并解析
 		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{bodySection}
 	} else {
-		// 整封抓取时头已在 BODY[] 里，由 parser 填；只抓元数据时才单独要这两个头
-		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{threadHeaderSection}
+		fetchOpts.BodySection = []*imapv2.FetchItemBodySection{envelopeHeaderSection}
 	}
 
 	fetchCmd := s.Client.Fetch(numSet, fetchOpts)
@@ -205,7 +243,7 @@ func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.Par
 			continue
 		}
 
-		email := convertMessage(buf, bodySection, opts.FallbackHeaders)
+		email := convertMessage(buf, bodySection)
 		if email != nil {
 			emails = append(emails, email)
 		}
@@ -217,7 +255,7 @@ func (s *Session) doFetch(numSet imapv2.NumSet, opts FetchOptions) ([]*types.Par
 	return emails, nil
 }
 
-func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.FetchItemBodySection, fallbackHeaders bool) *types.ParsedEmail {
+func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.FetchItemBodySection) *types.ParsedEmail {
 	if buf == nil {
 		return nil
 	}
@@ -240,55 +278,17 @@ func convertMessage(buf *imapclient.FetchMessageBuffer, bodySection *imapv2.Fetc
 		}
 	}
 
-	// Envelope
-	if env := buf.Envelope; env != nil {
-		email.Subject = parser.DecodeMIMEHeader(env.Subject)
-		email.MessageID = strings.Trim(env.MessageID, "<>")
-		if len(env.InReplyTo) > 0 {
-			email.InReplyTo = strings.Trim(env.InReplyTo[0], "<>")
-		}
-		email.From = ConvertIMAPAddresses(env.From)
-		email.To = ConvertIMAPAddresses(env.To)
-		email.CC = ConvertIMAPAddresses(env.Cc)
-		email.BCC = ConvertIMAPAddresses(env.Bcc)
-		email.ReplyTo = ConvertIMAPAddresses(env.ReplyTo)
-
-		if email.Date.IsZero() && !env.Date.IsZero() {
-			email.Date = env.Date
-		}
-	}
-
-	// Body parsing
+	// 信封字段（主题、收发件人、Message-ID、线程头）一律由 parser 从邮件头解析，
+	// 不走服务端的 ENVELOPE——见 envelopeHeaderSection 的说明。
 	if bodySection != nil {
-		body := buf.FindBodySection(bodySection)
-		if body != nil {
-			parser.ParseBody(bytes.NewReader(body), email, fallbackHeaders)
+		if body := buf.FindBodySection(bodySection); body != nil {
+			parser.ParseBody(bytes.NewReader(body), email, true)
 		}
-	} else if hdr := buf.FindBodySection(threadHeaderSection); len(hdr) > 0 {
-		fillThreadHeadersFromSection(hdr, email)
+	} else if hdr := buf.FindBodySection(envelopeHeaderSection); len(hdr) > 0 {
+		_ = parser.ParseHeaders(bytes.NewReader(hdr), email)
 	}
 
 	return email
-}
-
-// fillThreadHeadersFromSection 解析 HEADER.FIELDS 区段（就是几行 RFC 5322 头 + 空行），
-// 填 In-Reply-To / References。两个字段都是「已有值不覆盖」（ENVELOPE 先给的 In-Reply-To 优先）。
-func fillThreadHeadersFromSection(section []byte, email *types.ParsedEmail) {
-	// 有的服务器返回的区段不以空行结尾，补一个让 ReadMIMEHeader 正常收尾。
-	// 用 MultiReader 拼接而不是 append：section 是 go-imap 的缓冲区，cap > len 时 append 会写进它的内存。
-	r := textproto.NewReader(bufio.NewReader(io.MultiReader(bytes.NewReader(section), strings.NewReader("\r\n\r\n"))))
-	h, err := r.ReadMIMEHeader()
-	if err != nil && len(h) == 0 {
-		return
-	}
-	if email.InReplyTo == "" {
-		if ids := parser.MessageIDs(h.Get("In-Reply-To")); len(ids) > 0 {
-			email.InReplyTo = ids[0]
-		}
-	}
-	if email.References == "" {
-		email.References = strings.Join(parser.MessageIDs(h.Get("References")), " ")
-	}
 }
 
 // ConvertIMAPAddresses converts go-imap/v2 addresses to core types.Address.

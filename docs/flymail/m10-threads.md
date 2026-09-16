@@ -138,6 +138,10 @@ POST /threads/rebuild      → { ok: true, threads: number }
 - 元数据抓取（`FetchBody=false`）附带 `BODY.PEEK[HEADER.FIELDS (References In-Reply-To)]`，
   响应区段用 `net/textproto` 解析；ENVELOPE 自带的 In-Reply-To 优先。整封抓取时由 parser 从头里填，
   不受 `FallbackHeaders` 控制。
+
+  > **2026-09-16 已改**：元数据抓取不再要 ENVELOPE，改取整个 `BODY.PEEK[HEADER]`，
+  > 信封字段与线程头统一由 `parser.ParseHeaders` 解析；`FallbackHeaders` 选项已删除。
+  > 起因是 QQ 的 ENVELOPE 少字段会打断整条连接，详见下面「更正」。
 - `parser.MessageIDs` 提取 id 列表：有尖括号只认尖括号里的（旧 Outlook 会在 In-Reply-To 里夹说明文字），
   没有尖括号才按空白/逗号切、只留含 `@` 的片段。
 - mail2im 同样消费 `ParsedEmail`，新增字段对它是无害的多余数据。
@@ -146,6 +150,20 @@ POST /threads/rebuild      → { ok: true, threads: number }
 
 **GreenMail 2.1.8 对 `HEADER.FIELDS` 一律返回空内容，ENVELOPE 里也不带 In-Reply-To**（实测；
 Gmail 真机验证正常，497 封新同步邮件都带上了头，最大线程是一个 60 封的 GitHub PR 讨论）。
+
+> **⚠ 2026-09-16 更正**：上面那句「GreenMail 不支持 HEADER.FIELDS」是错的，真正的原因是
+> **go-imap 把字段名写成带引号的字符串**（`HEADER.FIELDS ("References" "In-Reply-To")`），
+> 而有的服务器只认不加引号的原子写法。实测同一封邮件：
+>
+> | 服务器 | 不加引号 | 加引号 | 整个 `HEADER` |
+> |---|---|---|---|
+> | GreenMail | 157 字节 | **0** | 362 字节 |
+> | QQ | 326 字节 | **2** | 1926 字节 |
+> | Gmail / 163 | 正常 | 正常 | 正常 |
+>
+> 引号是 go-imap 编码器加的，调不掉。所以元数据抓取改成取整个 `BODY.PEEK[HEADER]`。
+> 顺带的后果：GreenMail 上线程头现在在**元数据阶段**就拿得到，会话同步完即归并，
+> `internal/e2e/thread_test.go` 的期望已相应改为「同步后就是 2 条」。
 为了对这类服务器也能用，`StoreParsedBody` 在整封解析出了头时按列独立回填行上还缺的那一列
 （ENVELOPE 给了 In-Reply-To 但 HEADER.FIELDS 回空的服务器只缺 References）并重新归属——
 正文预取或打开邮件后会话就会归并。GreenMail E2E（`internal/e2e/thread_test.go`）覆盖的正是

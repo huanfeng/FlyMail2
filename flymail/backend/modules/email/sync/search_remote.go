@@ -236,7 +236,7 @@ func (s *Service) remoteSearchAccount(ctx context.Context, accountID uint, q fts
 			for _, u := range need {
 				fetchUIDs = append(fetchUIDs, imapv2.UID(u))
 			}
-			emails, err := sess.FetchByUIDs(fetchUIDs, coreimap.FetchOptions{FetchBody: true, FallbackHeaders: true})
+			emails, err := sess.FetchByUIDs(fetchUIDs, coreimap.FetchOptions{FetchBody: true})
 			if err != nil {
 				return fmt.Errorf("fetch %s: %w", f.Path, err)
 			}

@@ -50,7 +50,7 @@ func imapConnect(t *testing.T, mailbox string) *coreimap.Session {
 
 // coreimapFetchHeaders 仅抓头部的 FetchOptions（服务器端断言用）。
 func coreimapFetchHeaders() coreimap.FetchOptions {
-	return coreimap.FetchOptions{FetchBody: false, FallbackHeaders: true}
+	return coreimap.FetchOptions{}
 }
 
 // eventually 轮询 cond 直到为真或超时（异步链路统一等待原语，禁止裸 sleep 断言）。

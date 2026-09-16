@@ -46,9 +46,19 @@ func (c *apiClient) listThreads(folderID uint) (threads []threadItem, total int)
 // TestThread_InboundChain 线程链路（GreenMail）：原信 + 两封回复 + 一封无关邮件 → 同步 → 打开正文 →
 // 会话列表折叠成 2 行 → 成员按时间正序 → 会话级已读回写到服务器。
 //
-// ⚠ GreenMail 2.1.8 对 BODY.PEEK[HEADER.FIELDS (...)] 一律返回空内容，ENVELOPE 里也不带 In-Reply-To
-// （实测，真实服务器都支持）。因此这里同步刚结束时三封是三条线程；线程头要等正文落库时由 parser 补上
-// （StoreParsedBody 的兜底），本用例正是覆盖这条兜底路径。HEADER.FIELDS 路径由 core 单测 + 真实账户验证。
+// ⚠ 这条用例的期望在 2026-09-16 变了，原因值得记一笔。
+//
+// 原先元数据抓取取的是 ENVELOPE + BODY.PEEK[HEADER.FIELDS (References In-Reply-To)]，
+// 而 GreenMail 对**加引号**的字段名（go-imap 一律加引号）返回空内容，ENVELOPE 里又不带
+// In-Reply-To。于是同步刚结束时线程头是空的，三封回复各成一条线程，要等正文落库时
+// 由 parser 补上才归并。当时这条用例把那个状态写成了期望值：same sync → 4 条。
+//
+// 现在元数据抓取改取整个 BODY.PEEK[HEADER]（不再要 ENVELOPE，见
+// core/imap 的 envelopeHeaderSection），线程头在同步阶段就拿到了，
+// **GreenMail 上也立刻归并**。所以期望从「同步后 4 条、读正文后 2 条」
+// 改成「同步后就是 2 条」。这是修好了，不是放宽。
+//
+// 打开正文那一段保留：它验证的是正文落库不会把已经归好的会话打散。
 func TestThread_InboundChain(t *testing.T) {
 	requireE2E(t)
 	ta := newTestApp(t, false)
@@ -68,10 +78,12 @@ func TestThread_InboundChain(t *testing.T) {
 	if inbox == nil {
 		t.Fatal("no inbox")
 	}
-	// 同步后每封都必须有线程 id（列表能分组），GreenMail 上此时尚未归并
+	// 元数据同步阶段就能拿到 References / In-Reply-To，会话此时已经归并：
+	// 三封一条 + 无关邮件一条。
 	threads, total := c.listThreads(inbox.ID)
-	if total != 4 || len(threads) != 4 {
-		t.Fatalf("after sync: total=%d n=%d %+v", total, len(threads), threads)
+	if total != 2 || len(threads) != 2 {
+		t.Fatalf("同步后会话没有归并（线程头应当在元数据阶段就拿到了）：total=%d n=%d %+v",
+			total, len(threads), threads)
 	}
 
 	// 打开两封回复的正文（首访按需抓整封）：parser 补线程头 → 归并
@@ -83,9 +95,10 @@ func TestThread_InboundChain(t *testing.T) {
 			}
 		}
 	}
+	// 正文落库不该把已经归好的会话打散
 	threads, total = c.listThreads(inbox.ID)
 	if total != 2 || len(threads) != 2 {
-		t.Fatalf("after bodies: total=%d n=%d %+v", total, len(threads), threads)
+		t.Fatalf("读完正文之后会话散了：total=%d n=%d %+v", total, len(threads), threads)
 	}
 	var conv *threadItem
 	for i := range threads {

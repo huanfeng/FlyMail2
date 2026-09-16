@@ -1,11 +1,14 @@
 package parser
 
 import (
+	"bytes"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	message "github.com/emersion/go-message"
 	"github.com/emersion/go-message/mail"
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"flymail-core/types"
 )
@@ -79,6 +82,80 @@ func ExtractAttachments(r io.Reader) ([]AttachmentData, error) {
 	}
 	_, _, atts := walkParts(mr, true)
 	return atts, nil
+}
+
+// ParseHeaders 只从一段 RFC 5322 邮件头填充信封字段与线程头，不碰正文与附件。
+//
+// ── 为什么有这个函数：不再依赖服务端的 ENVELOPE ─────────────────────────────
+//
+// 元数据抓取原先要 ENVELOPE，由服务端把邮件头解析成十个字段返给我们。问题是
+// **服务端可能解析错**，而且错了没有补救：
+//
+//	QQ   某些邮件只给九个字段（缺 To/Cc/Bcc 之一时不补 NIL 占位，后面的
+//	     地址列表整体左移），go-imap 按 RFC 严格解析，直接报
+//	     `expected SP, got ")"`，并且**连带拆掉整条连接**——一封坏邮件
+//	     让整个账户的同步再也跑不完。2026-09-16 线上就是这么卡死的。
+//	     这不是新问题：MailKit 2018 年就为 QQ 的同一类缺陷加过绕行。
+//	GreenMail  ENVELOPE 里根本不带 In-Reply-To（实测）。
+//
+// ENVELOPE 本来就只是服务端对这些头的一次解析。既然我们自己有解析器，
+// 就没有理由把这一步外包给一个可能算错的实现——直接取头自己解析，
+// 少一个出错来源，也顺带消掉整类「某某服务商的信封不标准」的兼容问题。
+//
+// 与 ParseBody 的关系：整封抓取走 ParseBody（头和正文一起解析），
+// 元数据抓取走这里。两条路填信封字段用的是同一组函数，不会有两套行为。
+func ParseHeaders(r io.Reader, email *types.ParsedEmail) error {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	// ⚠ 有的服务器返回的头区段不以空行结尾，补一个让解析器正常收尾。
+	body := io.MultiReader(bytes.NewReader(decodeRawHeaderBytes(raw)), strings.NewReader("\r\n\r\n"))
+	mr, err := mail.CreateReader(body)
+	if mr == nil {
+		return err
+	}
+	fillFromHeaders(mr, email)
+	fillThreadHeaders(mr, email)
+	return nil
+}
+
+// decodeRawHeaderBytes 把一段邮件头字节转成合法 UTF-8。
+//
+// ── 为什么需要它 ────────────────────────────────────────────────────────────
+//
+// RFC 2047 规定邮件头里的非 ASCII 必须写成 =?charset?B?...?= 的编码字，但**大量
+// 旧邮件直接塞原始 8 位字节**。QQ 收件箱里 1579 封有 76 封是这样：
+//
+//	From: "QQ\xbf\xd5\xbc\xe4\xcf\xee\xc4\xbf\xd7\xe9" <qzone@tencent.com>
+//	                └─ GBK 的「空间项目组」，不是编码字
+//
+// 之前没暴露是因为 ENVELOPE 替我们挡着：QQ 生成信封时会把这些字节转码成 UTF-8
+// 再包成编码字。改成自己解析邮件头之后，这层转码就得自己做了——不做的话
+// 主题变成乱码字节，**发件人直接整个丢失**（Go 的地址解析器遇到非法 UTF-8
+// 会报错，于是一个地址都取不到）。所以必须在解析**之前**整段转码，
+// 按字段解码救不回地址。
+//
+// ── 猜测顺序 ────────────────────────────────────────────────────────────────
+//
+// 合法 UTF-8 原样放行（现代邮件与全 ASCII 的头都走这条，行为不变）；否则按
+// GB18030 解（简体中文邮件的事实标准，且与 GBK/GB2312 向下兼容）；再不行退到
+// Latin-1 逐字节映射——它不会失败，至少落库的是合法字符串而不是坏字节。
+//
+// ⚠ 已知局限：繁体中文的 Big5 原始字节会被当成 GB18030 解出别的汉字。
+// 两者在字节层面无法区分，只能按主要用户群选一个。
+func decodeRawHeaderBytes(b []byte) []byte {
+	if utf8.Valid(b) {
+		return b
+	}
+	if out, err := simplifiedchinese.GB18030.NewDecoder().Bytes(b); err == nil && utf8.Valid(out) {
+		return out
+	}
+	runes := make([]rune, 0, len(b))
+	for _, c := range b {
+		runes = append(runes, rune(c))
+	}
+	return []byte(string(runes))
 }
 
 // walkParts 遍历 MIME 部件，统一供展示路径（ParseBody）与下载路径（ExtractAttachments）使用，
@@ -237,6 +314,70 @@ func MessageIDs(raw string) []string {
 	return out
 }
 
+// addressList 取一个地址头，严格解析失败时退回宽松提取。
+//
+// ⚠ 为什么需要宽松那一步：真实邮件里的地址头经常不合 RFC 5322，而 Go 的解析器
+// 是全有或全无——一个字符不合语法，**整个头一个地址都取不到**，那一行在列表上
+// 就没有任何来源信息。实测撞到的一种：
+//
+//	From: 458889595@qq.com <n428b3992826@sina.com>
+//	      └─ 显示名是个没加引号的邮箱，@ 在 phrase 里是非法字符
+//
+// 以前这类由服务端的 ENVELOPE 兜着（服务端自己宽松解析过一遍），改成自己解析
+// 之后就得自己兜。严格解析成功时一律走严格的，宽松只在它交白卷时才出场。
+func addressList(mr *mail.Reader, key string) []types.Address {
+	if addrs, err := mr.Header.AddressList(key); err == nil && len(addrs) > 0 {
+		out := make([]types.Address, 0, len(addrs))
+		for _, a := range addrs {
+			out = append(out, types.Address{Name: DecodeMIMEHeader(a.Name), Email: a.Address})
+		}
+		return out
+	}
+	return lenientAddresses(mr.Header.Get(key))
+}
+
+// lenientAddresses 从一行畸形的地址头里尽量捞出地址。
+//
+// 只认尖括号里的那种写法（`名字 <a@b>`），因为它是唯一能可靠切分的形式：
+// 尖括号内是地址，上一个逗号到尖括号之间是显示名。没有尖括号时按逗号切，
+// 只留含 @ 的片段。两条都刻意保守——宁可少认，也不要把一句话当成地址存进去。
+func lenientAddresses(raw string) []types.Address {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []types.Address
+	if strings.Contains(raw, "<") {
+		rest := raw
+		for {
+			lt := strings.Index(rest, "<")
+			if lt < 0 {
+				break
+			}
+			gt := strings.Index(rest[lt:], ">")
+			if gt < 0 {
+				break
+			}
+			gt += lt
+			addr := strings.TrimSpace(rest[lt+1 : gt])
+			name := strings.Trim(strings.TrimSpace(rest[:lt]), `",;`)
+			name = strings.TrimSpace(strings.TrimSuffix(name, ","))
+			if strings.Contains(addr, "@") {
+				out = append(out, types.Address{Name: DecodeMIMEHeader(name), Email: addr})
+			}
+			rest = rest[gt+1:]
+		}
+		return out
+	}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "@") && !strings.ContainsAny(part, " \t") {
+			out = append(out, types.Address{Email: part})
+		}
+	}
+	return out
+}
+
 // fillFromHeaders populates ParsedEmail envelope fields from message headers
 // only when those fields are still empty.
 func fillFromHeaders(mr *mail.Reader, email *types.ParsedEmail) {
@@ -253,46 +394,32 @@ func fillFromHeaders(mr *mail.Reader, email *types.ParsedEmail) {
 	}
 
 	if len(email.From) == 0 {
-		if addrs, err := mr.Header.AddressList("From"); err == nil {
-			for _, a := range addrs {
-				email.From = append(email.From, types.Address{
-					Name:  DecodeMIMEHeader(a.Name),
-					Email: a.Address,
-				})
-			}
-		}
+		email.From = addressList(mr, "From")
 	}
 
 	if len(email.To) == 0 {
-		if addrs, err := mr.Header.AddressList("To"); err == nil {
-			for _, a := range addrs {
-				email.To = append(email.To, types.Address{
-					Name:  DecodeMIMEHeader(a.Name),
-					Email: a.Address,
-				})
-			}
-		}
+		email.To = addressList(mr, "To")
 	}
 
 	if len(email.CC) == 0 {
-		if addrs, err := mr.Header.AddressList("Cc"); err == nil {
-			for _, a := range addrs {
-				email.CC = append(email.CC, types.Address{
-					Name:  DecodeMIMEHeader(a.Name),
-					Email: a.Address,
-				})
-			}
-		}
+		email.CC = addressList(mr, "Cc")
 	}
 
 	if len(email.BCC) == 0 {
-		if addrs, err := mr.Header.AddressList("Bcc"); err == nil {
-			for _, a := range addrs {
-				email.BCC = append(email.BCC, types.Address{
-					Name:  DecodeMIMEHeader(a.Name),
-					Email: a.Address,
-				})
-			}
+		email.BCC = addressList(mr, "Bcc")
+	}
+
+	if len(email.ReplyTo) == 0 {
+		email.ReplyTo = addressList(mr, "Reply-To")
+	}
+
+	// ⚠ 只在 INTERNALDATE 缺失时才用 Date 头，与原先「ENVELOPE 的日期只作兜底」
+	// 一致。两者语义不同：INTERNALDATE 是这封信到达服务器的时间，Date 是发件方
+	// 自己写的，可以是任意值（伪造、时钟错乱、草稿沿用旧日期）。按 Date 排序会让
+	// 列表被一封声称来自 2030 年的垃圾邮件顶到最上面。
+	if email.Date.IsZero() {
+		if d, err := mr.Header.Date(); err == nil && !d.IsZero() {
+			email.Date = d
 		}
 	}
 }

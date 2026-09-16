@@ -17,9 +17,19 @@ type Repository struct{ db *gorm.DB }
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
+// dbTime 把时刻转成 date 列的规范表示所对应的 time.Time：UTC + 秒精度。
+//
+// ⚠ 落库与比较都必须过这里。date 是 TEXT 列，写进去的文本形态取决于 time.Time
+// 自带的时区与精度（+08:00 的写成 `2026-09-16 19:09:44+08:00`，UTC 的写成
+// `2026-09-16T11:09:44Z`，带小数秒的还会多一截），而排序和 `<` 比较都是按字节序。
+// 形态不统一，跨服务商的邮件顺序就是乱的——2026-09-16 用户报的正是这个。
+// 老库里的行由 EnsureUTCDates 迁移到同一形态。
+func dbTime(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
+
 // Upsert 按 (folder_id, uid) 唯一键插入或更新元数据。
 // 不更新 body_synced/snippet/has_attachment（正文相关，由 M4 流程维护）。
 func (r *Repository) Upsert(m *Message) error {
+	m.Date = dbTime(m.Date)
 	return r.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "folder_id"}, {Name: "uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
@@ -141,15 +151,21 @@ func (r *Repository) searchScope(q fts.Query) *gorm.DB {
 	if q.HasAttachment != nil {
 		dbq = dbq.Where("messages.has_attachment = ?", *q.HasAttachment)
 	}
-	// before:/after: 是「按邮件自带时区的日期」比较，不是绝对时刻：date 列以带偏移的文本存储
-	// （2026-03-01 21:00:00+08:00），比较走字节序，串尾的偏移量不参与主序。
-	// 这与 IMAP SENTBEFORE/SENTSINCE 按 Date 头日期比较的口径一致，本地与服务端结果不会打架；
-	// 代价是跨时区邮件在日期边界上可能差一天。既有的 ORDER BY date 也是同一口径。
+	// ⚠ 绑定的时刻必须先转 UTC。
+	//
+	// date 列以文本存储，比较走字节序；库里一律是 UTC（见 EnsureUTCDates），
+	// 而 Go 这边的 time.Time 带着本地时区，直接绑会被序列化成
+	// `2026-03-01 21:00:00+08:00` 去跟 `+00:00` 的行按字节比——串尾的偏移量
+	// 不参与主序，结果就是错的。
+	//
+	// 口径因此是**绝对时刻**，不再是「按邮件自带时区的日期」。跨时区邮件在
+	// 日期边界上仍可能与 IMAP SENTBEFORE/SENTSINCE 差一天，那是 IMAP 那侧按
+	// 本地日期比较的固有差异，换成 UTC 之后至少本地这一侧是自洽的。
 	if q.Before != nil {
-		dbq = dbq.Where("messages.date < ?", *q.Before)
+		dbq = dbq.Where("messages.date < ?", dbTime(*q.Before))
 	}
 	if q.After != nil {
-		dbq = dbq.Where("messages.date >= ?", *q.After)
+		dbq = dbq.Where("messages.date >= ?", dbTime(*q.After))
 	}
 	if q.Folder != "" {
 		// in:inbox 这类按类型精确匹配；in:发票 这类按显示名/路径模糊匹配
@@ -184,7 +200,7 @@ func (r *Repository) SearchMessages(q fts.Query, beforeDate *time.Time, beforeID
 	}
 	dbq := f.apply(r.searchScope(q)).Select("messages.*")
 	if beforeDate != nil {
-		dbq = dbq.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
+		dbq = dbq.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", dbTime(*beforeDate), dbTime(*beforeDate), beforeID)
 	}
 	var list []Message
 	err := dedupeSameMessage(dbq).
@@ -293,7 +309,7 @@ func (r *Repository) ListAggregate(view string, beforeDate *time.Time, beforeID 
 	}
 	q := f.apply(dedupeSameMessage(aggregateScope(r.db.Model(&Message{}), view))).Select("messages.*")
 	if beforeDate != nil {
-		q = q.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", *beforeDate, *beforeDate, beforeID)
+		q = q.Where("messages.date < ? OR (messages.date = ? AND messages.id < ?)", dbTime(*beforeDate), dbTime(*beforeDate), beforeID)
 	}
 	var list []Message
 	err := q.Order("messages.date DESC").Order("messages.id DESC").Limit(limit).Find(&list).Error
@@ -501,7 +517,7 @@ func (r *Repository) PendingBodies(accountID uint, sinceDays, limit int) ([]Mess
 		Where("messages.body_synced = ?", false).
 		Where("folders.type IN ?", bodyPrefetchTypes)
 	if sinceDays > 0 {
-		q = q.Where("messages.date >= ?", time.Now().AddDate(0, 0, -sinceDays))
+		q = q.Where("messages.date >= ?", dbTime(time.Now().AddDate(0, 0, -sinceDays)))
 	}
 	var list []Message
 	err := q.Select("messages.*").
@@ -530,7 +546,7 @@ func (r *Repository) CountPendingBodies(accountID uint, sinceDays int) (int64, e
 		Where("messages.body_synced = ?", false).
 		Where("folders.type IN ?", bodyPrefetchTypes)
 	if sinceDays > 0 {
-		q = q.Where("messages.date >= ?", time.Now().AddDate(0, 0, -sinceDays))
+		q = q.Where("messages.date >= ?", dbTime(time.Now().AddDate(0, 0, -sinceDays)))
 	}
 	var n int64
 	err := q.Count(&n).Error

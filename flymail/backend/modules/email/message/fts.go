@@ -209,3 +209,36 @@ func RebuildFTS(db *gorm.DB) error {
 	logger.Info("fts: 重建完成", zap.Int64("messages", done), zap.Duration("elapsed", time.Since(start)))
 	return nil
 }
+
+// EnsureUTCDates 把 messages.date 统一成规范的 UTC 文本。
+//
+// ── 缘起（2026-09-16 用户报「新收到的邮件排在旧邮件后面」） ───────────────────
+//
+// date 是 TEXT 列，而写进去的文本形态**取决于 time.Time 自带的时区**，于是同一个
+// 库里并存好几种串：
+//
+//	2026-09-16 19:09:44+08:00   QQ / 163 返回 +0800，实际 19:09
+//	2026-09-16 12:37:35+00:00   Gmail 返回 UTC，实际是北京时间 20:37
+//	2026-09-16T11:09:44.5Z      驱动对 UTC 时间写的是 RFC3339，还带可变小数秒
+//
+// 排序是按**字节序**比的：`19:` > `12:`，于是晚一个半小时到的 GitHub 邮件被排到
+// QQ 通知后面；空格与 `T`（0x20 / 0x54）也不同序。只用一个服务商时看不出来，
+// 多账户一混就乱（实测库里 10321 行 +00:00、8568 行 +08:00）。
+//
+// 统一成 `2026-09-16T11:09:44Z` 这一种形态之后，字节序与时间序一致。
+//
+// ⚠ 只改表示，不改时刻：strftime 认得串尾的偏移量并按它换算。秒以下精度被截掉，
+// 这不损失信息——IMAP 的 INTERNALDATE 与 Date 头本来就只到秒。
+//
+// WHERE 里拿「规范化后是否与原值相同」当判据，天然幂等（Migrate 每次启动都会调），
+// 也不必去猜有哪几种旧格式。
+//
+// 写入侧的对应改动是 Repository.Upsert 里的 dbTime()。
+func EnsureUTCDates(db *gorm.DB) error {
+	const canonical = `strftime('%Y-%m-%dT%H:%M:%SZ', date)`
+	// strftime 解析失败会返回 NULL，加一条防止把日期抹成空
+	return db.Exec(`UPDATE messages SET date = ` + canonical + `
+	                WHERE date IS NOT NULL
+	                  AND ` + canonical + ` IS NOT NULL
+	                  AND date <> ` + canonical).Error
+}

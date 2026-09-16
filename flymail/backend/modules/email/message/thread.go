@@ -478,7 +478,7 @@ func (r *Repository) listThreads(scope *gorm.DB, beforeDate *time.Time, beforeTh
 			"substr(" + key + ", 1, length(" + key + ") - 13) AS last_date, messages.id AS id").
 		Group("messages.thread_id")
 	if beforeDate != nil {
-		q = q.Having("last_date < ? OR (last_date = ? AND messages.thread_id < ?)", *beforeDate, *beforeDate, beforeThread)
+		q = q.Having("last_date < ? OR (last_date = ? AND messages.thread_id < ?)", dbTime(*beforeDate), dbTime(*beforeDate), beforeThread)
 	}
 	var heads []threadHead
 	if err := q.Order("last_date DESC").Order("messages.thread_id DESC").Limit(limit).Scan(&heads).Error; err != nil {

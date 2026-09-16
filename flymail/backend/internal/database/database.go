@@ -56,6 +56,10 @@ func Migrate(db *gorm.DB) error {
 	if err := message.EnsureUTCDates(db); err != nil {
 		return err
 	}
+	// 老库升级：清掉账户已删但数据还留着的孤儿行（级联删除是后加的）
+	if err := account.PurgeOrphans(db); err != nil {
+		return err
+	}
 	// 刷新规划器统计：没有 sqlite_stat1 时，会话列表的 JOIN folders 会选成先扫 messages
 	// 再探 folders（12.8k 封上 40ms，有统计后 5ms）。analysis_limit 让每个索引最多采样 1000 行，
 	// 开销不随库线性增长（SQLite 推荐的有界 ANALYZE 用法）；只在启动时跑一次。

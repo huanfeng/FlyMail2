@@ -186,14 +186,6 @@ func (r *Repository) GetSignature(accountID uint) (*Signature, error) {
 
 func (r *Repository) SaveSignature(s *Signature) error { return r.db.Save(s).Error }
 
-// deleteIdentityOf 清理账户名下的别名与签名（删账户时连带，避免留孤儿行）。
-func (r *Repository) deleteIdentityOf(tx *gorm.DB, accountID uint) error {
-	if err := tx.Where("account_id = ?", accountID).Delete(&Alias{}).Error; err != nil {
-		return err
-	}
-	return tx.Where("account_id = ?", accountID).Delete(&Signature{}).Error
-}
-
 // ── Service ───────────────────────────────────────────────────────────────────
 
 func (s *Service) ListAliases(accountID uint) ([]Alias, error) {

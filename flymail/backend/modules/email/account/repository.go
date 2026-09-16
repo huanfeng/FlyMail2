@@ -79,7 +79,12 @@ func (r *Repository) ListEnabledIDs() ([]uint, error) {
 	return ids, err
 }
 
-// Delete 删除账户，并在同一事务内清理其别名与签名（否则重建同 id 账户会捡到旧身份）。
+// Delete 删除账户，并在同一事务内清理它名下的全部数据。
+//
+// ⚠ 别只删 accounts 行：邮件、文件夹、正文、附件、草稿、规则、回写队列、通知
+// 全都挂在 account_id 上，不一起删就成了界面上看不见、却一直占着空间的孤儿
+// （2026-09-16 实测：删一个账户留下 1579 封邮件 + 14 个文件夹）。
+// 表清单与删除顺序见 purge.go。
 func (r *Repository) Delete(id uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		res := tx.Delete(&Account{}, id)
@@ -89,6 +94,6 @@ func (r *Repository) Delete(id uint) error {
 		if res.RowsAffected == 0 {
 			return ErrAccountNotFound
 		}
-		return r.deleteIdentityOf(tx, id)
+		return purgeAccountData(tx, id)
 	})
 }

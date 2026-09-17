@@ -33,6 +33,8 @@ func sendWebhook(ch *Channel, evt Event) error {
 		"title":      evt.Title,
 		"body":       evt.Body,
 		"account_id": evt.AccountID,
+		"message_id": evt.MessageID,
+		"url":        evt.URL,
 		"time":       time.Now().Format(time.RFC3339),
 	})
 	req, err := http.NewRequest(http.MethodPost, ch.URL, bytes.NewReader(payload))
@@ -46,12 +48,29 @@ func sendWebhook(ch *Channel, evt Event) error {
 	return doRequest(req)
 }
 
-// sendFeishu 向飞书自定义机器人发送文本消息；有 secret 时按飞书规则做时间戳签名。
-func sendFeishu(ch *Channel, evt Event) error {
-	text := evt.Title
+// feishuText 把事件拼成飞书那边看到的纯文本。
+//
+// 飞书自定义机器人只收纯文本，链接必须**单独起一行**——聊天客户端靠整行是 URL
+// 来识别可点区域，塞在句子中间多半点不开。没有链接时不要留空行。
+//
+// ⚠ Title 在这里再折叠一次是出口防线：上面那条约定意味着「独占一行的 URL」
+// 有了官方语义，而 Title 里带着发件人名。构造侧已经折叠过（notify.OneLine），
+// 这里兜住将来新增的事件源——Title 在语义上永远是一行，折叠不会误伤。
+// Body 不能这样折叠：它的换行是 MailBody 有意拼进去的。
+func feishuText(evt Event) string {
+	text := OneLine(evt.Title)
 	if evt.Body != "" {
 		text += "\n" + evt.Body
 	}
+	if evt.URL != "" {
+		text += "\n" + evt.URL
+	}
+	return text
+}
+
+// sendFeishu 向飞书自定义机器人发送文本消息；有 secret 时按飞书规则做时间戳签名。
+func sendFeishu(ch *Channel, evt Event) error {
+	text := feishuText(evt)
 	body := map[string]any{
 		"msg_type": "text",
 		"content":  map[string]string{"text": text},

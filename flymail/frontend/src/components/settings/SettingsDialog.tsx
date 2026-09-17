@@ -13,6 +13,7 @@ import { AccountDialog } from '@/components/mail/AccountDialog'
 import { PortabilityDialog } from '@/components/settings/PortabilityDialog'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { BrowserNotifySection } from '@/components/settings/BrowserNotifySection'
+import { BaseUrlSection } from '@/components/settings/BaseUrlSection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { RulesSection } from '@/components/settings/RulesSection'
 import { BlocklistSection } from '@/components/settings/BlocklistSection'
@@ -1361,6 +1362,9 @@ export function SettingsDialog({
                 {/* 这台设备上的提醒排在外发渠道之前：多数人要的是「让这个浏览器
                     提醒我」，而不是先去配一个 webhook */}
                 <BrowserNotifySection Row={Row} Toggle={Toggle} />
+                {/* 对外访问地址紧挨着外发渠道：它只对外发的通知有意义
+                    （站内通知点一下就跳，不需要绝对地址） */}
+                <BaseUrlSection Row={Row} />
                 <NotifyChannelsSection />
               </>
             )}

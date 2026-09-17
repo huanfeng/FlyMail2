@@ -1203,6 +1203,7 @@ export function useSettings() {
         sync_poll_interval: Number(data.settings?.sync_poll_interval ?? 180) || 180,
         body_sync_mode: parseBodySyncMode(data.settings?.body_sync_mode),
         body_sync_recent_days: Number(data.settings?.body_sync_recent_days ?? 30) || 30,
+        app_base_url: data.settings?.app_base_url ?? '',
       }
     },
   })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { createDeepLinkResolver } from '@/lib/deep-link'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
@@ -109,6 +110,13 @@ export function ShellPage() {
 
   // 会话视图偏好（会话折叠 vs 单封列表）；关闭后一切回到既有单封行为
   const [conversationView, setConversationViewState] = useState<boolean>(() => getConversationView())
+  // openMailById 在 await 之后要读这个值，闭包里那份那时可能已经过期。
+  // 在 effect 里同步而不是渲染期直接写：渲染期改 ref 会让组件拿不到预期的更新
+  // （React 的 refs 规则），而 effect 在 commit 之后跑，await 之后一定读得到新值。
+  const conversationViewRef = useRef(conversationView)
+  useEffect(() => {
+    conversationViewRef.current = conversationView
+  }, [conversationView])
   function handleChangeConversationView(on: boolean) {
     setConversationView(on)
     setConversationViewState(on)
@@ -656,10 +664,21 @@ export function ShellPage() {
     conversationView ? threadActiveMessageId : messageId,
   )
 
+  // ⚠ 基准取自 setParams 的回调参数而不是渲染期的 params 快照。
+  //
+  // 用快照的话，写回的基准是「创建这个函数的那一次渲染」看到的 URL。同步调用没
+  // 区别，但 openMailById 是先 await 请求详情再写参数的：请求在途的几百毫秒里
+  // 用户点了别的文件夹，详情一回来就会拿旧快照把 account/folder 整个覆盖回去，
+  // 人被硬拽回通知里那封邮件。
   function setParam(mut: (p: URLSearchParams) => void, replace = false) {
-    const next = new URLSearchParams(params)
-    mut(next)
-    setParams(next, { replace })
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        mut(next)
+        return next
+      },
+      { replace },
+    )
   }
 
   useEffect(() => {
@@ -742,12 +761,15 @@ export function ShellPage() {
    * 参数，既不切账户/文件夹、也不管会话视图要的是 thread。
    * 站内通知与浏览器桌面通知共用此函数。
    */
-  async function openMailById(messageId: number): Promise<boolean> {
+  async function openMailById(messageId: number, replace = false): Promise<boolean> {
     try {
       const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
       setView('messages')
       setNotifOpen(false)
       setSearchQuery('')
+      // ⚠ 会话视图要从 ref 读当下的值，不能用闭包捕获的那个：请求在途时用户
+      // 可能刚在设置里关掉会话视图，按旧值写 thread 会让右栏空白。
+      const conversation = conversationViewRef.current
       setParam((p) => {
         p.set('account', String(data.account_id))
         p.set('folder', String(data.folder_id))
@@ -755,20 +777,56 @@ export function ShellPage() {
         // 会话视图的第三栏只认 thread 参数：只写 message 的话点通知会跳到一片空白。
         // 详情 DTO 带 thread_id，据此定位到那条会话；这封是新到的未读，
         // 手风琴的默认展开规则（最新一封 + 全部未读）保证它是打开的。
-        if (conversationView && data.thread_id) {
+        if (conversation && data.thread_id) {
           p.set('thread', data.thread_id)
           p.delete('message')
         } else {
           p.set('message', String(data.id))
           p.delete('thread')
         }
-      })
+      }, replace)
       return true
     } catch {
       /* 邮件已删除等情况 → 由调用方决定回退 */
       return false
     }
   }
+
+  /**
+   * 外部链接进来的 ?message=：补一次定位。
+   *
+   * ⚠ 通知里的「打开邮件」是**新增的通知类入口**，而它只能传 URL 参数，
+   * 没办法走 openMailById。会话视图的第三栏认的是 thread 参数，只带 message
+   * 的链接点开就是「列表对了、右边一片空白」——上面那段注释里踩过的同一个坑，
+   * 换了个入口又踩一次。
+   *
+   * 所以这里把 URL 入口接回同一条定位逻辑：只在「会话视图 + 有 message 没 thread」
+   * 时补一次，补完 openMailById 会写上 thread 并删掉 message，条件自然不再成立。
+   * ref 记住已处理过的 id，避免用户手动删掉 thread 时反复触发。
+   *
+   * ⚠ 这次改写必须是 replace，不能 push。
+   *
+   * 补定位在语义上是「把这个 URL 修正成等价的 thread 形式」，不是一次导航。
+   * push 的话历史里会留下 ?message=100 那一条，用户按后退就回到它——而
+   * deepLinkedRef 已经记下这个 id，不会再补一次，第三栏于是停在空白且
+   * **再也回不来**（只能按前进）。去掉 ref 更糟：后退会被立刻重新 push 回去，
+   * 变成后退键失灵。replace 把那条历史换掉，后退直接离开应用，行为才是对的。
+   */
+  const resolveDeepLink = useRef(createDeepLinkResolver()).current
+  useEffect(() => {
+    // 动作每次都现传：openMailById 等都是每轮渲染新建的闭包，
+    // 让解析器构造时捕获一次的话，await 之后用到的会是过期的那份。
+    void resolveDeepLink(
+      { messageId, conversationView, threadId },
+      {
+        open: openMailById,
+        clearMessage: () => setParam((p) => p.delete('message'), true),
+        notifyExpired: () => toast(t('reader.linkExpired')),
+      },
+    )
+    // openMailById 每次渲染都是新函数，列进依赖会让这个 effect 每轮都跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageId, conversationView, threadId])
 
   // 点击通知跳转：单封新邮件（带 message_id）→ 精准打开该邮件；
   // openMailById 返回 false（邮件已删除等）时落到下面的账户收件箱回退。

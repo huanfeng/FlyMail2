@@ -257,7 +257,8 @@
     "largeAttach": "Download this {{size}} attachment?",
     "largeAttachBody": "Large attachments are saved only after the download completes, with no progress shown in between.",
     "attachShowAll": "Show all {{n}} attachments",
-    "attachShowLess": "Show fewer attachments"
+    "attachShowLess": "Show fewer attachments",
+    "linkExpired": "This message is no longer available — it may have been moved or deleted"
   },
   "account": {
     "add": "Add Account",
@@ -885,6 +886,17 @@
       "errNoEmail": "An account in the file has no email address",
       "errTooLarge": "File is too large, probably the wrong one",
       "errUnreadable": "Could not read the file"
+    },
+    "baseUrl": {
+      "title": "Public address",
+      "label": "Service URL",
+      "hint": "Used to build the “open mail” link in notifications. The server cannot determine this on its own (reverse proxies, containers and 0.0.0.0 listeners all hide it). Leave empty to send notifications without a link.",
+      "save": "Save",
+      "saved": "Saved",
+      "err_invalid": "Not a valid URL",
+      "err_scheme": "Must start with http:// or https://",
+      "err_host": "Missing host name",
+      "err_save": "Save failed, please try again"
     }
   },
   "dateGroup": {

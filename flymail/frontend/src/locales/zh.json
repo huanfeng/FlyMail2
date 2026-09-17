@@ -257,7 +257,8 @@
     "largeAttach": "下载这个 {{size}} 的附件？",
     "largeAttachBody": "大附件需要完整下载完才会保存，期间没有进度显示。",
     "attachShowAll": "显示全部 {{n}} 个附件",
-    "attachShowLess": "收起附件"
+    "attachShowLess": "收起附件",
+    "linkExpired": "这封邮件已经不在了，可能被移走或删除了"
   },
   "account": {
     "add": "添加账户",
@@ -885,6 +886,17 @@
       "errNoEmail": "文件里有账户缺少邮箱地址",
       "errTooLarge": "文件过大，多半选错了",
       "errUnreadable": "文件读取失败"
+    },
+    "baseUrl": {
+      "title": "对外访问地址",
+      "label": "服务地址",
+      "hint": "通知里的「打开邮件」链接用它拼成绝对地址。服务端无法自行得知这个地址（反向代理、容器、0.0.0.0 监听都会让它看到错的值），留空则通知不带链接。",
+      "save": "保存",
+      "saved": "已保存",
+      "err_invalid": "不是合法的 URL",
+      "err_scheme": "必须以 http:// 或 https:// 开头",
+      "err_host": "缺少主机名",
+      "err_save": "保存失败，请稍后重试"
     }
   },
   "dateGroup": {

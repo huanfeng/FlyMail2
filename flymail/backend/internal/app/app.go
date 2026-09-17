@@ -7,7 +7,10 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"flymail-core/logger"
 
 	"flymail/internal/config"
 	"flymail/internal/crypto"
@@ -28,6 +31,7 @@ import (
 	"flymail/modules/system/privacy"
 	"flymail/modules/system/setting"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -142,6 +146,42 @@ func New(cfg *config.Config) (*App, error) {
 	// 外层再包两层观察者：桌面形态借 emitHook 弹系统原生通知，
 	// 浏览器形态借 SSE 收到同一条事件后弹 Notification。
 	notifySvc := notify.NewService(notify.NewRepository(db))
+	// 通知里的「打开邮件」直达链接。
+	//
+	// 装在这里而不是 notify 包内部：拼一条链接要三样东西——对外访问地址（设置）、
+	// 邮件所属的账户与文件夹（邮件服务）、以及前端的 URL 形状。notify 不该为了
+	// 一行链接去依赖设置与邮件两个模块，而 app 本来就持有全部装配件。
+	//
+	// 对外访问地址留空时返回空串，通知就不带链接——服务端没有可靠办法猜出这个值：
+	// 它看到的 Host 可能是反代内网名或容器名，监听地址可能是 0.0.0.0。
+	// 没配 app_base_url 时退回 OAuth 那个同义配置，省得同一个地址填两遍。
+	var badBase atomic.Value // 上次告警过的非法地址，避免每封邮件刷一行日志
+	notifySvc.SetLinkBuilder(func(accountID, messageID uint) string {
+		raw := settingSvc.GetString(setting.KeyAppBaseURL, cfg.OAuth.RedirectBaseURL)
+		base, err := setting.NormalizeBaseURL(raw)
+		if err != nil {
+			// ⚠ 不能静默。设置页那条路径有校验，但回退值 cfg.OAuth.RedirectBaseURL
+			// 直接来自配置文件、从不经过校验——有人在 yaml 里漏写 scheme，
+			// 结果就是所有通知都不带链接而日志里一个字都没有，只能从 app 装配
+			// 一路读到 NormalizeBaseURL 才查得出来。
+			if prev, _ := badBase.Load().(string); prev != raw {
+				badBase.Store(raw)
+				logger.Warn("app: 对外访问地址不合法，通知将不带链接",
+					zap.String("value", raw), zap.Error(err))
+			}
+			return ""
+		}
+		if base == "" {
+			return ""
+		}
+		var folderID uint
+		if messageID != 0 {
+			if msg, err := messageSvc.GetByID(messageID); err == nil && msg != nil {
+				folderID = msg.FolderID
+			}
+		}
+		return notify.MailLink(base, accountID, folderID, messageID)
+	})
 	baseEmit := notifySvc.EmitFunc()
 	emit := func(eventType string, accountID uint, messageID uint, title, body string) {
 		baseEmit(eventType, accountID, messageID, title, body)

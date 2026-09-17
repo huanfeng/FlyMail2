@@ -65,6 +65,17 @@ func (h *handler) setAll(c *gin.Context) {
 		}
 	}
 
+	// 校验 app_base_url：允许留空（表示不带链接），否则必须是带主机名的 http/https 绝对地址。
+	// 存进去之前统一去掉结尾斜杠，拼链接时就不用两边都判断。
+	if v, ok := body.Settings[KeyAppBaseURL]; ok {
+		normalized, err := NormalizeBaseURL(v)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		body.Settings[KeyAppBaseURL] = normalized
+	}
+
 	// 校验 body_sync_mode
 	if v, ok := body.Settings[KeyBodySyncMode]; ok && !ValidBodySyncMode(v) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "body_sync_mode 必须是 new/recent/all 之一"})

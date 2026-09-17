@@ -515,11 +515,30 @@ func (s *Service) notifyMatches(accountID uint, name string, list []*message.Mes
 			if subject == "" {
 				subject = "（无主题）"
 			}
-			s.emit(eventMailRule, accountID, m.ID, "规则命中 · "+name, subject)
+			// 与新邮件通知同一个格式：规则命中恰恰是最值得看一眼摘要的那类提醒
+			// （「老板来信 → 高优」之类），只给主题的话同一个通知中心里会出现
+			// 两种样子，看起来像功能时灵时不灵。
+			s.emit(eventMailRule, accountID, m.ID, "规则命中 · "+notify.OneLine(name),
+				notify.MailBody(subject, s.snippetOf(m.ID)))
 		}
 		return
 	}
 	s.emit(eventMailRule, accountID, 0, "规则命中 · "+name, fmt.Sprintf("命中 %d 封新邮件", len(list)))
+}
+
+// snippetOf 从库里读这封邮件的正文摘要；取不到就返回空串（通知照发，只是没摘要）。
+//
+// ⚠ 必须重新查库，不能用 list 里那个 Message。那批对象是**抓元数据时**的副本，
+// 那时正文还没下载，Snippet 恒为空。正文预取跑在规则之前、摘要在那时才落库。
+func (s *Service) snippetOf(id uint) string {
+	if id == 0 || s.messages == nil {
+		return ""
+	}
+	msg, err := s.messages.GetByID(id)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Snippet
 }
 
 // maybePrune 每天最多清一次过期执行日志（CAS 保证并发的 runner 里只有一个去清）。

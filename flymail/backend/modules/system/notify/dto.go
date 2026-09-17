@@ -10,6 +10,9 @@ type Event struct {
 	MessageID uint
 	Title     string
 	Body      string
+	// URL 是这条通知对应的「打开」链接，由 Service 在 Emit 时按对外访问地址拼出，
+	// 事件源不必知道它。没配对外访问地址时为空。
+	URL string
 }
 
 // ChannelInput 是创建/更新渠道的入参。

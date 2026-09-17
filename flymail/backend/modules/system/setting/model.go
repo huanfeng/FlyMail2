@@ -36,6 +36,15 @@ const (
 	KeyBodySyncMode     = "body_sync_mode"
 	DefaultBodySyncMode = BodySyncNew
 
+	// KeyAppBaseURL 是 FlyMail 对外可访问的根地址，例如 https://mail.example.com
+	// 或 http://192.168.5.11:8086。
+	//
+	// ⚠ 服务端没有别的办法知道这个值：它看到的 Host 头可能是反向代理的内网名、
+	// 容器名或 127.0.0.1，监听地址也可能是 0.0.0.0。所以必须由用户配置。
+	//
+	// 用途：通知里的「打开邮件」直达链接。留空则通知不带链接（其余功能不受影响）。
+	KeyAppBaseURL = "app_base_url"
+
 	// KeyBodySyncRecentDays 是 recent 模式的天数窗口。
 	KeyBodySyncRecentDays     = "body_sync_recent_days"
 	DefaultBodySyncRecentDays = "30"

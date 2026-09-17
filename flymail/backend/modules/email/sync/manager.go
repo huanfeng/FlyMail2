@@ -16,6 +16,7 @@ import (
 
 	"flymail/modules/email/folder"
 	"flymail/modules/email/message"
+	"flymail/modules/system/notify"
 )
 
 const (
@@ -609,6 +610,24 @@ func (m *Manager) pollInbox(accountID uint, sess Session) error {
 	return m.syncFolder(accountID, inbox, sess)
 }
 
+// snippetOf 读回这封邮件此刻的正文摘要。
+//
+// ⚠ 必须重新查库，不能用 nm.Unseen 里那份：那是增量同步**抓元数据时**的快照，
+// 那时正文还没下载，Snippet 恒为空。正文预取（prefetchNewBodies）在通知之前跑，
+// 跑完摘要才落库——所以这里查到的才是有内容的那一份。
+//
+// 取不到就返回空串：通知只是少一段摘要，不该因此不发。
+func (m *Manager) snippetOf(messageID uint) string {
+	if messageID == 0 || m.messages == nil {
+		return ""
+	}
+	msg, err := m.messages.GetByID(messageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Snippet
+}
+
 func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) error {
 	state, nm, err := m.messages.IncrementalSync(
 		accountID, f.ID, f.Path, f.UIDValidity, f.UIDNext, f.TotalCount, sess,
@@ -683,7 +702,10 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 				if subject == "" {
 					subject = "（无主题）"
 				}
-				m.emit(string(notifyMailNew), accountID, msg.ID, "新邮件 · "+from, subject)
+				// ⚠ 发件人与主题都由对方控制，且能带换行——通知的纯文本形态靠换行
+				// 区分字段，不折叠就能伪造出一行假的「打开邮件」链接。详见 notify.OneLine。
+				m.emit(string(notifyMailNew), accountID, msg.ID, "新邮件 · "+notify.OneLine(from),
+					notify.MailBody(subject, m.snippetOf(msg.ID)))
 			} else {
 				m.emit(string(notifyMailNew), accountID, 0,
 					"新邮件", fmt.Sprintf("收到 %d 封新邮件", nm.UnseenTotal))

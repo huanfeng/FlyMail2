@@ -3,6 +3,7 @@ package notify
 import (
 	"errors"
 	"strings"
+	"sync"
 
 	"flymail-core/logger"
 
@@ -15,6 +16,14 @@ type Service struct {
 	ch   chan Event
 	// dispatchFn 可在测试中替换真实 HTTP 投递。
 	dispatchFn func(*Channel, Event) error
+	// linkFn 由 app 装配注入，把 (账户, 邮件) 变成一条可点开的绝对地址。
+	// 放在这里而不是让每个事件源自己拼：拼链接要知道「对外访问地址」这个设置，
+	// 还要查邮件属于哪个文件夹，而 sync / rule 那些包既不该依赖设置模块，
+	// 也不该为了一条通知去查文件夹。
+	linkFn func(accountID, messageID uint) string
+	// mu 保护两个注入点：它们都由装配/测试在外部写，而投递 worker 在另一条
+	// goroutine 上读。
+	mu sync.RWMutex
 }
 
 func NewService(repo *Repository) *Service {
@@ -28,12 +37,46 @@ func NewService(repo *Repository) *Service {
 }
 
 // SetDispatcher 覆盖投递实现（测试注入）。
-func (s *Service) SetDispatcher(fn func(*Channel, Event) error) { s.dispatchFn = fn }
+func (s *Service) SetDispatcher(fn func(*Channel, Event) error) {
+	s.mu.Lock()
+	s.dispatchFn = fn
+	s.mu.Unlock()
+}
+
+// dispatcher 取当前投递实现。
+func (s *Service) dispatcher() func(*Channel, Event) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dispatchFn
+}
+
+// SetLinkBuilder 注入「打开链接」的构造器。传 nil 表示不带链接。
+//
+// 用函数而不是直接把设置服务传进来：对外访问地址是随时可改的运行期配置，
+// 每条通知都要按当下的值重新拼，缓存下来会在用户刚改完设置时发出旧链接。
+func (s *Service) SetLinkBuilder(fn func(accountID, messageID uint) string) {
+	s.mu.Lock()
+	s.linkFn = fn
+	s.mu.Unlock()
+}
+
+func (s *Service) buildLink(accountID, messageID uint) string {
+	s.mu.RLock()
+	fn := s.linkFn
+	s.mu.RUnlock()
+	if fn == nil {
+		return ""
+	}
+	return fn(accountID, messageID)
+}
 
 // Emit 记录一条站内通知并异步投递到匹配的外发渠道。非阻塞，队列满则丢弃外发（站内已落库）。
 func (s *Service) Emit(evt Event) {
 	if evt.Type == "" {
 		return
+	}
+	if evt.URL == "" {
+		evt.URL = s.buildLink(evt.AccountID, evt.MessageID)
 	}
 	// 站内通知落库（best-effort）
 	if err := s.repo.InsertNotification(&Notification{
@@ -76,7 +119,7 @@ func (s *Service) deliver(evt Event) {
 	for i := range channels {
 		c := &channels[i]
 		entry := &Log{ChannelID: c.ID, ChannelName: c.Name, Type: string(evt.Type), Status: "ok"}
-		if err := s.dispatchFn(c, evt); err != nil {
+		if err := s.dispatcher()(c, evt); err != nil {
 			entry.Status = "failed"
 			entry.Error = err.Error()
 		}
@@ -174,10 +217,20 @@ func (s *Service) TestChannel(id uint) error {
 	if err != nil {
 		return err
 	}
-	return s.dispatchFn(c, Event{
+	// ⚠ 测试消息必须带上链接。
+	//
+	// 这个按钮是「对外访问地址」唯一的即时反馈：校验只挡得住格式错误，挡不住
+	// 「格式对但主机填错」（填了容器内网名、填了错端口）。没有链接的话，用户
+	// 要等下一封真邮件到达、并且真的去点，才会发现地址是错的——而这个功能的
+	// 全部价值就在于「填错了不会有任何提示」。
+	//
+	// 不走 Emit：测试是同步的、要把投递结果返回给调用方，也不该在通知中心
+	// 留下一条站内记录。所以链接在这里自己补。
+	return s.dispatcher()(c, Event{
 		Type:  EventMailNew,
 		Title: "FlyMail 测试通知",
 		Body:  "这是一条来自 FlyMail 通知中心的测试消息。",
+		URL:   s.buildLink(0, 0),
 	})
 }
 

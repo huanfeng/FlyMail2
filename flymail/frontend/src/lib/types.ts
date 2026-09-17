@@ -27,6 +27,11 @@ export interface AppSettings {
   body_sync_mode: BodySyncMode
   /** recent 模式的天数窗口 */
   body_sync_recent_days: number
+  /**
+   * FlyMail 对外可访问的根地址，用于通知里的「打开邮件」链接。
+   * 留空表示没配，通知就不带链接（服务端猜不出自己的对外地址）。
+   */
+  app_base_url: string
 }
 
 /** 管理员资料 */

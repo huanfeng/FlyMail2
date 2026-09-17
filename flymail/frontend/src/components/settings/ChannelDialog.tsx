@@ -9,9 +9,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { isDirty, useDismissGuard } from '@/lib/dismiss-guard'
 import { useCreateNotifyChannel, useUpdateNotifyChannel } from '@/lib/queries'
-import type { NotifyChannel } from '@/lib/types'
+import type { NotifyChannel, NotifyContentLevel } from '@/lib/types'
 
 const EVENT_TYPES = ['mail_new', 'mail_rule', 'sync_failed', 'account_status'] as const
+
+// 推送内容的三档。顺序就是「带出去的内容由少到多」，让选择本身有方向感。
+const CONTENT_LEVELS: NotifyContentLevel[] = ['basic', 'snippet', 'full']
 const EVENT_LABEL: Record<string, string> = {
   mail_new: 'notif.tabMail',
   sync_failed: 'notif.tabSync',
@@ -31,14 +34,23 @@ interface FormState {
   url: string
   secret: string
   events: string[]
+  contentLevel: NotifyContentLevel
 }
 
 function defaultForm(): FormState {
-  return { name: '', kind: 'webhook', url: '', secret: '', events: ['mail_new'] }
+  // 默认摘要：与后端对老渠道的回落一致，也是大多数人想要的
+  return { name: '', kind: 'webhook', url: '', secret: '', events: ['mail_new'], contentLevel: 'snippet' }
 }
 
 function formFromChannel(c: NotifyChannel): FormState {
-  return { name: c.name, kind: c.kind, url: c.url, secret: '', events: c.events }
+  return {
+    name: c.name,
+    kind: c.kind,
+    url: c.url,
+    secret: '',
+    events: c.events,
+    contentLevel: c.content_level ?? 'snippet',
+  }
 }
 
 interface FieldProps {
@@ -108,6 +120,7 @@ export function ChannelDialog({ open, channel, onOpenChange }: ChannelDialogProp
       secret: form.secret,
       events: form.events,
       enabled: channel?.enabled ?? true,
+      content_level: form.contentLevel,
     }
     if (isEdit && channel) {
       updateCh.mutate({ id: channel.id, input }, { onSuccess: () => onOpenChange(false) })
@@ -204,6 +217,24 @@ export function ChannelDialog({ open, channel, onOpenChange }: ChannelDialogProp
                     onClick={() => toggleEvent(ev)}
                   >
                     {t(EVENT_LABEL[ev])}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Field
+              label={t('settings.notify.contentLevel')}
+              hint={t(`settings.notify.level_${form.contentLevel}_hint`)}
+            >
+              <div className="mode-toggle" style={{ alignSelf: 'flex-start' }}>
+                {CONTENT_LEVELS.map((lv) => (
+                  <button
+                    key={lv}
+                    type="button"
+                    className={form.contentLevel === lv ? 'active' : ''}
+                    onClick={() => set('contentLevel', lv)}
+                  >
+                    {t(`settings.notify.level_${lv}`)}
                   </button>
                 ))}
               </div>

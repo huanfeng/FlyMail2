@@ -600,7 +600,14 @@
       "soundHint": "Play a soft chime when mail arrives while this tab is in the background.",
       "soundTest": "Preview",
       "titleBadge": "Unread badge on the tab",
-      "titleBadgeHint": "Show the unread count in the tab title and site icon. No permission needed."
+      "titleBadgeHint": "Show the unread count in the tab title and site icon. No permission needed.",
+      "contentLevel": "Push content",
+      "level_basic": "Basics only",
+      "level_snippet": "With preview",
+      "level_full": "Full body",
+      "level_basic_hint": "Sender and subject only, no body text at all. Good for verification codes and password resets.",
+      "level_snippet_hint": "Adds the opening lines of the body, so you can judge urgency without opening the mail.",
+      "level_full_hint": "Includes the whole body (truncated if long). ⚠ The full text leaves the system — think twice for group chats."
     },
     "rules": {
       "title": "Mail Rules",

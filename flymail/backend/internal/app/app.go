@@ -182,6 +182,36 @@ func New(cfg *config.Config) (*App, error) {
 		}
 		return notify.MailLink(base, accountID, folderID, messageID)
 	})
+	// 通知里的邮件内容。装在这里的理由和链接一样：取内容要依赖 message 模块，
+	// 而 notify 不该为此依赖它。
+	//
+	// wantFull 由 Service 按各渠道配的档位算出——只有确实有渠道要全文时才去查
+	// 正文表，绝大多数渠道停在摘要档，不必为它们多查一次。
+	notifySvc.SetMailProvider(func(messageID uint, wantFull bool) *notify.MailData {
+		msg, err := messageSvc.GetByID(messageID)
+		if err != nil || msg == nil {
+			return nil
+		}
+		from := msg.FromName
+		if from == "" {
+			from = msg.FromAddr
+		}
+		d := &notify.MailData{
+			From:    from,
+			Subject: msg.Subject,
+			Date:    msg.Date,
+			Snippet: msg.Snippet,
+		}
+		if wantFull {
+			// BodyText 优先纯文本，没有就把 HTML 剥成文本——通知是纯文本/卡片形态，
+			// 直接塞 HTML 源码过去只会是一堆标签。
+			if text, known := messageSvc.BodyText(messageID); known {
+				d.Body = text
+			}
+		}
+		return d
+	})
+
 	baseEmit := notifySvc.EmitFunc()
 	emit := func(eventType string, accountID uint, messageID uint, title, body string) {
 		baseEmit(eventType, accountID, messageID, title, body)

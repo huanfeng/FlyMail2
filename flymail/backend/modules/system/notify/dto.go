@@ -1,6 +1,9 @@
 package notify
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Event 是一次通知触发的数据载体（由各事件源经 emit 回调传入）。
 // MessageID 仅单封新邮件事件非 0（供前端精准跳转），其余事件为 0。
@@ -13,6 +16,24 @@ type Event struct {
 	// URL 是这条通知对应的「打开」链接，由 Service 在 Emit 时按对外访问地址拼出，
 	// 事件源不必知道它。没配对外访问地址时为空。
 	URL string
+	// Mail 是邮件类事件的结构化内容，由 Service 在投递前按需补齐。
+	//
+	// ⚠ 有了它，Title/Body 就只是**站内通知**和纯文本回退用的成品字符串了。
+	// 外发渠道要按自己那一档决定带多少内容、按自己的排版重新组织，拿成品字符串
+	// 是做不到的——这也是模板功能的前提：模板得有字段才能填。
+	Mail *MailData
+}
+
+// MailData 是邮件类事件的结构化内容。
+//
+// Body（全文）只有在**确实有渠道要全文**时才会被填上：取全文要多查一次
+// message_bodies，而绝大多数渠道停在 snippet 档，没必要为它们付这个代价。
+type MailData struct {
+	From    string
+	Subject string
+	Date    time.Time
+	Snippet string
+	Body    string
 }
 
 // ChannelInput 是创建/更新渠道的入参。
@@ -23,18 +44,21 @@ type ChannelInput struct {
 	Secret  string   `json:"secret"`  // 留空表示更新时不改密钥
 	Events  []string `json:"events"`  // 订阅的事件类型
 	Enabled *bool    `json:"enabled"` // 指针以区分未传
+	// ContentLevel 带多少邮件内容（basic / snippet / full）；留空表示按默认。
+	ContentLevel string `json:"content_level"`
 }
 
 // ChannelDTO 是渠道的对外表示（不含密钥明文，含 has_secret 与 events 数组）。
 type ChannelDTO struct {
-	ID        uint     `json:"id"`
-	Name      string   `json:"name"`
-	Kind      string   `json:"kind"`
-	URL       string   `json:"url"`
-	HasSecret bool     `json:"has_secret"`
-	Events    []string `json:"events"`
-	Enabled   bool     `json:"enabled"`
-	CreatedAt string   `json:"created_at"`
+	ID           uint     `json:"id"`
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind"`
+	URL          string   `json:"url"`
+	HasSecret    bool     `json:"has_secret"`
+	Events       []string `json:"events"`
+	Enabled      bool     `json:"enabled"`
+	ContentLevel string   `json:"content_level"`
+	CreatedAt    string   `json:"created_at"`
 }
 
 func splitEvents(csv string) []string {
@@ -70,7 +94,10 @@ func toChannelDTO(c *Channel) ChannelDTO {
 		HasSecret: c.Secret != "",
 		Events:    splitEvents(c.Events),
 		Enabled:   c.Enabled,
-		CreatedAt: c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		// 回落到默认，前端拿到的永远是三档之一而不是空串——
+		// 否则老渠道在界面上会显示成「没选」，用户一保存就真的变了。
+		ContentLevel: string(c.contentLevel()),
+		CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 

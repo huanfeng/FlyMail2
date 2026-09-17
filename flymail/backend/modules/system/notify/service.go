@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"flymail-core/logger"
 
@@ -21,6 +22,9 @@ type Service struct {
 	// 还要查邮件属于哪个文件夹，而 sync / rule 那些包既不该依赖设置模块，
 	// 也不该为了一条通知去查文件夹。
 	linkFn func(accountID, messageID uint) string
+	// mailFn 由 app 装配注入，按 ID 取回邮件的结构化内容。wantFull 为 false 时
+	// 不必去查正文表——绝大多数渠道停在 snippet 档，没必要为它们多查一次。
+	mailFn func(messageID uint, wantFull bool) *MailData
 	// mu 保护两个注入点：它们都由装配/测试在外部写，而投递 worker 在另一条
 	// goroutine 上读。
 	mu sync.RWMutex
@@ -58,6 +62,22 @@ func (s *Service) SetLinkBuilder(fn func(accountID, messageID uint) string) {
 	s.mu.Lock()
 	s.linkFn = fn
 	s.mu.Unlock()
+}
+
+// SetMailProvider 注入邮件内容的取数器。传 nil 表示取不到（通知照发，只是没有内容）。
+//
+// 与 SetLinkBuilder 同一个形状：取内容要依赖 message 模块，而 notify 不该为此
+// 依赖它；app 本来就持有全部装配件。
+func (s *Service) SetMailProvider(fn func(messageID uint, wantFull bool) *MailData) {
+	s.mu.Lock()
+	s.mailFn = fn
+	s.mu.Unlock()
+}
+
+func (s *Service) mailProvider() func(uint, bool) *MailData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mailFn
 }
 
 func (s *Service) buildLink(accountID, messageID uint) string {
@@ -116,6 +136,9 @@ func (s *Service) deliver(evt Event) {
 		logger.Error("notify: 查询启用渠道失败", zap.Error(err))
 		return
 	}
+	// 按所有目标渠道的级别**并集**取一次内容：同一条通知可能同时发往一个只要
+	// 基本信息的飞书群和一个要全文的 webhook，各查一次是浪费。
+	evt.Mail = s.mailDataFor(evt, channels)
 	for i := range channels {
 		c := &channels[i]
 		entry := &Log{ChannelID: c.ID, ChannelName: c.Name, Type: string(evt.Type), Status: "ok"}
@@ -127,6 +150,28 @@ func (s *Service) deliver(evt Event) {
 			logger.Error("notify: 写入投递日志失败", zap.Error(lerr))
 		}
 	}
+}
+
+// mailDataFor 取回这条事件对应的邮件内容；没有邮件、没有渠道或没装配取数器时返回 nil。
+//
+// wantFull 只在**确实有渠道配了 full** 时为真。basic 档也要发件人和主题，
+// 那些在邮件主表上，一次查询就有；全文在正文表，是额外一次。
+func (s *Service) mailDataFor(evt Event, channels []Channel) *MailData {
+	if evt.MessageID == 0 || len(channels) == 0 {
+		return nil
+	}
+	fn := s.mailProvider()
+	if fn == nil {
+		return nil
+	}
+	wantFull := false
+	for i := range channels {
+		if channels[i].contentLevel() == LevelFull {
+			wantFull = true
+			break
+		}
+	}
+	return fn(evt.MessageID, wantFull)
 }
 
 // ── 站内通知 ────────────────────────────────────────────────
@@ -159,6 +204,11 @@ func (s *Service) CreateChannel(in ChannelInput) (*ChannelDTO, error) {
 	if strings.TrimSpace(in.Name) == "" || !ValidKind(in.Kind) || strings.TrimSpace(in.URL) == "" {
 		return nil, ErrInvalidChannel
 	}
+	// 留空 = 按默认；填了就必须是三档之一。默默回落会让「我明明选了全文」
+	// 这种问题完全没有线索。
+	if in.ContentLevel != "" && !ValidContentLevel(in.ContentLevel) {
+		return nil, ErrInvalidChannel
+	}
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
@@ -170,6 +220,9 @@ func (s *Service) CreateChannel(in ChannelInput) (*ChannelDTO, error) {
 		Secret:  in.Secret,
 		Events:  joinEvents(in.Events),
 		Enabled: enabled,
+		// 留空就存空串，由 contentLevel() 回落——这样以后改默认档，
+		// 没显式配过的渠道会跟着走，显式配过的不受影响。
+		ContentLevel: in.ContentLevel,
 	}
 	if err := s.repo.CreateChannel(c); err != nil {
 		return nil, err
@@ -202,6 +255,12 @@ func (s *Service) UpdateChannel(id uint, in ChannelInput) (*ChannelDTO, error) {
 	if in.Enabled != nil {
 		c.Enabled = *in.Enabled
 	}
+	if in.ContentLevel != "" {
+		if !ValidContentLevel(in.ContentLevel) {
+			return nil, ErrInvalidChannel
+		}
+		c.ContentLevel = in.ContentLevel
+	}
 	if err := s.repo.UpdateChannel(c); err != nil {
 		return nil, err
 	}
@@ -226,11 +285,25 @@ func (s *Service) TestChannel(id uint) error {
 	//
 	// 不走 Emit：测试是同步的、要把投递结果返回给调用方，也不该在通知中心
 	// 留下一条站内记录。所以链接在这里自己补。
+	// 带上一封示例邮件：测试消息因此会**按这个渠道自己配的那一档**渲染，
+	// 用户点一下就能看到「基本信息 / 摘要 / 全文」在飞书或 webhook 里实际长什么样，
+	// 而不是配完只能等下一封真邮件到达才知道选对没有。
 	return s.dispatcher()(c, Event{
 		Type:  EventMailNew,
 		Title: "FlyMail 测试通知",
 		Body:  "这是一条来自 FlyMail 通知中心的测试消息。",
 		URL:   s.buildLink(0, 0),
+		Mail: &MailData{
+			From:    "FlyMail",
+			Subject: "测试通知",
+			Date:    time.Now(),
+			Snippet: "这是一条来自 FlyMail 通知中心的测试消息，用来确认这个渠道能收到、排版是否合适。",
+			Body: "这是一条来自 FlyMail 通知中心的测试消息，用来确认这个渠道能收到、排版是否合适。\n\n" +
+				"你现在看到的内容长度由该渠道的「推送内容」设置决定：\n" +
+				"· 基本信息 —— 只有发件人和主题，正文一个字都不带\n" +
+				"· 内容摘要 —— 再加一段正文开头\n" +
+				"· 正文全文 —— 整封正文（过长会按渠道上限截断）",
+		},
 	})
 }
 

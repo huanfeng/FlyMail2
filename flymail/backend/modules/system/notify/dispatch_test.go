@@ -24,7 +24,7 @@ func TestSendWebhook(t *testing.T) {
 	defer srv.Close()
 
 	ch := &Channel{Kind: "webhook", URL: srv.URL, Secret: "s3cr3t"}
-	if err := sendWebhook(ch, Event{Type: EventMailNew, Title: "新邮件", Body: "1 封", AccountID: 7}); err != nil {
+	if err := sendWebhook(ch, Event{Type: EventMailNew, Title: "新邮件", Body: "1 封", AccountID: 7}, LevelSnippet); err != nil {
 		t.Fatalf("sendWebhook: %v", err)
 	}
 	if gotMethod != http.MethodPost {
@@ -51,7 +51,7 @@ func TestSendWebhookNoSecretOmitsHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	if err := sendWebhook(&Channel{Kind: "webhook", URL: srv.URL}, Event{Title: "t"}); err != nil {
+	if err := sendWebhook(&Channel{Kind: "webhook", URL: srv.URL}, Event{Title: "t"}, LevelSnippet); err != nil {
 		t.Fatal(err)
 	}
 	if hasHeader {
@@ -64,7 +64,7 @@ func TestSendWebhookNon2xxFails(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	if err := sendWebhook(&Channel{Kind: "webhook", URL: srv.URL}, Event{Title: "t"}); err == nil {
+	if err := sendWebhook(&Channel{Kind: "webhook", URL: srv.URL}, Event{Title: "t"}, LevelSnippet); err == nil {
 		t.Error("非 2xx 应返回错误")
 	}
 }
@@ -79,15 +79,14 @@ func TestSendFeishuWithSign(t *testing.T) {
 
 	const secret = "feishu-secret"
 	ch := &Channel{Kind: "feishu", URL: srv.URL, Secret: secret}
-	if err := sendFeishu(ch, Event{Title: "标题", Body: "正文"}); err != nil {
+	if err := sendFeishu(ch, Event{Title: "标题", Body: "正文"}, LevelSnippet); err != nil {
 		t.Fatalf("sendFeishu: %v", err)
 	}
-	if body["msg_type"] != "text" {
-		t.Errorf("msg_type = %v, want text", body["msg_type"])
+	if body["msg_type"] != "interactive" {
+		t.Errorf("msg_type = %v, want interactive", body["msg_type"])
 	}
-	content, _ := body["content"].(map[string]any)
-	if content == nil || content["text"] != "标题\n正文" {
-		t.Errorf("content 错误: %+v", body["content"])
+	if _, ok := body["card"].(map[string]any); !ok {
+		t.Errorf("没有 card 字段: %+v", body)
 	}
 	ts, _ := body["timestamp"].(string)
 	sign, _ := body["sign"].(string)
@@ -110,7 +109,7 @@ func TestSendFeishuNoSecretNoSign(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	if err := sendFeishu(&Channel{Kind: "feishu", URL: srv.URL}, Event{Title: "t"}); err != nil {
+	if err := sendFeishu(&Channel{Kind: "feishu", URL: srv.URL}, Event{Title: "t"}, LevelSnippet); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := body["sign"]; ok {

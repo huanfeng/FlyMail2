@@ -600,7 +600,14 @@
       "soundHint": "标签页切走时，新邮件到达播放一声轻提示。",
       "soundTest": "试听",
       "titleBadge": "标签页未读角标",
-      "titleBadgeHint": "把未读数显示在标签页标题与站点图标上。不需要任何授权。"
+      "titleBadgeHint": "把未读数显示在标签页标题与站点图标上。不需要任何授权。",
+      "contentLevel": "推送内容",
+      "level_basic": "基本信息",
+      "level_snippet": "内容摘要",
+      "level_full": "正文全文",
+      "level_basic_hint": "只发发件人和主题，正文一个字都不带。验证码、密码重置这类邮件适合用它。",
+      "level_snippet_hint": "在基本信息之上加一段正文开头，不点进来也能判断要不要现在处理。",
+      "level_full_hint": "带上整封正文（过长会截断）。⚠ 正文会完整进入这个渠道，发到多人群里请谨慎。"
     },
     "rules": {
       "title": "邮件规则",

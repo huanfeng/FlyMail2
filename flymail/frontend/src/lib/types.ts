@@ -118,6 +118,9 @@ export interface Notification {
 }
 
 /** 外发推送渠道 */
+/** 外发通知带多少邮件内容 */
+export type NotifyContentLevel = 'basic' | 'snippet' | 'full'
+
 export interface NotifyChannel {
   id: number
   name: string
@@ -126,6 +129,8 @@ export interface NotifyChannel {
   has_secret: boolean
   events: string[]
   enabled: boolean
+  /** 后端保证回落到三档之一，不会是空串 */
+  content_level: NotifyContentLevel
   created_at: string
 }
 
@@ -137,6 +142,7 @@ export interface NotifyChannelInput {
   secret?: string
   events: string[]
   enabled?: boolean
+  content_level?: NotifyContentLevel
 }
 
 /** 系统监控概览 */

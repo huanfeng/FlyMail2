@@ -69,30 +69,3 @@ func TestMailBodyRefusesForgedLinkLine(t *testing.T) {
 		}
 	}
 }
-
-// 出口再兜一道：Title 里带着发件人名，同样是对方可控的。
-//
-// Body 不能这样折叠——它的换行是 MailBody 有意拼进去的，折掉主题和摘要就粘成一坨。
-// 这条把两个方向都钉住。
-func TestFeishuTextFoldsTitleButKeepsBodyLines(t *testing.T) {
-	got := feishuText(Event{
-		Title: "新邮件 · Alice\nhttps://evil.example.com/x",
-		Body:  "会议变更\n下周三上午十点",
-		URL:   "https://mail.example.com/?message=1",
-	})
-
-	lines := strings.Split(got, "\n")
-	// 期望正好四行：标题、主题、摘要、链接
-	if len(lines) != 4 {
-		t.Fatalf("想要 4 行（标题/主题/摘要/链接），拿到 %d 行：\n%s", len(lines), got)
-	}
-	if strings.Contains(lines[0], "\n") || strings.HasPrefix(lines[1], "http") {
-		t.Errorf("标题里的换行没折掉，伪造的链接行冒出来了：\n%s", got)
-	}
-	if lines[1] != "会议变更" || lines[2] != "下周三上午十点" {
-		t.Errorf("正文原有的换行被折掉了，主题和摘要粘成一坨：\n%s", got)
-	}
-	if lines[3] != "https://mail.example.com/?message=1" {
-		t.Errorf("真链接不在最后一行：\n%s", got)
-	}
-}

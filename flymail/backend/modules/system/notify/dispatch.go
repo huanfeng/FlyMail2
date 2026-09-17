@@ -18,25 +18,42 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // dispatch 按渠道类型把事件发往外部，返回错误（nil 表示成功）。
 func dispatch(ch *Channel, evt Event) error {
+	level := ch.contentLevel()
 	switch ChannelKind(ch.Kind) {
 	case KindFeishu:
-		return sendFeishu(ch, evt)
+		return sendFeishu(ch, evt, level)
 	default:
-		return sendWebhook(ch, evt)
+		return sendWebhook(ch, evt, level)
 	}
 }
 
 // sendWebhook 向通用 webhook POST 结构化 JSON；有 secret 时附 X-Webhook-Secret 头。
-func sendWebhook(ch *Channel, evt Event) error {
-	payload, _ := json.Marshal(map[string]any{
+func sendWebhook(ch *Channel, evt Event, level ContentLevel) error {
+	out := map[string]any{
 		"type":       string(evt.Type),
 		"title":      evt.Title,
-		"body":       evt.Body,
+		"body":       plainBody(evt, level, webhookBodyRunes),
 		"account_id": evt.AccountID,
 		"message_id": evt.MessageID,
 		"url":        evt.URL,
-		"time":       time.Now().Format(time.RFC3339),
-	})
+		// 告诉消费者这条是按哪一档发的——收到没有正文的通知时，
+		// 才分得清是「这封邮件没正文」还是「这个渠道配的是基本信息」。
+		"content_level": string(level),
+		"time":          time.Now().Format(time.RFC3339),
+	}
+	// 结构化字段：webhook 那头多半是程序在消费，给它字段比给它一段拼好的文本好用。
+	// 按级别裁剪后再给，basic 档不会从这里泄出正文。
+	if from, subject, ok := mailFields(evt.Mail); ok {
+		mail := map[string]any{"from": from, "subject": subject}
+		if !evt.Mail.Date.IsZero() {
+			mail["date"] = evt.Mail.Date.Format(time.RFC3339)
+		}
+		if body := bodyFor(evt.Mail, level, webhookBodyRunes); body != "" {
+			mail["body"] = body
+		}
+		out["mail"] = mail
+	}
+	payload, _ := json.Marshal(out)
 	req, err := http.NewRequest(http.MethodPost, ch.URL, bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -48,33 +65,37 @@ func sendWebhook(ch *Channel, evt Event) error {
 	return doRequest(req)
 }
 
-// feishuText 把事件拼成飞书那边看到的纯文本。
+// plainBody 把事件拼成一段可读的纯文本，用于 webhook 载荷里的 body 字段。
 //
-// 飞书自定义机器人只收纯文本，链接必须**单独起一行**——聊天客户端靠整行是 URL
-// 来识别可点区域，塞在句子中间多半点不开。没有链接时不要留空行。
+// webhook 那头常常是把 body 原样转发到别处显示（自建 bot、短信、日志），
+// 所以它得是「人能直接看懂的一段」，而不是需要再拼一次的碎片。
 //
-// ⚠ Title 在这里再折叠一次是出口防线：上面那条约定意味着「独占一行的 URL」
-// 有了官方语义，而 Title 里带着发件人名。构造侧已经折叠过（notify.OneLine），
-// 这里兜住将来新增的事件源——Title 在语义上永远是一行，折叠不会误伤。
-// Body 不能这样折叠：它的换行是 MailBody 有意拼进去的。
-func feishuText(evt Event) string {
-	text := OneLine(evt.Title)
-	if evt.Body != "" {
-		text += "\n" + evt.Body
+// ⚠ Title 在这里折叠成一行是出口防线：它带着发件人名，而发件人由对方控制。
+// 构造侧已经折叠过（notify.OneLine），这里兜住将来新增的事件源——Title 在
+// 语义上永远是一行，折叠不会误伤。正文不能这样折叠：它的换行是有意义的。
+func plainBody(evt Event, level ContentLevel, limit int) string {
+	_, subject, ok := mailFields(evt.Mail)
+	if !ok {
+		// 非邮件事件（同步失败、账户状态）：内容级别管的是邮件正文，
+		// 不该把故障原因也一起掐掉——否则配了基本信息的人只能收到一句
+		// 「同步失败」而不知道为什么。
+		return truncateRunes(evt.Body, limit)
 	}
-	if evt.URL != "" {
-		text += "\n" + evt.URL
+	// ⚠ 不重复 Title：载荷里已经有独立的 title 字段（「新邮件 · Alice」），
+	// 再拼一遍只会让转发出去的文本多出一行。这里只负责「正文那部分」。
+	text := subject
+	if body := bodyFor(evt.Mail, level, limit); body != "" {
+		text += "\n" + body
 	}
 	return text
 }
 
-// sendFeishu 向飞书自定义机器人发送文本消息；有 secret 时按飞书规则做时间戳签名。
-func sendFeishu(ch *Channel, evt Event) error {
-	text := feishuText(evt)
-	body := map[string]any{
-		"msg_type": "text",
-		"content":  map[string]string{"text": text},
-	}
+// sendFeishu 向飞书自定义机器人发送消息卡片；有 secret 时按飞书规则做时间戳签名。
+//
+// 签名字段挂在**最外层**（与 msg_type / card 平级），所以渲染与签名分开：
+// 渲染只管消息体长什么样，签名在这里补。
+func sendFeishu(ch *Channel, evt Event, level ContentLevel) error {
+	body := feishuCard(evt, level)
 	if ch.Secret != "" {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		sign, err := feishuSign(ts, ch.Secret)

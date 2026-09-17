@@ -443,7 +443,13 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
    ════════════════════════════════════════════════════════════════════════ */
 .app {
   display: flex;
+  /* ⚠ dvh 而不是 vh。
+     移动浏览器的 100vh 是**地址栏收起时**的高度，地址栏显示着的时候实际可视区
+     更矮，底部那一截（最后一封信的下边框、工具栏）就被地址栏盖住，怎么滚都
+     看不到。登录页早就踩过并改成了 dvh，主布局一直没跟上。
+     vh 那行是给不认识 dvh 的旧浏览器的回退，必须留着。 */
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
 }
@@ -513,8 +519,10 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
   margin-left: -3px;
   z-index: 2;
 }
-.col-resize:hover, .col-resize.dragging {
-  background: var(--accent);
+@media (hover: hover) and (pointer: fine) {
+  .col-resize:hover, .col-resize.dragging {
+    background: var(--accent);
+  }
 }
 /* 手柄现在可聚焦（方向键可调宽度），焦点态要和 hover 一样看得见：
    3px 宽的元素只靠全局那圈 outline 很难注意到。 */
@@ -577,7 +585,9 @@ body.is-resizing * { cursor: col-resize !important; }
   color: var(--ink-2); font-size: 13.5px; text-align: left;
   transition: background 0.1s;
 }
-.side-btn:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .side-btn:hover { background: var(--bg-hover); }
+}
 .side-btn.active { background: var(--bg-active); color: var(--ink); }
 .side-btn .count {
   margin-left: auto; font-family: var(--font-mono);
@@ -594,7 +604,9 @@ body.is-resizing * { cursor: col-resize !important; }
   width: 18px; height: 18px; border-radius: 4px;
   display: grid; place-items: center; color: var(--ink-3);
 }
-.side-section-label .add:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .side-section-label .add:hover { background: var(--bg-hover); color: var(--ink); }
+}
 
 /* 侧栏错误行（账户列表 / 文件夹列表）。用 danger 语义色与普通行拉开：
    请求失败时两者的 data 都回落成空数组，界面与「没有内容」完全同形。 */
@@ -614,7 +626,9 @@ body.is-resizing * { cursor: col-resize !important; }
   padding: 7px 10px; border-radius: 6px; cursor: pointer;
   color: var(--ink-2); width: 100%; text-align: left;
 }
-.account-row:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .account-row:hover { background: var(--bg-hover); }
+}
 .account-row.active { color: var(--ink); }
 .account-row .caret {
   width: 14px; height: 14px; display: grid; place-items: center;
@@ -637,7 +651,9 @@ body.is-resizing * { cursor: col-resize !important; }
   color: var(--ink-2); font-size: 13px;
   width: 100%; text-align: left;
 }
-.folder-row:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .folder-row:hover { background: var(--bg-hover); }
+}
 .folder-row.active { background: var(--bg-active); color: var(--ink); }
 .folder-row .f-icon { color: var(--ink-3); width: 14px; display: grid; place-items: center; }
 .folder-row .f-count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
@@ -650,14 +666,18 @@ body.is-resizing * { cursor: col-resize !important; }
   flex: 1; display: flex; align-items: center; gap: 10px;
   padding: 6px 8px; border-radius: 6px;
 }
-.sidebar-foot .me:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-foot .me:hover { background: var(--bg-hover); }
+}
 .sidebar-foot .me-name { font-size: 13px; color: var(--ink); }
 .sidebar-foot .me-mail { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
 .icon-btn {
   width: 28px; height: 28px; border-radius: 6px;
   display: grid; place-items: center; color: var(--ink-3);
 }
-.icon-btn:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn:hover { background: var(--bg-hover); color: var(--ink); }
+}
 /* 激活态（当前视图对应的导航按钮高亮） */
 .icon-btn.active { background: var(--bg-active); color: var(--ink); }
 
@@ -680,7 +700,9 @@ body.is-resizing * { cursor: col-resize !important; }
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   transition: filter 0.1s, transform 0.05s;
 }
-.compose-btn:hover { filter: brightness(1.05); }
+@media (hover: hover) and (pointer: fine) {
+  .compose-btn:hover { filter: brightness(1.05); }
+}
 .compose-btn:active { transform: translateY(1px); }
 .compose-btn .kbd {
   margin-left: auto; font-family: var(--font-mono); font-size: 10.5px;
@@ -790,7 +812,9 @@ mark.hl {
   background: transparent; color: var(--ink); font-size: 12.5px;
   cursor: pointer;
 }
-.search-help .sh-row:hover:not(.static) { background: var(--bg-active); }
+@media (hover: hover) and (pointer: fine) {
+  .search-help .sh-row:hover:not(.static) { background: var(--bg-active); }
+}
 /* 纯说明行（如「"短语"」）没有可插入的片段，不做可点击的视觉暗示 */
 .search-help .sh-row.static { cursor: default; }
 .search-help .sh-row code {
@@ -828,10 +852,14 @@ mark.hl {
   display: grid; place-items: center; color: var(--ink-2);
   transition: background 0.1s, color 0.1s;
 }
-.lt-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .lt-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--ink); }
+}
 .lt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .lt-btn.active { background: var(--accent-wash); color: var(--accent-ink); }
-.lt-btn.danger:hover:not(:disabled) { color: var(--destructive); }
+@media (hover: hover) and (pointer: fine) {
+  .lt-btn.danger:hover:not(:disabled) { color: var(--destructive); }
+}
 
 .chip {
   padding: 4px 10px; border-radius: 999px;
@@ -840,7 +868,9 @@ mark.hl {
   white-space: nowrap;
   transition: all 0.1s;
 }
-.chip:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover { background: var(--bg-hover); }
+}
 .chip.active {
   background: var(--accent-wash); color: var(--accent-ink);
   border-color: transparent;
@@ -852,7 +882,9 @@ mark.hl {
   width: 22px; height: 22px; padding: 0;
   border-color: transparent; color: var(--ink-3);
 }
-.chip-clear:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .chip-clear:hover { background: var(--bg-hover); color: var(--ink); }
+}
 
 /* 列表外壳：不滚动，仅作为列宽手柄的定位参照（手柄放进滚动容器会跟着滚走）。
    overflow:hidden 是必需的——列表宽度可被拖到 300px，而发件人列上限 320px，
@@ -860,6 +892,9 @@ mark.hl {
 .mail-list-wrap {
   flex: 1; min-height: 0; position: relative;
   display: flex; flex-direction: column; overflow: hidden;
+  /* 行的排布要看**这一栏有多宽**，不是视口有多宽：三栏布局下这一栏默认只有
+     380px，和手机屏一样窄。见下面的 @container 规则。 */
+  container-type: inline-size;
 }
 
 /* scrollbar-gutter: stable —— 列表从"加载中(不足一屏)"变成"有滚动条"时，
@@ -881,9 +916,13 @@ mark.hl {
   background: transparent;
   transition: background 0.12s;
 }
-.list-col-resize:hover::after,
+/* 拖动中与键盘聚焦两态对所有设备生效；只有 :hover 那一支要拦在触摸设备之外，
+   否则手指碰过的那根分隔线会一直亮着。 */
 .list-col-resize.dragging::after,
 .list-col-resize:focus-visible::after { background: var(--focus-ring); }
+@media (hover: hover) and (pointer: fine) {
+  .list-col-resize:hover::after { background: var(--focus-ring); }
+}
 
 /* ⚠ 行高是与 MailList.tsx 的 estimateSize 绑定的硬契约：
    虚拟列表按 estimateSize 的间隔用 translateY 排布行槽位，行若比槽位高就会压到下一行头上，
@@ -899,7 +938,9 @@ mark.hl {
   /* 内容不足一槽（无摘要的行）时垂直居中，避免顶部对齐留下大片空白 */
   align-content: center;
 }
-.mail-item:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .mail-item:hover { background: var(--bg-hover); }
+}
 .mail-item.selected { background: var(--accent-wash); }
 .mail-item.selected::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
@@ -1000,7 +1041,9 @@ mark.hl {
   .mi-del { opacity: 0; }
   .mail-item:hover .mi-del { opacity: 1; }
 }
-.mi-del:hover { color: var(--destructive); }
+@media (hover: hover) and (pointer: fine) {
+  .mi-del:hover { color: var(--destructive); }
+}
 
 /* 宽布局（滑入预览）模式：单行紧凑行 */
 /* 发件人列宽走 --sender-col-w（AppLayout 从 layout-prefs 注入，设置里可调并记忆）。
@@ -1106,12 +1149,16 @@ mark.hl {
   color: var(--ink-2); font-size: 13px;
   flex: 0 0 auto; white-space: nowrap;
 }
-.tb-btn:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .tb-btn:hover { background: var(--bg-hover); color: var(--ink); }
+}
 .tb-btn:disabled { opacity: 0.4; cursor: default; }
 /* 纯图标按钮（上一封/下一封）：操作按钮保持「图标+文字」，
    而这两个是导航不是操作，收成方形省下的横向空间留给带文字的按钮。 */
 .tb-btn.tb-icon { width: 32px; padding: 0; justify-content: center; }
-.tb-btn.tb-icon:disabled:hover { background: transparent; color: var(--ink-2); }
+@media (hover: hover) and (pointer: fine) {
+  .tb-btn.tb-icon:disabled:hover { background: transparent; color: var(--ink-2); }
+}
 .tb-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; flex: 0 0 auto; }
 
 /* scrollbar-gutter: stable —— iframe 高度在图片加载后回弹，滚动条随之出现，
@@ -1201,17 +1248,28 @@ mark.hl {
   background: transparent; color: var(--ink-3);
   font-size: 12px; cursor: pointer;
 }
-.attach-more:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .attach-more:hover { background: var(--bg-hover); }
+}
 
 /* ── 远程图片拦截提示条（正文顶部）───────────────────────────────────────
    原来是一堆内联样式，抽成类是因为会话手风琴里每个展开项都要用一份。 */
+/* ⚠ 必须允许换行。
+   不换行的话，两颗按钮在窄屏上挤占掉几乎全部宽度，说明文字被压成一条
+   每行 2–3 个字的竖柱：390px 视口下实测「为保护隐私，已阻止此邮件中的 1 处
+   远程内容」排了 11 行、占掉 450px 高度，正文被整个推出屏幕。
+   文字给一个 flex-basis 当换行阈值：放得下就和按钮同排，放不下就自己占一行。 */
 .remote-img-bar {
   display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
   padding: 8px 12px; margin-bottom: 12px;
   border-radius: 8px; background: var(--accent-wash);
   border: 1px solid var(--rule);
   font-size: 12.5px; color: var(--ink-2);
 }
+.remote-img-bar > .remote-img-note { flex: 1 1 15rem; min-width: 0; }
+/* 按钮不参与收缩：被压扁的按钮点不准，也读不出标签 */
+.remote-img-bar > .pill-btn { flex: 0 0 auto; }
 
 /* ── 引用折叠开关 ────────────────────────────────────────────────────────
    做成一颗低调的小胶囊而不是普通链接：它出现在正文与附件之间，
@@ -1224,7 +1282,9 @@ mark.hl {
   background: transparent; color: var(--ink-3);
   font-size: 12px; cursor: pointer;
 }
-.quote-toggle:hover { background: var(--bg-hover); color: var(--ink-2); }
+@media (hover: hover) and (pointer: fine) {
+  .quote-toggle:hover { background: var(--bg-hover); color: var(--ink-2); }
+}
 
 /* ════════════════════════════════════════════════════════════════════════
    会话手风琴（M10）
@@ -1261,7 +1321,9 @@ mark.hl {
   color: var(--ink-3); transition: transform 0.15s;
 }
 .thread-item.expanded .ti-caret { transform: rotate(90deg); }
-.thread-item .ti-head:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .thread-item .ti-head:hover { background: var(--bg-hover); }
+}
 .thread-item .ti-head .avatar-sq {
   width: 32px; height: 32px; font-size: 12px; border-radius: 8px;
 }
@@ -1327,14 +1389,20 @@ mark.hl {
   font-size: 12.5px; color: var(--ink-2);
   border: 1px solid var(--rule); background: var(--surface);
 }
-.pill-btn:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn:hover { background: var(--bg-hover); color: var(--ink); }
+}
 /* 请求进行中的禁用态：光标不再是「可点」，避免用户在 90 秒的服务端搜索里反复戳 */
 .pill-btn:disabled { opacity: 0.55; cursor: default; }
-.pill-btn:disabled:hover { background: var(--surface); color: var(--ink-2); }
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn:disabled:hover { background: var(--surface); color: var(--ink-2); }
+}
 .pill-btn.primary {
   background: var(--primary); border-color: var(--primary); color: var(--primary-foreground);
 }
-.pill-btn.primary:hover { filter: brightness(1.05); }
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn.primary:hover { filter: brightness(1.05); }
+}
 
 /* ════════════════════════════════════════════════════════════════════════
    设置弹窗（Modal 形式）
@@ -1425,7 +1493,9 @@ mark.hl {
   cursor: pointer; text-align: left;
   transition: background 0.1s;
 }
-.sd-nav-item:hover { background: var(--bg-active); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .sd-nav-item:hover { background: var(--bg-active); color: var(--ink); }
+}
 .sd-nav-item.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 .sd-nav-item svg { color: var(--ink-3); flex: 0 0 auto; }
 .sd-nav-item.active svg { color: var(--accent); }
@@ -1461,7 +1531,9 @@ mark.hl {
   font-size: 13px; color: var(--ink-2);
   cursor: pointer; transition: all 0.12s;
 }
-.layout-sw:hover { border-color: var(--rule-strong); }
+@media (hover: hover) and (pointer: fine) {
+  .layout-sw:hover { border-color: var(--rule-strong); }
+}
 .layout-sw.active {
   border-color: var(--accent);
   background: var(--accent-wash);
@@ -1516,7 +1588,9 @@ mark.hl {
   width: 5px; cursor: col-resize; z-index: 6;
   background: transparent; transition: background 0.15s;
 }
-.slide-resize:hover, .slide-resize.dragging { background: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .slide-resize:hover, .slide-resize.dragging { background: var(--accent); }
+}
 .slide-resize:focus-visible { background: var(--focus-ring); }
 
 /* ── 右键菜单（radix ContextMenu 主题化） ────────────────────────────── */
@@ -1543,15 +1617,40 @@ mark.hl {
 .ctx-item.destructive svg { color: var(--destructive); }
 .ctx-sep { height: 1px; background: var(--rule); margin: 4px 6px; }
 
-/* 窄屏设置弹窗响应式 */
+/* 窄屏设置弹窗响应式。
+
+   ⚠ 分区导航在窄屏要**换行铺开**，不能横向滚动。
+   设置一共 15 个分区，横滚时屏幕上只放得下 4 个半，剩下 10 个既看不见、也没有
+   任何「右边还有」的提示——移动端的横向滚动条是隐藏的，那半个被切开的标签是
+   唯一线索。实测下来的结果是：绝大部分设置项在手机上等于不存在。
+   这不是排版不好看的问题，是功能找不到的问题。
+   换行后四行铺满全部 15 项，占约 150px，换来的是每一项都看得见。 */
 @media (max-width: 720px) {
-  .settings-dialog { grid-template-columns: 1fr; height: 92vh; }
+  /* ⚠ 必须显式给出行高，否则导航会被撑满半个屏幕。
+     窄屏下这是个单列 grid，行默认 stretch；导航改成 wrap 之后，内容少的分区
+     （比如「通用」只有一行设置）多余的空间会被**平均分给导航的每一行**，
+     四行各摊 160px，导航区占掉 80% 的屏幕。auto 1fr 把空间都给内容区。 */
+  .settings-dialog { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: 92vh; }
   .sd-nav {
-    flex-direction: row; overflow-x: auto; padding: 10px;
+    flex-direction: row; flex-wrap: wrap;
+    /* 行与行按内容高度排列，不吃掉剩余空间 */
+    align-content: flex-start; align-items: center;
+    overflow-x: visible; overflow-y: auto;
+    padding: 8px; gap: 4px;
+    /* 右上角给关闭按钮让位：.sd-close 是绝对定位的，不让位的话它正好压在
+       第一行最后一个分区上，那一项既看不清也点不到（点下去是关闭弹窗）。 */
+    padding-right: 40px;
     border-right: 0; border-bottom: 1px solid var(--rule);
+    flex: 0 0 auto; max-height: 40vh;
   }
   .sd-nav-head { display: none; }
-  .sd-nav-item { white-space: nowrap; }
+  .sd-nav-item {
+    white-space: nowrap;
+    padding: 6px 9px; gap: 6px; font-size: 12.5px;
+  }
+  /* 内容区的左右留白也按窄屏收：桌面的 28px 在 390px 屏上是 14% 的宽度 */
+  .sd-body-head { padding-left: 16px; padding-right: 16px; }
+  .sd-body-scroll { padding-left: 16px; padding-right: 16px; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1587,11 +1686,91 @@ mark.hl {
 }
 
 /* 移动端写信浮窗近全屏，最小化条贴满底部 */
+/* 窄屏把阅读区的左右留白收窄。
+   桌面端 .reader-inner 左右各 32px、卡片内 .thread-body 再各 14px，合计 92px。
+   那是给 760px 版心配的，放到 390px 的手机上就是把 24% 的宽度用来留白：
+   实测正文 iframe 只剩 288px，长单词与表格被迫横向滚动。 */
+/* ⚠ 列表栏放不下「宽布局」的单行六列时必须堆叠。
+
+   ── 判据为什么是容器而不是视口 ──────────────────────────────────────────────
+   这套布局是给宽列表配的：固定列 28+150(发件人)+42(时间)+58(操作) = 278px，
+   加 5 个 14px 的 gap 和 40px 内边距，一共 388px——主题连 1px 都不剩。
+   grid 的 1fr 在空间不足时一路收缩到 0，于是**主题整列宽度为 0**：
+   元素在、文字也在，就是一个像素都看不见，列表上只剩发件人。
+
+   而这不只是手机的问题：桌面三栏布局下列表栏默认 380px，和 390px 的手机
+   几乎一样窄，实测 grid-template-columns 同样算出 `28px 150px 0px 0px 42px 58px`。
+   按视口写媒体查询只能救手机，1440px 的桌面照样看不见主题。
+   所以判据是列表栏自己的宽度：拖宽到放得下就自动变回单行。
+
+   ⚠ 阈值 520 与行高在 src/lib/list-density.ts 里，那边的 estimateSize 必须同步：
+   虚拟列表按它的数值排槽位、不做实测，两边对不上行内容就溢出槽位，
+   主题只露出上半截。有测试扫本文件校验两者一致。 */
+@container (max-width: 520px) {
+  /* 堆叠之后没有「列」可言，手柄留着只会误触 */
+  .list-col-resize { display: none; }
+
+  .mail-item.mail-item-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+    grid-template-rows: auto auto;
+    column-gap: 10px; row-gap: 2px;
+    /* ⚠ 上下内边距故意不等，为的是让**看起来**对称。
+       第一行的高度由 28px 的删除/星标按钮撑着，而发件人文字只有 21px、
+       在里面居中，于是文字上方白白多出 3.5px。两边都写 10px 的话，
+       视觉留白就是「上 14px、下 11px」——肉眼能看出来行贴着下边。
+       把顶部收掉那 3.5px，文字到上下边的距离才相等。 */
+    padding: 7px 14px 10px;
+    align-items: center;
+  }
+  .mail-item.mail-item-row .mi-avatar-wrap     { grid-area: 1 / 1 / 3 / 2; }
+  .mail-item.mail-item-row .mi-top             { grid-area: 1 / 2 / 2 / 3; }
+  .mail-item.mail-item-row .mi-tags            { grid-area: 1 / 3 / 2 / 4; }
+  .mail-item.mail-item-row .mi-time-col        { grid-area: 1 / 4 / 2 / 5; }
+  .mail-item.mail-item-row > span:last-child   { grid-area: 1 / 5 / 2 / 6; }
+  /* 主题横跨到行尾，拿回整行宽度 */
+  .mail-item.mail-item-row .mi-subject-preview { grid-area: 2 / 2 / 3 / 6; }
+
+  /* 选择模式多一个复选框列，同样要堆叠，否则一进多选就又挤回去 */
+  .mail-list.selecting .mail-item.mail-item-row {
+    grid-template-columns: 20px 28px minmax(0, 1fr) auto auto auto;
+  }
+  .mail-list.selecting .mail-item.mail-item-row .mi-select        { grid-area: 1 / 1 / 3 / 2; }
+  .mail-list.selecting .mail-item.mail-item-row .mi-avatar-wrap   { grid-area: 1 / 2 / 3 / 3; }
+  .mail-list.selecting .mail-item.mail-item-row .mi-top           { grid-area: 1 / 3 / 2 / 4; }
+  .mail-list.selecting .mail-item.mail-item-row .mi-tags          { grid-area: 1 / 4 / 2 / 5; }
+  .mail-list.selecting .mail-item.mail-item-row .mi-time-col      { grid-area: 1 / 5 / 2 / 6; }
+  .mail-list.selecting .mail-item.mail-item-row > span:last-child { grid-area: 1 / 6 / 2 / 7; }
+  .mail-list.selecting .mail-item.mail-item-row .mi-subject-preview { grid-area: 2 / 3 / 3 / 7; }
+}
+
 @media (max-width: 768px) {
+  .reader-inner { padding-left: 14px; padding-right: 14px; }
+  .thread-item .thread-body { padding-left: 10px; padding-right: 10px; }
+
+  /* 撰写窗口在窄屏是全屏的，同样不能用 vh——底部的发送/存草稿那一排会被
+     地址栏盖住，而那是这个窗口最要紧的按钮。 */
   .compose-window {
     right: 0; bottom: 0; left: 0;
     width: 100vw; max-height: 100vh; height: 100vh;
+    max-height: 100dvh; height: 100dvh;
     border-radius: 0; border: none;
+  }
+  /* 正文编辑器撑满剩余空间。
+     桌面端 .rich-editor-shell 限了 46vh，那是浮窗里的合理上限；搬到全屏的手机上
+     就变成「正文框只有 240px，下面 300px 全是空白」——实测如此。
+
+     ⚠ 光放开 max-height 不够：.compose-body 是 display:block，它的子元素
+     .rich-editor 上的 flex 属性根本不起作用，只能按内容高度排布。
+     所以三层都要接上：body 变 flex 容器 → editor 吃掉剩余 → shell 填满 editor。
+     min-height:0 是必须的，否则 flex 项的最小尺寸是内容高度，撑不下去也缩不回来。 */
+  .compose-window .compose-body {
+    display: flex; flex-direction: column;
+  }
+  .compose-window .rich-editor {
+    flex: 1 1 auto; min-height: 0;
+  }
+  .compose-window .rich-editor-shell {
+    max-height: none; flex: 1 1 auto; min-height: 0;
   }
   .compose-bar { right: 0; left: 0; width: auto; border-radius: 0; }
 }
@@ -1694,7 +1873,9 @@ mark.hl {
   border: 0; background: transparent; cursor: pointer; padding: 0;
   color: var(--ink-3); flex-shrink: 0;
 }
-.attach-chip .ac-remove:hover { color: var(--destructive); }
+@media (hover: hover) and (pointer: fine) {
+  .attach-chip .ac-remove:hover { color: var(--destructive); }
+}
 .compose-attachments .ac-total {
   font-size: 11px; color: var(--ink-3); margin-left: 2px;
 }
@@ -1765,7 +1946,9 @@ mark.hl {
   text-decoration: underline; text-underline-offset: 2px;
   cursor: pointer; white-space: nowrap;
 }
-.toast-action:hover { text-decoration-thickness: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .toast-action:hover { text-decoration-thickness: 2px; }
+}
 
 /* 撰写器关闭确认：盖在撰写窗内部而不是全屏遮罩，
    它拦的是这一个窗口的关闭，不该让整个应用变暗。 */
@@ -1790,7 +1973,9 @@ mark.hl {
 
 /* 破坏性动作降权：与旁边的中性按钮同重会让「丢弃」看起来像个普通选项 */
 .pill-btn.danger { color: var(--danger-ink); border-color: var(--danger-line); }
-.pill-btn.danger:hover { background: var(--danger-wash); }
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn.danger:hover { background: var(--danger-wash); }
+}
 
 /* 列表错误态。与空态同一处版式预算，但用 danger 语义色，
    让「出错了」和「没有内容」在一眼之内就能分开。 */
@@ -1817,7 +2002,9 @@ mark.hl {
   background: transparent; cursor: pointer;
   font-size: 12px; color: var(--danger-ink);
 }
-.list-foot-retry:hover { background: var(--danger-wash); }
+@media (hover: hover) and (pointer: fine) {
+  .list-foot-retry:hover { background: var(--danger-wash); }
+}
 /* 常驻下划线：这是失败态里唯一的出口，不能只靠颜色表达「可点」 */
 .list-foot-retry-cta { text-decoration: underline; }
 
@@ -1874,7 +2061,9 @@ mark.hl {
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   display: inline-flex; align-items: center; gap: 8px;
 }
-.notif-tab:hover { color: var(--ink-2); }
+@media (hover: hover) and (pointer: fine) {
+  .notif-tab:hover { color: var(--ink-2); }
+}
 .notif-tab.active { color: var(--ink); border-color: var(--accent); }
 .notif-tab .badge {
   font-family: var(--font-mono); font-size: 10.5px;
@@ -1890,7 +2079,9 @@ mark.hl {
   transition: background 0.08s;
   align-items: start;
 }
-.notif-card:hover { background: var(--bg-hover); margin: 0 -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px; }
+@media (hover: hover) and (pointer: fine) {
+  .notif-card:hover { background: var(--bg-hover); margin: 0 -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px; }
+}
 .notif-card.unread .nf-title { color: var(--ink); font-weight: 600; }
 .notif-card .nf-icon {
   width: 36px; height: 36px; border-radius: 8px;
@@ -1983,7 +2174,9 @@ mark.hl {
   transition: all 0.1s;
   background: var(--surface);
 }
-.theme-card:hover { border-color: var(--rule-strong); transform: translateY(-1px); }
+@media (hover: hover) and (pointer: fine) {
+  .theme-card:hover { border-color: var(--rule-strong); transform: translateY(-1px); }
+}
 .theme-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
 /* 预览区自带 data-theme/data-mode，因此这里的 var() 取到的是**被预览的那套**令牌，
    而不是当前界面的。卡片外框与脚部不带这两个属性，仍跟随当前主题。
@@ -2121,7 +2314,9 @@ mark.hl {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 13px; color: var(--ink-2);
 }
-.fp-back:hover { background: var(--bg-hover); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .fp-back:hover { background: var(--bg-hover); color: var(--ink); }
+}
 
 /* 侧边栏铃铛按钮带徽章 */
 .bell-wrap { position: relative; }
@@ -2316,7 +2511,9 @@ mark.hl {
   color: var(--ink-2); font-size: 13px; line-height: 1;
   cursor: pointer;
 }
-.rich-toolbar .rt-btn:hover:not(:disabled) { background: var(--rule); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .rich-toolbar .rt-btn:hover:not(:disabled) { background: var(--rule); color: var(--ink); }
+}
 .rich-toolbar .rt-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
 .rich-toolbar .rt-btn:disabled { opacity: 0.45; cursor: default; }
 .rich-toolbar .rt-text { font-family: var(--font-mono); font-size: 11px; }
@@ -2330,13 +2527,17 @@ mark.hl {
   font-size: 12px; font-family: var(--font-body);
   padding: 0 2px; cursor: pointer;
 }
-.rich-toolbar .rt-select:hover { background: var(--rule); color: var(--ink); }
+@media (hover: hover) and (pointer: fine) {
+  .rich-toolbar .rt-select:hover { background: var(--rule); color: var(--ink); }
+}
 /* 颜色选择：原生 input[type=color] 各平台外观差异太大，藏起来只留一个色块 */
 .rich-toolbar .rt-color {
   position: relative; display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 5px; cursor: pointer;
 }
-.rich-toolbar .rt-color:hover { background: var(--rule); }
+@media (hover: hover) and (pointer: fine) {
+  .rich-toolbar .rt-color:hover { background: var(--rule); }
+}
 .rich-toolbar .rt-color input[type="color"] {
   position: absolute; inset: 0; opacity: 0; cursor: pointer;
   width: 100%; height: 100%; border: 0; padding: 0;
@@ -2402,7 +2603,9 @@ mark.hl {
   background: var(--bg-alt); color: var(--ink-3);
   font-size: 11.5px; cursor: pointer; user-select: none;
 }
-.rich-editor .quote-toggle:hover { color: var(--ink); border-color: var(--ink-3); }
+@media (hover: hover) and (pointer: fine) {
+  .rich-editor .quote-toggle:hover { color: var(--ink); border-color: var(--ink-3); }
+}
 .rich-editor .quote-content { color: var(--ink-2); }
 
 /* 签名块：正文里的一段普通可编辑内容，只是带了个身份标记 */
@@ -2529,7 +2732,9 @@ mark.hl {
   display: grid; place-items: center;
   color: var(--ink-3);
 }
-.login-eye:hover { background: var(--bg-hover); color: var(--ink-2); }
+@media (hover: hover) and (pointer: fine) {
+  .login-eye:hover { background: var(--bg-hover); color: var(--ink-2); }
+}
 
 .login-remember {
   display: flex; align-items: center; gap: 8px;
@@ -2558,7 +2763,9 @@ mark.hl {
   font-size: 14px; font-weight: 500;
   transition: filter 0.1s, transform 0.05s;
 }
-.login-submit:hover:not(:disabled) { filter: brightness(1.05); }
+@media (hover: hover) and (pointer: fine) {
+  .login-submit:hover:not(:disabled) { filter: brightness(1.05); }
+}
 .login-submit:active:not(:disabled) { transform: translateY(1px); }
 .login-submit:disabled { opacity: 0.55; cursor: default; }
 
@@ -2799,7 +3006,9 @@ mark.hl {
   border-bottom: 1px solid var(--rule);
 }
 .portable-row:last-child { border-bottom: 0; }
-.portable-row:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .portable-row:hover { background: var(--bg-hover); }
+}
 .portable-row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .portable-row-title {
   font-size: 13px; color: var(--ink);
@@ -2886,8 +3095,10 @@ mark.hl {
 }
 /* 悬停时边框再深一档，让「可点」这件事在边框上也有表达（不只靠底色变化，
    高对比度模式与部分色觉类型下底色差异可能感知不到）。 */
-[data-slot='button'][data-variant='outline']:hover:not(:disabled) {
-  border-color: var(--ink-2);
+@media (hover: hover) and (pointer: fine) {
+  [data-slot='button'][data-variant='outline']:hover:not(:disabled) {
+    border-color: var(--ink-2);
+  }
 }
 
 /* 账户对话框的草稿恢复提示条。
@@ -2905,7 +3116,9 @@ mark.hl {
   color: var(--accent-ink); font-size: 12.5px; padding: 2px 4px;
   border-radius: 4px; text-decoration: underline;
 }
-.acct-draft-discard:hover { background: var(--bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-draft-discard:hover { background: var(--bg-hover); }
+}
 
 /* 对话框防误触时的反馈抖动。
    点了框外却什么都没发生，本身就是另一种困惑（"是不是卡住了？"），
@@ -2922,3 +3135,4 @@ mark.hl {
 @media (prefers-reduced-motion: reduce) {
   .dlg-nudge { animation: none; outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 }
+

@@ -341,7 +341,7 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
       {/* 远程内容拦截提示条 */}
       {blockedRemote && (
         <div className="remote-img-bar">
-          <span style={{ flex: 1 }}>
+          <span className="remote-img-note">
             {t('reader.remote.blocked', { n: view.remote_count })}
           </span>
           <button

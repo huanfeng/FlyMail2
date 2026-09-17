@@ -1,5 +1,8 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
 import { shouldLoadMore } from '@/lib/list-guards'
+import {
+  STACK_WIDTH, HEADER_ROW_H, rowHeight,
+} from '@/lib/list-density'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { groupByDate } from '@/lib/date-group'
@@ -1182,22 +1185,45 @@ export function MailList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMessageId, activeThreadId])
 
+  // 列表栏是不是窄到要堆叠。
+  //
+  // CSS 那侧用 @container 判断，但 estimateSize 是 JS、看不到容器查询的结果，
+  // 只能自己观察一次栏宽。阈值必须与 index.css 里的 @container 同值，
+  // 两者都取自 lib/list-density.ts。
+  const listWrapRef = useRef<HTMLDivElement>(null)
+  const [stackedRows, setStackedRows] = useState(false)
+  useEffect(() => {
+    const el = listWrapRef.current
+    if (el == null) return
+    const apply = (w: number) => setStackedRows(w > 0 && w <= STACK_WIDTH)
+    apply(el.getBoundingClientRect().width)
+    // 没有 ResizeObserver 就只按首次宽度定一次（jsdom、极老的浏览器）。
+    // 不防御的话整个列表在测试环境里直接抛 ReferenceError。
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) apply(e.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // ── 行高 ─────────────────────────────────────────────────────────────────
   // ⚠ 这不是"估算"而是硬契约：没有接 measureElement，虚拟列表就完全按这里的数值
   // 用 translateY 排布行槽位。行的真实高度一旦超出，就会压到下一行头上，
   // 表现为 hover / 选中高亮与行边界错位重叠。
   // index.css 用 .mail-item{height:100%} 让行严格填满槽位，两边必须同步改。
-  // 卡片行 105 = 28(padding) + 18(发件人) + 2+19(主题) + 2+35(两行摘要) + 1(border)
-  // 紧凑行  44 = 22(padding) + 21(单行内容) + 1(border)
+  // 具体数值与「窄栏堆叠」的阈值都在 lib/list-density.ts，那里同时被 index.css
+  // 的 @container 规则引用（见该文件注释）。紧凑行在窄栏下是两行，高度不同——
+  // 不跟着变的话行内容会溢出槽位，主题只露出上半截。
   const estimateSize = useCallback(
     (index: number): number => {
       const row = rows[index]
       if (!row) return 52
-      if (row.type === 'header') return 28
+      if (row.type === 'header') return HEADER_ROW_H
       // 会话行与单封行共用同一套 class 与内部结构，高度自然相同
-      return listStyle === 'compact' ? 44 : 105
+      return rowHeight(listStyle, stackedRows)
     },
-    [rows, listStyle],
+    [rows, listStyle, stackedRows],
   )
 
   const virtualizer = useVirtualizer({
@@ -1490,7 +1516,7 @@ export function MailList({
       {/* ── 列表区域（选择模式下 selecting 让每行显出复选框列）──
            外面这层不滚动，只为给列宽手柄一个定位参照——手柄若放进滚动容器里
            会跟着列表一起滚走。 */}
-      <div className="mail-list-wrap">
+      <div className="mail-list-wrap" ref={listWrapRef}>
 
       {/* 发件人/主题分界线上的拖拽手柄：平时透明，hover 才浮现。
           仅紧凑样式有列的概念；卡片样式是三行堆叠，没有列宽可调。
@@ -1498,7 +1524,11 @@ export function MailList({
           避免拖拽时手柄与列边界脱节。
           基准 = 行 padding-left(20) + 头像列(28) + gap(14) [+ 选择模式的 20+14]，
           再加半个 gap(7) 落到两列正中，最后减半个手柄宽(4.5)。 */}
-      {listStyle === 'compact' && (
+      {/* ⚠ 列表为空时不要这个手柄：没有任何一行，也就没有「列」可言，
+          而它照样吃 hover、照样能拖——鼠标划过空列表会冒出一条可拖动的分界线，
+          拖它还会真的改掉列宽，用户完全不知道自己在调什么。
+          窄屏同理（那里的行是堆叠的，没有列），由 CSS 隐藏。 */}
+      {listStyle === 'compact' && rows.length > 0 && (
         <ResizeHandle
           className="list-col-resize"
           label={t('settings.page.senderColWidth')}
@@ -1627,20 +1657,41 @@ export function MailList({
                     const targets = folders.filter(
                       (f) => f.account_id === th.account_id && f.selectable,
                     )
-                    const items: CtxMenuItem[] = [
-                      {
+                    // 会话里既有已读又有未读时，两个方向都要给。
+                    // 只按「有没有未读」给一项的话，混合状态下永远只剩「全部标为
+                    // 已读」，想把整条会话重新标成未读就没有入口了；反过来，
+                    // 一条全已读的会话又只能标未读。两种都是用户真实会做的操作。
+                    const mixed = th.unread > 0 && th.unread < th.count
+                    const items: CtxMenuItem[] = []
+                    if (mixed) {
+                      items.push(
+                        {
+                          key: 'read',
+                          label: t('list.thread.readAll'),
+                          icon: 'mail',
+                          onSelect: () => onMarkReadThread(th, true),
+                        },
+                        {
+                          key: 'unread',
+                          label: t('list.thread.unreadAll'),
+                          icon: 'mail',
+                          onSelect: () => onMarkReadThread(th, false),
+                        },
+                      )
+                    } else {
+                      items.push({
                         key: 'read',
                         label: th.unread > 0 ? t('list.thread.readAll') : t('list.thread.unreadAll'),
                         icon: 'mail',
                         onSelect: () => onMarkReadThread(th, th.unread > 0),
-                      },
-                      {
-                        key: 'flag',
-                        label: th.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll'),
-                        icon: th.flagged ? 'star-fill' : 'star',
-                        onSelect: () => onToggleFlagThread(th, !th.flagged),
-                      },
-                    ]
+                      })
+                    }
+                    items.push({
+                      key: 'flag',
+                      label: th.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll'),
+                      icon: th.flagged ? 'star-fill' : 'star',
+                      onSelect: () => onToggleFlagThread(th, !th.flagged),
+                    })
                     if (targets.length > 0) {
                       items.push({
                         key: 'move',

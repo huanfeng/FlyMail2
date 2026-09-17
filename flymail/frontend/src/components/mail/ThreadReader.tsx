@@ -14,16 +14,21 @@ import { DropMenu } from '@/components/ui/DropMenu'
 import type { CtxMenuItem } from '@/components/ui/ContextMenu'
 import { MessageBody } from '@/components/mail/MessageBody'
 import { ReaderToolbar } from '@/components/mail/ReaderToolbar'
+import { AddressChip } from '@/components/mail/AddressChip'
+import { useToast } from '@/components/ui/Toast'
+import { apiErrorMessage } from '@/lib/api'
+import { addressActions } from '@/lib/address-actions'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
 import {
   folderLabel,
-  formatAddresses,
   formatDate,
   senderInitial,
   useDelayedFlag,
 } from '@/lib/mail-format'
 import {
   useAccounts,
+  useAddBlock,
+  useAddTrustedSender,
   useBatchRead,
   useDeleteMessage,
   useFolders,
@@ -48,8 +53,13 @@ interface ThreadItemProps {
   onToggle: () => void
   /** 该邮件所在文件夹的显示名；null 表示文件夹信息尚未加载 */
   folderName: string | null
-  /** 当前账户自己的邮箱（把收件人里的自己显示成「我」）*/
-  selfAddr: string
+  /** 本地所有账户的邮箱（小写）：用来标出哪些地址是自己的。
+      ⚠ 是集合不是单个——多账户下同一封邮件可能同时发给你的好几个信箱。 */
+  selfAddrs: Set<string>
+  /** 写邮件给某个地址 */
+  onComposeTo: (email: string) => void
+  /** 按地址搜索（形如 from:a@b.com） */
+  onSearchAddr: (query: string) => void
   /** 单封操作的移动目标（同账户的可选文件夹）*/
   accountFolders: Folder[]
   /** 正文里点到 mailto: 链接时打开撰写器 */
@@ -62,9 +72,11 @@ function ThreadItem({
   active,
   onToggle,
   folderName,
-  selfAddr,
+  selfAddrs,
   accountFolders,
   onMailto,
+  onComposeTo,
+  onSearchAddr,
 }: ThreadItemProps) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -79,13 +91,42 @@ function ThreadItem({
   // 默认展开的那批未读若各自发一次请求，打开一条 8 封未读的会话就是 8 个
   // POST /messages/:id/read 加 8 轮全量 invalidate。见 markExpandedRead。
 
+  const addTrusted = useAddTrustedSender()
+  const addBlock = useAddBlock()
+  const { toast } = useToast()
+
+  function doTrust(email: string) {
+    addTrusted.mutate(email, {
+      onSuccess: (r) => toast(r.existed ? t('addr.trustExisted') : t('addr.trustDone', { addr: email })),
+      onError: (e) => toast(apiErrorMessage(e, t('addr.trustFailed'))),
+    })
+  }
+
+  function doBlock(email: string) {
+    addBlock.mutate(
+      { pattern: email },
+      {
+        onSuccess: (r) => toast(r.existed ? t('addr.blockExisted') : t('addr.blockDone', { addr: email })),
+        onError: (e) => toast(apiErrorMessage(e, t('addr.blockFailed'))),
+      },
+    )
+  }
+
   const senderName = msg.from_name || msg.from_addr
   const initial = senderInitial(msg.from_name, msg.from_addr)
 
-  const meLabel = t('reader.me')
-  const toText = detail ? formatAddresses(detail.to ?? [], selfAddr, meLabel) : ''
-  const ccText =
-    detail?.cc && detail.cc.length > 0 ? formatAddresses(detail.cc, selfAddr, meLabel) : ''
+  const toList = detail?.to ?? []
+  const ccList = detail?.cc ?? []
+
+  // 信任 / 屏蔽只给「别人发来的」邮件。
+  //
+  // ⚠ 自己的地址一律不给屏蔽入口：「已发送」里每封的发件人都是自己，
+  // 点一下就把自己拉黑，之后所有自发自收的邮件都进垃圾箱。后端也会拒，
+  // 但这个菜单项压根不该出现在那儿。
+  const fromAddrLower = msg.from_addr.trim().toLowerCase()
+  const fromActions = addressActions('from', selfAddrs.has(fromAddrLower), fromAddrLower)
+  const trustSender = fromActions.canTrust ? doTrust : null
+  const blockSender = fromActions.canBlock ? doBlock : null
 
   // 单封「移动到」目标：同账户里除当前文件夹以外的可选文件夹
   const moveTargets = accountFolders.filter((f) => f.selectable && f.id !== msg.folder_id)
@@ -163,18 +204,55 @@ function ThreadItem({
 
         <div className="ti-main">
           <div className="ti-from">
-            {senderName}
-            {expanded && msg.from_name && (
-              <span className="ti-addr">&lt;{msg.from_addr}&gt;</span>
+            {expanded ? (
+              <AddressChip
+                addr={{ name: msg.from_name, email: msg.from_addr }}
+                isSelf={selfAddrs.has(msg.from_addr.trim().toLowerCase())}
+                role="from"
+                onCompose={onComposeTo}
+                onSearch={onSearchAddr}
+                onTrust={trustSender}
+                onBlock={blockSender}
+              />
+            ) : (
+              senderName
             )}
           </div>
           {expanded ? (
             <div className="ti-to">
-              {t('reader.sendTo')} {toText || '—'}
-              {ccText && (
-                <span style={{ marginLeft: 6 }}>
-                  · {t('reader.cc')} {ccText}
-                </span>
+              <span className="ti-to-label">{t('reader.sendTo')}</span>
+              {toList.length > 0 ? (
+                toList.map((a) => (
+                  <AddressChip
+                    key={`to-${a.email}`}
+                    addr={a}
+                    isSelf={selfAddrs.has(a.email.trim().toLowerCase())}
+                    role="to"
+                    onCompose={onComposeTo}
+                    onSearch={onSearchAddr}
+                    onTrust={null}
+                    onBlock={null}
+                  />
+                ))
+              ) : (
+                <span>—</span>
+              )}
+              {ccList.length > 0 && (
+                <>
+                  <span className="ti-to-label">· {t('reader.cc')}</span>
+                  {ccList.map((a) => (
+                    <AddressChip
+                      key={`cc-${a.email}`}
+                      addr={a}
+                      isSelf={selfAddrs.has(a.email.trim().toLowerCase())}
+                      role="to"
+                      onCompose={onComposeTo}
+                      onSearch={onSearchAddr}
+                      onTrust={null}
+                      onBlock={null}
+                    />
+                  ))}
+                </>
               )}
             </div>
           ) : (
@@ -270,6 +348,8 @@ interface ThreadReaderProps {
   onActiveMessageChange?: (id: number | null) => void
   /** 正文里点到 mailto: 链接时打开撰写器 */
   onMailto?: (href: string) => void
+  /** 点地址菜单里的「搜索」时把查询填进搜索框 */
+  onSearchAddr: (query: string) => void
 }
 
 export function ThreadReader({
@@ -286,6 +366,7 @@ export function ThreadReader({
   onNext,
   onActiveMessageChange,
   onMailto,
+  onSearchAddr,
 }: ThreadReaderProps) {
   const { t } = useTranslation()
   const {
@@ -420,7 +501,13 @@ export function ThreadReader({
     })
   }
 
-  const selfAddr = accounts.find((a) => a.id === accountId)?.email ?? ''
+  // ⚠ 本地**所有**账户的地址，不是当前这一个。
+  // 同一封邮件常常同时发到你的好几个信箱，只认当前账户的话，另外那些自己的地址
+  // 会被当成陌生人——旁边会冒出「屏蔽此发件人」，点下去就把自己拉黑了。
+  const selfAddrs = useMemo(
+    () => new Set(accounts.map((a) => a.email.trim().toLowerCase()).filter((e) => e !== '')),
+    [accounts],
+  )
   // 主题取最后一封（时间升序，最后一封即最新）；深链进来时列表里没有这条也能拿到
   const subject = messages[messages.length - 1]?.subject ?? ''
 
@@ -492,9 +579,11 @@ export function ThreadReader({
                 active={m.id === activeId}
                 onToggle={() => toggleItem(m.id)}
                 folderName={folderNames.get(m.folder_id) ?? null}
-                selfAddr={selfAddr}
+                selfAddrs={selfAddrs}
                 accountFolders={accountFolders}
                 onMailto={onMailto}
+                onComposeTo={(email) => onMailto?.(`mailto:${email}`)}
+                onSearchAddr={onSearchAddr}
               />
             ))}
           </div>

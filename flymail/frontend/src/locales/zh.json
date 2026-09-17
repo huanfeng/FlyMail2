@@ -913,5 +913,21 @@
     "week": "本周",
     "month": "本月",
     "earlier": "更早"
+  },
+  "addr": {
+    "copy": "复制地址",
+    "copied": "已复制",
+    "composeTo": "写邮件给 TA",
+    "searchFrom": "搜索来自此人的邮件",
+    "searchTo": "搜索发给此地址的邮件",
+    "trust": "总是显示此发件人的远程内容",
+    "block": "屏蔽此发件人",
+    "mine": "我的",
+    "trustDone": "已信任 {{addr}}",
+    "trustExisted": "该发件人已在信任名单中",
+    "trustFailed": "加入信任名单失败",
+    "blockDone": "已屏蔽 {{addr}}",
+    "blockExisted": "该发件人已在黑名单中",
+    "blockFailed": "屏蔽失败"
   }
 }

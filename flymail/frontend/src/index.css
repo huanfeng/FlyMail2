@@ -3136,3 +3136,33 @@ mark.hl {
   .dlg-nudge { animation: none; outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 }
 
+/* ── 邮件头里的地址块 ──────────────────────────────────────────────────────
+   每个地址单独成块、可点开菜单。原先发件人是一段纯文本、收件人是一串逗号拼起来
+   的文本，想对其中某一个人做点什么（搜他的邮件、给他回信、拉黑）都无从下手。 */
+.addr-chip {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  max-width: 100%; padding: 1px 5px; margin: 0 1px;
+  border-radius: 5px;
+  font: inherit; color: inherit;
+  cursor: pointer;
+  /* 不给默认底色：一行里并排四五个地址，个个带底色就成了一片色块 */
+  background: none; border: 1px solid transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .addr-chip:hover { background: var(--bg-hover); border-color: var(--rule); }
+}
+.addr-chip[data-state='open'] { background: var(--bg-active); border-color: var(--rule); }
+.addr-chip-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 自己的地址：多账户下不再显示成「我」，而是如实给出邮箱 + 一个低调的标记 */
+.addr-chip.is-self .addr-chip-text { color: var(--ink); }
+.addr-chip-self {
+  flex: 0 0 auto;
+  font-size: 10.5px; line-height: 1.4;
+  padding: 0 4px; border-radius: 999px;
+  background: var(--accent-wash); color: var(--accent-ink);
+}
+/* 收件人行：标签与地址块混排，地址多时换行而不是把行撑出去 */
+.ti-to { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; }
+.ti-to-label { flex: 0 0 auto; color: var(--ink-3); }

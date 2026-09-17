@@ -1437,6 +1437,7 @@ export function ShellPage() {
               onNext={nextThreadId != null ? () => selectThread(nextThreadId) : null}
               onActiveMessageChange={setThreadActiveMessageId}
               onMailto={onMailto}
+              onSearchAddr={(q) => { setSearchQuery(q); setParam((p) => clearDraftsView(p)) }}
             />
           ) : (
             <Reader

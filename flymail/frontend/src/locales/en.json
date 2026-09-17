@@ -913,5 +913,21 @@
     "week": "This week",
     "month": "This month",
     "earlier": "Earlier"
+  },
+  "addr": {
+    "copy": "Copy address",
+    "copied": "Copied",
+    "composeTo": "Compose to",
+    "searchFrom": "Search mail from",
+    "searchTo": "Search mail to",
+    "trust": "Always show remote content from this sender",
+    "block": "Block this sender",
+    "mine": "mine",
+    "trustDone": "Trusted {{addr}}",
+    "trustExisted": "Sender is already trusted",
+    "trustFailed": "Could not add to trusted senders",
+    "blockDone": "Blocked {{addr}}",
+    "blockExisted": "Sender is already blocked",
+    "blockFailed": "Could not block sender"
   }
 }

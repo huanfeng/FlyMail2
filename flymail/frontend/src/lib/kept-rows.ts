@@ -101,3 +101,22 @@ export function withKept<T>(
   if (missing.length === 0) return list
   return [...list, ...missing].sort(compare)
 }
+
+/**
+ * 这个视图是不是「只装未读」。
+ *
+ * 决定留下来的行要不要显示成已读的样子——只有当行消失的原因就是「被读了」时，
+ * 把它改成已读才是如实描述；星标/附件筛选下行消失的原因不是被读了，跟着改
+ * seen 就是瞎猜，会把真正未读的邮件显示成已读。
+ *
+ * ⚠ 未读有**两个入口**，判据必须覆盖两个：
+ *   1. 某个文件夹里勾上「未读」筛选 chip   → filter.unread
+ *   2. 侧栏的聚合「未读」（跨账户）         → agg === 'unread'，此时 filter.unread 是 false
+ *
+ * 早前只看 chip，于是聚合未读视图下留下来的行拿不到 ReadLook、被原样插回去，
+ * 仍然带着 seen=false：读完照样加粗、未读圆点还在，看上去像根本没读过。
+ * 这个错法只在第 2 个入口暴露，从第 1 个入口怎么试都是好的。
+ */
+export function isUnreadOnlyView(filterUnread: boolean, agg: string | null): boolean {
+  return filterUnread || agg === 'unread'
+}

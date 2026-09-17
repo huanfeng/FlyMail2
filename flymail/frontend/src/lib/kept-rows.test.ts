@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyKept, nextKept, withKept, type KeptRows } from '@/lib/kept-rows'
+import { emptyKept, isUnreadOnlyView, nextKept, withKept, type KeptRows } from '@/lib/kept-rows'
 
 interface Row { id: string; date: string; seen: boolean }
 const key = (r: Row) => r.id
@@ -135,5 +135,32 @@ describe('同秒邮件的次序', () => {
     // c、b 被读掉筛走，只剩 d、a
     const got = withKept([sameSecond[0], sameSecond[3]], kept, key, cmp, look)
     expect(got.map(key)).toEqual(['d', 'c', 'b', 'a'])
+  })
+})
+
+
+/**
+ * ⚠ 未读有两个入口，只覆盖一个的话另一个怎么试都是坏的。
+ *
+ * 实测：侧栏聚合「未读」下读一封，后端已经把它筛掉、行被留在原地，但因为
+ * filter.unread 是 false，ReadLook 没传进去，行被原样插回去——DOM 上仍然带着
+ * `unread` 类，字重 600、未读圆点还亮着，看上去像根本没读过。
+ */
+describe('isUnreadOnlyView', () => {
+  it('文件夹里勾上「未读」chip 时成立', () => {
+    expect(isUnreadOnlyView(true, null)).toBe(true)
+  })
+
+  it('侧栏聚合「未读」时也成立——此时 chip 并没有勾上', () => {
+    expect(isUnreadOnlyView(false, 'unread')).toBe(true)
+  })
+
+  it('其它聚合视图不成立：行消失的原因不是被读了', () => {
+    expect(isUnreadOnlyView(false, 'inbox')).toBe(false)
+    expect(isUnreadOnlyView(false, 'starred')).toBe(false)
+  })
+
+  it('普通文件夹不成立', () => {
+    expect(isUnreadOnlyView(false, null)).toBe(false)
   })
 })

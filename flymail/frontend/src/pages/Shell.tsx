@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { createDeepLinkResolver } from '@/lib/deep-link'
 import { pickDefaultFolder } from '@/lib/default-folder'
-import { emptyKept, nextKept, withKept, type KeptRows } from '@/lib/kept-rows'
+import { emptyKept, isUnreadOnlyView, nextKept, withKept, type KeptRows } from '@/lib/kept-rows'
 import { rememberAccount, resolveContextAccount } from '@/lib/last-account'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
@@ -268,12 +268,13 @@ export function ShellPage() {
   const viewKey = `${accountId}|${folderId}|${agg ?? ''}|${searching ? debouncedQuery : ''}` +
     `|${filter.unread ? 'u' : ''}${filter.flagged ? 'f' : ''}${filter.attachment ? 'a' : ''}`
 
-  // 只有未读筛选下才需要「改成已读的样子」：星标/附件筛选下行消失的原因不是被读了，
-  // 跟着改 seen 就是瞎猜，会把真正未读的邮件显示成已读。
-  const msgReadLook = filter.unread
+  // 判据是**视图的筛选条件**而不是那个 chip：聚合「未读」也是未读视图。详见 isUnreadOnlyView。
+  const unreadOnlyView = isUnreadOnlyView(filter.unread, agg)
+
+  const msgReadLook = unreadOnlyView
     ? { isRead: (m: MessageListItem) => m.seen, asRead: (m: MessageListItem) => ({ ...m, seen: true }) }
     : undefined
-  const threadReadLook = filter.unread
+  const threadReadLook = unreadOnlyView
     ? { isRead: (th: ThreadListItem) => th.unread === 0, asRead: (th: ThreadListItem) => ({ ...th, unread: 0 }) }
     : undefined
 
@@ -293,7 +294,7 @@ export function ShellPage() {
     () => withKept(rawMessages, keptMsgs, (m) => String(m.id),
       (a, b) => b.date.localeCompare(a.date) || b.id - a.id, msgReadLook),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawMessages, keptMsgs, filter.unread],
+    [rawMessages, keptMsgs, unreadOnlyView],
   )
   const threads: ThreadListItem[] | null = useMemo(
     () => (rawThreads == null ? null
@@ -301,7 +302,7 @@ export function ShellPage() {
         (a, b) => b.date.localeCompare(a.date) || b.thread_id.localeCompare(a.thread_id),
         threadReadLook)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawThreads, keptThreads, filter.unread],
+    [rawThreads, keptThreads, unreadOnlyView],
   )
 
   // 会话列表的裸数组：j/k 导航与「上一条/下一条」都要按它的顺序走，

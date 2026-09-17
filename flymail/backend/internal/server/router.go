@@ -143,14 +143,52 @@ func New(deps Deps) http.Handler {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
 			}
-			if _, statErr := fs.Stat(sub, strings.TrimPrefix(c.Request.URL.Path, "/")); statErr == nil && c.Request.URL.Path != "/" {
+			// ⚠ 缓存头必须在**确认命中真实文件之后**、按那个文件的路径设。
+			// 先设头再回退的话，/assets/ 下任何**不存在**的文件都会拿到
+			// index.html 的内容配上 immutable 的头——见 setStaticCacheHeaders 的说明。
+			p := c.Request.URL.Path
+			if st, statErr := fs.Stat(sub, strings.TrimPrefix(p, "/")); statErr == nil && !st.IsDir() {
+				setStaticCacheHeaders(c.Writer.Header(), p)
 				fileServer.ServeHTTP(c.Writer, c.Request)
 				return
 			}
+			// /assets/ 下的是资源不是路由，找不到就该 404。喂它一份 HTML 只会让
+			// 调用方拿到一段解析不了的东西，还平白多一次成功状态码。
+			if strings.HasPrefix(p, "/assets/") {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.Writer.Header().Set("Cache-Control", "no-cache")
 			c.Request.URL.Path = "/"
 			fileServer.ServeHTTP(c.Writer, c.Request)
 		})
 	}
 
 	return r
+}
+
+// setStaticCacheHeaders 给前端静态资源装缓存头。
+//
+// ⚠ 不装的后果不是「慢一点」，而是**部署了新版本但用户看不到**。
+//
+// 资源来自 embed.FS，嵌入文件的修改时间是零值，于是 http.FileServer 既不发
+// Last-Modified 也不发 ETag——一个校验器都没有。没有任何缓存指令时浏览器按
+// 启发式缓存处理，index.html 与它引用的那个带 hash 的 JS 会一起留在磁盘缓存里
+// 被继续复用；哪怕服务端早就换了新版本，用户刷新看到的还是旧界面，而且因为
+// 没有校验器，浏览器连一次条件请求都发不出去。
+// 2026-09-17 就是这么被发现的：新加的设置项确实在服务端的包里，用户却看不到。
+//
+// 两类资源的策略正好相反：
+//
+//	/assets/*   文件名带内容 hash（Vite 产出），内容一变文件名就变，
+//	            可以放心长缓存 + immutable，连条件请求都省了。
+//	其余        index.html 与 favicon 这些名字固定的，必须每次回源核对，
+//	            否则就是上面那个「看不到新版本」的坑。
+func setStaticCacheHeaders(h http.Header, urlPath string) {
+	if strings.HasPrefix(urlPath, "/assets/") {
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	// no-cache 不是「不缓存」，是「每次用之前都要回源核对」。
+	h.Set("Cache-Control", "no-cache")
 }

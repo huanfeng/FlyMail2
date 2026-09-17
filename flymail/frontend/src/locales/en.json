@@ -69,7 +69,8 @@
     "starred": "Starred",
     "logout": "Sign out",
     "accountsError": "Couldn't load accounts",
-    "foldersError": "Couldn't load folders"
+    "foldersError": "Couldn't load folders",
+    "collapseAll": "Collapse all"
   },
   "folder": {
     "inbox": "Inbox",

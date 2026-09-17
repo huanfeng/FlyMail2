@@ -69,7 +69,8 @@
     "starred": "星标",
     "logout": "退出登录",
     "accountsError": "账户列表加载失败",
-    "foldersError": "文件夹加载失败"
+    "foldersError": "文件夹加载失败",
+    "collapseAll": "全部折叠"
   },
   "folder": {
     "inbox": "收件箱",

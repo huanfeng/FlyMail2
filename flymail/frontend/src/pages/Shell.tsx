@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { createDeepLinkResolver } from '@/lib/deep-link'
+import { pickDefaultFolder } from '@/lib/default-folder'
+import { rememberAccount, resolveContextAccount } from '@/lib/last-account'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
@@ -650,7 +652,20 @@ export function ShellPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   // ── 中栏视图 state（邮件视图内部：messages / drafts）───────────────────────────
-  const [view, setView] = useState<'messages' | 'drafts'>('messages')
+  /**
+   * 当前是邮件列表还是草稿箱（本地）。
+   *
+   * ⚠ 放在 URL 里而不是组件状态里：草稿箱原先是个 useState，于是它既不能被
+   * 收藏/分享，刷新一下也会掉回收件箱——而侧栏那一行的 active 还写死成 false，
+   * 点进去连高亮都没有，看起来像「点了没反应」。
+   * URL 要能准确表达当前在看什么，草稿箱也是「当前在看什么」的一种。
+   */
+  const view: 'messages' | 'drafts' = params.get('view') === 'drafts' ? 'drafts' : 'messages'
+
+  /** 切回邮件列表：把 view 从 URL 上摘掉（缺省就是 messages）。 */
+  function clearDraftsView(p: URLSearchParams) {
+    p.delete('view')
+  }
 
   // ── 撰写/回复/转发 state ──────────────────────────────────────────────────────
   const [composeOpen, setComposeOpen] = useState(false)
@@ -682,25 +697,73 @@ export function ShellPage() {
   }
 
   useEffect(() => {
+    // 聚合视图是跨账户的，URL 上不该有 account——否则它既不表达任何当前状态，
+    // 又会让人以为列表被那个账户过滤了。上下文账户由 last-account 记忆承担。
+    if (agg != null) return
     if (accountId == null && accounts.length > 0) {
-      setParam((p) => p.set('account', String(accounts[0].id)), true)
+      const next = resolveContextAccount(null, accounts.map((a) => a.id))
+      if (next != null) setParam((p) => p.set('account', String(next)), true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, accounts])
+  }, [accountId, accounts, agg])
+
+  // 记住最后看过的账户，供聚合视图下的「写邮件 / 草稿箱」取用
+  useEffect(() => { rememberAccount(accountId) }, [accountId])
+
+  /**
+   * 选中了账户就一定要有文件夹。
+   *
+   * ── 为什么需要这个 ───────────────────────────────────────────────────────
+   *
+   * 「有账户、没文件夹」是个走不出去的空状态：列表区显示「没有邮件 · 此文件夹
+   * 暂无内容」——而这句话本身就是错的，根本没选任何文件夹。用户能进到这里的路
+   * 至少有两条：直接打开应用（URL 上什么都没有），以及点侧栏的账号名（那一下
+   * 会切账户并清掉 folder）。两条都是最常走的路。
+   *
+   * 补在 effect 里而不是 selectAccount 里：切账户那一刻新账户的文件夹还没加载
+   * （useFolders 的入参就是 accountId），当场选不出收件箱。
+   *
+   * 用 replace 改写：这是在补全一个不完整的 URL，不是一次导航，不该在历史里
+   * 留下「没有文件夹」的那一档让用户能后退回去。
+   */
+  useEffect(() => {
+    if (accountId == null || folderId != null) return
+    // 聚合视图（所有收件箱/未读/星标）、搜索、草稿箱本来就不属于任何单个文件夹。
+    // 草稿箱这条不加的话，一进草稿箱就会被补上一个 folder，侧栏那个文件夹跟着
+    // 高亮起来——看着像同时选中了两个地方。
+    if (agg != null || searching || view === 'drafts') return
+    if (folders.length === 0) return
+    const target = pickDefaultFolder(folders)
+    if (target) setParam((p) => p.set('folder', String(target.id)), true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, folderId, folders, agg, searching, view])
+
+  // 写邮件的发件账户：优先当前正在看的账户，聚合视图下退到记忆里那个。
+  const composeAccountId = useMemo(
+    () => resolveContextAccount(accountId, accounts.map((a) => a.id)),
+    [accountId, accounts],
+  )
 
   const activeFolder = useMemo(
     () => folders.find((f) => f.id === folderId) ?? null,
     [folders, folderId],
   )
 
+  // ⚠ 点账号名不关抽屉。
+  //
+  // 这一下在侧栏里同时做两件事：展开这个账户、把它设为当前账户。用户的意图是
+  // 「看看这个账户里有什么」，紧接着就要在展开的列表里点一个文件夹。移动端把
+  // 抽屉关掉等于把人踢回列表区，而那一刻 folder 刚被清空，看到的是一片空白，
+  // 还得再把抽屉点开一次。关抽屉是 selectFolder 的事——选定了文件夹才算选完。
   function selectAccount(id: number) {
-    setView('messages')
     setNotifOpen(false)
     setSettingsOpen(false)
-    setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
+      clearDraftsView(p)
       p.set('account', String(id))
+      // folder 必须清掉：它属于上一个账户。上面那个 effect 会在新账户的文件夹
+      // 加载完之后补上收件箱。
       p.delete('folder')
       p.delete('message')
       p.delete('thread')
@@ -708,13 +771,25 @@ export function ShellPage() {
     })
   }
 
-  function selectFolder(id: number) {
-    setView('messages')
+  /**
+   * 选中一个文件夹。
+   *
+   * ⚠ account 必须跟着文件夹走。
+   *
+   * 侧栏可以同时展开多个账户，点的很可能是**当前账户之外**那个账户的文件夹。
+   * 只改 folder 的话，URL 就成了「account=A + folder=属于B的」这种自相矛盾的状态：
+   * useFolders(accountId) 取回的是 A 的文件夹，activeFolder 在里面根本找不到
+   * folderId，于是列表标题、工具栏这些依赖 activeFolder 的地方全部落空，
+   * 写邮件的默认发件人也还是 A。
+   */
+  function selectFolder(id: number, ownerAccountId?: number) {
     setNotifOpen(false)
     setSettingsOpen(false)
     setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
+      clearDraftsView(p)
+      if (ownerAccountId != null) p.set('account', String(ownerAccountId))
       p.set('folder', String(id))
       p.delete('message')
       p.delete('thread')
@@ -724,13 +799,16 @@ export function ShellPage() {
 
   // 选择聚合入口（跨所有账户）
   function selectAggregate(v: AggregateView) {
-    setView('messages')
     setNotifOpen(false)
     setSettingsOpen(false)
     setDrawerOpen(false)
     setSearchQuery('')
     setParam((p) => {
+      clearDraftsView(p)
       p.set('agg', v)
+      // ⚠ account 一并清掉：聚合视图跨所有账户，留着它是在 URL 里陈述一件
+      // 不成立的事。发件人/草稿箱要用的账户由 last-account 的记忆提供。
+      p.delete('account')
       p.delete('folder')
       p.delete('message')
       p.delete('thread')
@@ -764,13 +842,13 @@ export function ShellPage() {
   async function openMailById(messageId: number, replace = false): Promise<boolean> {
     try {
       const { data } = await api.get<MessageDetail>(`/messages/${messageId}`)
-      setView('messages')
       setNotifOpen(false)
       setSearchQuery('')
       // ⚠ 会话视图要从 ref 读当下的值，不能用闭包捕获的那个：请求在途时用户
       // 可能刚在设置里关掉会话视图，按旧值写 thread 会让右栏空白。
       const conversation = conversationViewRef.current
       setParam((p) => {
+        clearDraftsView(p)
         p.set('account', String(data.account_id))
         p.set('folder', String(data.folder_id))
         p.delete('agg')
@@ -841,7 +919,6 @@ export function ShellPage() {
     try {
       const { data } = await api.get<{ folders: Folder[] }>(`/accounts/${n.account_id}/folders`)
       const inbox = data.folders?.find((f) => f.type === 'inbox')
-      setView('messages')
       setNotifOpen(false)
       setSearchQuery('')
       setParam((p) => {
@@ -901,8 +978,17 @@ export function ShellPage() {
 
 
   function onOpenDrafts(accId: number) {
-    setParam((p) => p.set('account', String(accId)), true)
-    setView('drafts')
+    setNotifOpen(false)
+    setSettingsOpen(false)
+    setParam((p) => {
+      p.set('account', String(accId))
+      p.set('view', 'drafts')
+      // 草稿箱不属于任何 IMAP 文件夹，也没有选中的邮件
+      p.delete('folder')
+      p.delete('message')
+      p.delete('thread')
+      p.delete('agg')
+    })
   }
 
   function openDraft(d: Draft) {
@@ -1050,7 +1136,8 @@ export function ShellPage() {
     if (target === 'inbox') return selectAggregate('inbox')
     if (target === 'starred') return selectAggregate('starred')
     if (target === 'drafts') {
-      if (accountId != null) onOpenDrafts(accountId)
+      const ctx = resolveContextAccount(accountId, accounts.map((a) => a.id))
+      if (ctx != null) onOpenDrafts(ctx)
       return
     }
     // 已发送没有聚合视图，落到当前账户的 sent 文件夹；账户没有这个文件夹就不动
@@ -1217,6 +1304,7 @@ export function ShellPage() {
       onToggleSettings={() => { setSettingsOpen((o) => !o); setDrawerOpen(false) }}
       onCompose={() => { onCompose(); setDrawerOpen(false) }}
       onOpenDrafts={(id) => { onOpenDrafts(id); setDrawerOpen(false) }}
+      draftsAccountId={view === 'drafts' ? accountId : null}
     />
   )
 
@@ -1373,7 +1461,7 @@ export function ShellPage() {
       <ComposeDialog
         open={composeOpen}
         onOpenChange={setComposeOpen}
-        accountId={accountId}
+        accountId={composeAccountId}
         initial={composeInitial}
         draftId={composeDraftId}
       />

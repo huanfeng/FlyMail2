@@ -103,6 +103,7 @@ describe('后台自动同步在侧栏可见', () => {
         onToggleSettings={vi.fn()}
         onCompose={vi.fn()}
         onOpenDrafts={vi.fn()}
+        draftsAccountId={null}
       />
     )
   }

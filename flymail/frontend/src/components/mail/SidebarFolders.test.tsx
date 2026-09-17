@@ -94,6 +94,7 @@ describe('侧栏：多账户同时展开', () => {
     onCompose: vi.fn(),
     onAddAccount: vi.fn(),
     onOpenDrafts: vi.fn(),
+    draftsAccountId: null,
   }
 
   async function render() {

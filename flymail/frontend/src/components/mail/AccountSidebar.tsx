@@ -2,7 +2,11 @@
 // 参考 .dev/mailmaster/src_extracted/03_f2308e64.js + app.css
 // 所有颜色严格使用 CSS 设计令牌，不写死任何颜色值
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import {
+  loadExpanded, saveExpanded, initialExpanded, anyExpanded, collapseAll,
+  type ExpandMap,
+} from '@/lib/sidebar-expand'
 import { useTranslation } from 'react-i18next'
 import { useConfirm } from '@/components/ui/Confirm'
 import { useToast } from '@/components/ui/Toast'
@@ -228,7 +232,8 @@ interface Props {
   /** 聚合入口徽标计数 */
   aggCounts: Record<AggregateView, number>
   onSelectAccount: (id: number) => void
-  onSelectFolder: (id: number) => void
+  /** 第二个参数是该文件夹所属账户：跨账户点文件夹时 URL 的 account 必须跟着走 */
+  onSelectFolder: (id: number, accountId: number) => void
   onSelectAggregate: (view: AggregateView) => void
   onSync: (accountId: number) => void
   onAddAccount: () => void
@@ -238,6 +243,8 @@ interface Props {
   onToggleSettings: () => void
   onCompose: () => void
   onOpenDrafts: (accountId: number) => void
+  /** 正停在哪个账户的草稿箱（本地）上；null = 不在草稿箱 */
+  draftsAccountId: number | null
 }
 
 // ── 文件夹行 ─────────────────────────────────────────────
@@ -287,8 +294,11 @@ interface AccountBlockProps {
   unread: number
   onToggleExpand: () => void
   onSync: () => void
-  onSelectFolder: (id: number) => void
+  /** 第二个参数是该文件夹所属账户：跨账户点文件夹时 URL 的 account 必须跟着走 */
+  onSelectFolder: (id: number, accountId: number) => void
   onOpenDrafts: () => void
+  /** 当前正停在这个账户的草稿箱上 */
+  draftsActive: boolean
   // ── 右键菜单动作 ──
   onEdit: () => void
   onToggleEnabled: () => void
@@ -305,6 +315,7 @@ function AccountBlock({
   onSync,
   onSelectFolder,
   onOpenDrafts,
+  draftsActive,
   onEdit,
   onToggleEnabled,
   onDelete,
@@ -600,7 +611,7 @@ function AccountBlock({
                       ? f.unread_count
                       : undefined
                   }
-                  onClick={() => onSelectFolder(f.id)}
+                  onClick={() => onSelectFolder(f.id, f.account_id)}
                   ctxItems={folderCtxItems(f)}
                 />
               )
@@ -610,7 +621,7 @@ function AccountBlock({
           <FolderRow
             iconName="draft"
             label={t('compose.draftsBox')}
-            active={false}
+            active={draftsActive}
             onClick={onOpenDrafts}
           />
         </div>
@@ -641,6 +652,7 @@ export function AccountSidebar({
   onToggleSettings,
   onCompose,
   onOpenDrafts,
+  draftsAccountId,
 }: Props) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -656,15 +668,26 @@ export function AccountSidebar({
     window.location.href = '/login'
   }
 
-  // 各账户展开状态（默认展开前两个）
-  const [expanded, setExpanded] = useState<Record<number, boolean>>(() => {
-    const init: Record<number, boolean> = {}
-    accounts.forEach((a, i) => { init[a.id] = i < 2 })
-    return init
-  })
+  // 各账户展开状态：存在 localStorage 里，刷新后多个账户的展开状态都还在。
+  //
+  // ⚠ 不能只靠 useState 的初始化函数。它只在**首次渲染**执行一次，而那一刻
+  // accounts 还在请求中、是个空数组——原先「默认展开前两个」因此从来没有生效过，
+  // 侧栏永远全部折叠。所以初值从存储读，再由下面的 effect 随账户列表到齐补全。
+  // 存的是**用户显式改过的**那些，默认值在渲染期派生——不用 effect 去追账户列表，
+  // 也就没有「effect 里 setState」那一类连锁渲染。
+  const [overrides, setOverrides] = useState<ExpandMap>(loadExpanded)
+  const expanded = useMemo(
+    () => initialExpanded(accounts.map((a) => a.id), overrides),
+    [accounts, overrides],
+  )
+
+  function writeOverrides(next: ExpandMap) {
+    setOverrides(next)
+    saveExpanded(next)
+  }
 
   function toggleExpand(id: number) {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
+    writeOverrides({ ...overrides, [id]: !expanded[id] })
   }
 
   // ── 账户右键菜单动作（编辑对话框 + 启停/删除 mutation，自包含于侧栏） ──
@@ -753,6 +776,20 @@ export function AccountSidebar({
         {/* 账户区 section label */}
         <div className="side-section-label">
           <span>{t('sidebar.accounts')}</span>
+          {/* 全部折叠：展开状态现在是记忆的，账户一多很容易积成一长条，
+              得给个一键收起的出口。上箭头＝往上收起，与展开态的下三角呼应。
+              没有任何展开时不显示，免得成为死按钮。 */}
+          {anyExpanded(expanded) && (
+            <button
+              type="button"
+              className="add"
+              title={t('sidebar.collapseAll')}
+              aria-label={t('sidebar.collapseAll')}
+              onClick={() => writeOverrides(collapseAll(expanded))}
+            >
+              <Icon name="chevron-up" size={12} />
+            </button>
+          )}
           {/* 添加账户按钮 */}
           <button
             type="button"
@@ -785,6 +822,7 @@ export function AccountSidebar({
             onSync={() => onSync(acc.id)}
             onSelectFolder={onSelectFolder}
             onOpenDrafts={() => onOpenDrafts(acc.id)}
+            draftsActive={draftsAccountId === acc.id}
             onEdit={() => setEditAcc(acc)}
             onToggleEnabled={() => setEnabled.mutate({ id: acc.id, enabled: !acc.enabled })}
             onDelete={() => handleDeleteAccount(acc)}

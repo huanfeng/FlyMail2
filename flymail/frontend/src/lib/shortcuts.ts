@@ -143,3 +143,38 @@ export function getShortcutGroups(): ShortcutGroup[] {
     },
   ]
 }
+
+// ── 按钮上的快捷键提示 ────────────────────────────────────────────────────────
+
+/**
+ * 把一个 `event.key` 变成给人看的键名。
+ *
+ * 单字母统一大写：键盘上印的是大写，而 KEY 里存的是小写（匹配时用小写比较）。
+ * 直接把 'k' 展示成小写会让人以为要按 Shift 之外的什么组合。
+ */
+export function keyLabel(key: string): string {
+  switch (key) {
+    case 'Delete':
+      return 'Del'
+    case 'Escape':
+      return 'Esc'
+    default:
+      return key.length === 1 ? key.toUpperCase() : key
+  }
+}
+
+/**
+ * 给按钮的 tooltip 拼上快捷键，形如「下一封 (J)」。
+ *
+ * ── 为什么要做这件事 ─────────────────────────────────────────────────────────
+ *
+ * 快捷键目录只出现在 `?` 速查浮层和设置里的键位表——两个地方用户都得先知道
+ * 「有快捷键这回事」才会去看。而真正的学习时机是他正在用鼠标点那个按钮的时候：
+ * 把键位写在按钮的悬停提示上，用户点几次就自然记住了，不必专门去背一张表。
+ *
+ * 只加在 title 上、不进 aria-label：读屏用户由 aria-keyshortcuts 得到同样的信息，
+ * 把键位念进名字里只会让每次聚焦都多读一串。
+ */
+export function withShortcut(label: string, key: string): string {
+  return `${label} (${keyLabel(key)})`
+}

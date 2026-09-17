@@ -5,6 +5,7 @@
 // 因此这里只描述「有哪些按钮、长什么样」，动作全部由调用方注入。
 
 import { useTranslation } from 'react-i18next'
+import { KEY, withShortcut } from '@/lib/shortcuts'
 import { Icon } from '@/components/ui/Icon'
 import { DropMenu } from '@/components/ui/DropMenu'
 import type { CtxMenuItem } from '@/components/ui/ContextMenu'
@@ -52,8 +53,9 @@ export function ReaderToolbar({
             className="tb-btn tb-icon"
             onClick={() => onPrev?.()}
             disabled={!onPrev}
-            title={t('reader.prev')}
+            title={withShortcut(t('reader.prev'), KEY.prev)}
             aria-label={t('reader.prev')}
+            aria-keyshortcuts={KEY.prev}
           >
             <Icon name="chevron-up" size={15} />
           </button>
@@ -62,8 +64,9 @@ export function ReaderToolbar({
             className="tb-btn tb-icon"
             onClick={() => onNext?.()}
             disabled={!onNext}
-            title={t('reader.next')}
+            title={withShortcut(t('reader.next'), KEY.next)}
             aria-label={t('reader.next')}
+            aria-keyshortcuts={KEY.next}
           >
             <Icon name="chevron-down" size={15} />
           </button>
@@ -73,14 +76,26 @@ export function ReaderToolbar({
 
       {/* 回复 */}
       {onReply && (
-        <button type="button" className="tb-btn" onClick={onReply} title={t('reader.reply')}>
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={onReply}
+          title={withShortcut(t('reader.reply'), KEY.reply)}
+          aria-keyshortcuts={KEY.reply}
+        >
           <Icon name="reply" size={14} />
           <span>{t('reader.reply')}</span>
         </button>
       )}
       {/* 转发 */}
       {onForward && (
-        <button type="button" className="tb-btn" onClick={onForward} title={t('reader.forward')}>
+        <button
+          type="button"
+          className="tb-btn"
+          onClick={onForward}
+          title={withShortcut(t('reader.forward'), KEY.forward)}
+          aria-keyshortcuts={KEY.forward}
+        >
           <Icon name="forward" size={14} />
           <span>{t('reader.forward')}</span>
         </button>
@@ -94,7 +109,8 @@ export function ReaderToolbar({
           type="button"
           className="tb-btn"
           onClick={onArchive}
-          title={t('reader.archive')}
+          title={withShortcut(t('reader.archive'), KEY.archive)}
+          aria-keyshortcuts={KEY.archive}
           disabled={archiveBusy}
         >
           <Icon name="archive" size={14} />
@@ -107,7 +123,8 @@ export function ReaderToolbar({
         type="button"
         className="tb-btn"
         onClick={onDelete}
-        title={t('reader.delete')}
+        title={withShortcut(t('reader.delete'), KEY.delete)}
+        aria-keyshortcuts={KEY.delete}
         disabled={deleteBusy}
         style={{ color: 'var(--destructive)' }}
       >

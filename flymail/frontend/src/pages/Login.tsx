@@ -1,13 +1,17 @@
 import { useEffect, useId, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { login } from '@/lib/api'
 import { parseRetryAfter, retryAfterText } from '@/lib/rate-limit'
 import { savedLogin } from '@/lib/saved-login'
+import { safeNext } from '@/lib/next-path'
 import { Icon } from '@/components/ui/Icon'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  // 登录前想去的地方（通知链接带着 account/folder/message 过来时就在这里）
+  const [searchParams] = useSearchParams()
+  const next = safeNext(searchParams.get('next'))
   const { t } = useTranslation()
   const uid = useId()
 
@@ -66,7 +70,8 @@ export function LoginPage() {
       } else {
         savedLogin.clear()
       }
-      navigate('/')
+      // 回到用户本来要去的页面；来路不可信（站外地址）时 safeNext 已经置空
+      navigate(next ?? '/', { replace: true })
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } }).response?.status
       if (status === 429) {

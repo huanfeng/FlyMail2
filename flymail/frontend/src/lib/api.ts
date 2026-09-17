@@ -1,5 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { auth } from '@/lib/auth'
+import { encodeNext } from '@/lib/next-path'
 
 // axios 实例：所有请求都走 /api/v1，开发环境由 vite proxy 转发到后端。
 const api = axios.create({
@@ -45,9 +46,12 @@ async function doRefresh(): Promise<string | null> {
 }
 
 function redirectToLogin(): void {
-  if (window.location.pathname !== '/login') {
-    window.location.href = '/login'
-  }
+  if (window.location.pathname === '/login') return
+  // ⚠ 把来路带上。会话过期时 Shell 已经挂载、深链也已经发出请求，401 之后
+  // 整页跳走——不带来路的话，用户重新登录完就落在默认收件箱，
+  // 通知链接里的 account/folder/message 在这一跳里没了。
+  const next = encodeNext(window.location.pathname, window.location.search)
+  window.location.href = `/login?next=${next}`
 }
 
 api.interceptors.response.use(

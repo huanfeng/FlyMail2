@@ -9,8 +9,11 @@ vi.mock('react-i18next', () => ({
 }))
 
 const navigate = vi.fn()
+// 登录页现在还要读 ?next=（通知链接把来路带过来），mock 里得有它
+let searchParams = new URLSearchParams()
 vi.mock('react-router', () => ({
   useNavigate: () => navigate,
+  useSearchParams: () => [searchParams, vi.fn()] as const,
 }))
 
 const login = vi.fn()
@@ -43,6 +46,7 @@ describe('LoginPage', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    searchParams = new URLSearchParams()
     navigate.mockClear()
     login.mockReset()
     container = document.createElement('div')
@@ -141,4 +145,61 @@ describe('LoginPage', () => {
     expect(q<HTMLButtonElement>('.login-submit')?.disabled).toBe(true)
     expect(q('.login-msg')?.textContent).toContain('login.errRateLimited')
   })
+
+  /**
+   * 登录成功后回到用户本来要去的地方。
+   *
+   * ⚠ 这条守的是通知链接在**另一台设备**上的主路径：飞书里看到提醒 → 手机浏览器
+   * 点开 → 没有登录态 → 跳登录页。不把来路带过来并用上，URL 里的
+   * account/folder/message 就在这一跳里没了，登录完落在默认收件箱——
+   * 用户点了链接却没打开那封邮件，而且没有任何提示。
+   */
+  it('登录成功后回到 next 指向的页面', async () => {
+    searchParams = new URLSearchParams('next=%2F%3Faccount%3D1%26folder%3D7%26message%3D42')
+    login.mockResolvedValue({})
+    await mount()
+    await submitWith('x')
+
+    expect(navigate).toHaveBeenCalledWith('/?account=1&folder=7&message=42', { replace: true })
+  })
+
+  it('没有来路时回首页', async () => {
+    login.mockResolvedValue({})
+    await mount()
+    await submitWith('x')
+
+    expect(navigate).toHaveBeenCalledWith('/', { replace: true })
+  })
+
+  /**
+   * ⚠ 安全判据：站外地址必须被丢掉。
+   *
+   * 放行的话，`/login?next=https://evil.example.com` 就是一个挂在我们自己域名上的
+   * 开放重定向——用户看到的是从可信站点跳过去的，钓鱼页再仿个登录框即可。
+   */
+  it('来路指向站外时丢掉，回首页', async () => {
+    searchParams = new URLSearchParams('next=https%3A%2F%2Fevil.example.com%2F')
+    login.mockResolvedValue({})
+    await mount()
+    await submitWith('x')
+
+    expect(navigate).toHaveBeenCalledWith('/', { replace: true })
+  })
+
+  async function submitWith(password: string) {
+    const pass = q<HTMLInputElement>('input[autocomplete="current-password"]')
+    const user = q<HTMLInputElement>('input[autocomplete="username"]')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(user, 'admin')
+      user?.dispatchEvent(new Event('input', { bubbles: true }))
+      setter?.call(pass, password)
+      pass?.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      q<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await flush()
+  }
+
 })

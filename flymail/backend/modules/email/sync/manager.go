@@ -691,28 +691,68 @@ func (m *Manager) syncFolder(accountID uint, f *folder.Folder, sess Session) err
 		//     不去重就会连发多条内容相同的提醒。
 		// 单封未读时带上消息 ID 与发件人/主题，前端可精准跳转。
 		notifiable := f.Type == "inbox" || f.Type == "custom"
-		if m.emit != nil && notifiable && !nm.Baseline && nm.UnseenTotal > 0 && m.claimNotify(accountID, nm) {
-			if nm.UnseenTotal == 1 && len(nm.Unseen) > 0 {
-				msg := nm.Unseen[0]
-				from := msg.FromName
-				if from == "" {
-					from = msg.FromAddr
-				}
-				subject := msg.Subject
-				if subject == "" {
-					subject = "（无主题）"
-				}
-				// ⚠ 发件人与主题都由对方控制，且能带换行——通知的纯文本形态靠换行
-				// 区分字段，不折叠就能伪造出一行假的「打开邮件」链接。详见 notify.OneLine。
-				m.emit(string(notifyMailNew), accountID, msg.ID, "新邮件 · "+notify.OneLine(from),
-					notify.MailBody(subject, m.snippetOf(msg.ID)))
-			} else {
-				m.emit(string(notifyMailNew), accountID, 0,
-					"新邮件", fmt.Sprintf("收到 %d 封新邮件", nm.UnseenTotal))
-			}
+		if m.emit != nil && notifiable && nm.UnseenTotal > 0 && m.claimNotify(accountID, nm) {
+			m.emitNewMailNotices(accountID, f, nm)
 		}
 	}
 	return nil
+}
+
+// emitNewMailNotices 把一轮同步识别出的新未读邮件发成通知。
+//
+// ── 为什么默认逐封发 ─────────────────────────────────────────────────────────
+//
+// 原先只要一轮里来了不止一封，就合并成一条「收到 N 封新邮件」。那条通知既没有
+// message id、也没有发件人和主题：点开跳不到任何地方，推送到飞书上也只是一句
+// 没有信息量的话——想知道是谁来的信还得自己切回应用翻一遍。
+// 一次轮询通常就一两封，逐封发才是常态，合并反而是例外。
+//
+// ⚠ 但不能无上限地拆。离线一夜再上线可能一次收进几十封，逐封发会把通知中心和
+// 飞书群直接刷爆。明细本来也只取前 newMailUnseenCap 封（IncrementalSync 的
+// Unseen 就是按这个截断的），所以超过明细条数时退回合并，并在文案里给出总数。
+func (m *Manager) emitNewMailNotices(accountID uint, f *folder.Folder, nm *message.NewMail) {
+	if nm.Baseline {
+		m.emitBaselineNotice(accountID, f, nm)
+		return
+	}
+	// 标准情况：逐封发，每条都带 message id——点通知能直接落到那封邮件上
+	if nm.UnseenTotal <= len(nm.Unseen) {
+		for i := range nm.Unseen {
+			msg := &nm.Unseen[i]
+			from := msg.FromName
+			if from == "" {
+				from = msg.FromAddr
+			}
+			subject := msg.Subject
+			if subject == "" {
+				subject = "（无主题）"
+			}
+			// ⚠ 发件人与主题都由对方控制，且能带换行——通知的纯文本形态靠换行
+			// 区分字段，不折叠就能伪造出一行假的「打开邮件」链接。详见 notify.OneLine。
+			m.emit(string(notifyMailNew), accountID, msg.ID, "新邮件 · "+notify.OneLine(from),
+				notify.MailBody(subject, m.snippetOf(msg.ID)))
+		}
+		return
+	}
+	m.emit(string(notifyMailNew), accountID, 0,
+		fmt.Sprintf("收到 %d 封新邮件", nm.UnseenTotal),
+		"一次来得太多，没有逐封提醒。打开收件箱查看。")
+}
+
+// emitBaselineNotice 是账户首次同步（或 UIDVALIDITY 重建）时的那一条整合通知。
+//
+// ⚠ 只在收件箱发。基线会对**每个**文件夹各触发一次，Gmail 把标签映射成文件夹，
+// 一个账户十几个标签就是十几条「首次同步完成」。claimNotify 拦不住它们——
+// 各文件夹的未读明细不同，去重键天然不一样。
+//
+// 文案要说清这是「第一次同步把已有的邮件收下来了」，而不是「刚刚收到 N 封新邮件」：
+// 新账户接进来时收件箱里本来就堆着几百上千封未读，报成新邮件会让人以为出事了。
+func (m *Manager) emitBaselineNotice(accountID uint, f *folder.Folder, nm *message.NewMail) {
+	if f.Type != "inbox" {
+		return
+	}
+	m.emit(string(notifyMailNew), accountID, 0, "账户已完成首次同步",
+		fmt.Sprintf("收件箱里有 %d 封未读邮件。这些是账户接入前就有的，没有逐封提醒。", nm.UnseenTotal))
 }
 
 // claimNotify 申领一次新邮件提醒资格：同一封（组）邮件在 notifyDedupTTL 内只放行一次。

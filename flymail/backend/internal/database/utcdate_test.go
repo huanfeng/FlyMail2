@@ -83,14 +83,12 @@ func TestUpsertStoresUTCWithoutShiftingTheInstant(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	var raw string
-	if err := db.Model(&message.Message{}).Where("uid = 1").Pluck("date", &raw).Error; err != nil {
-		t.Fatalf("取原始文本失败：%v", err)
-	}
+	// ⚠ 必须绕开驱动读真实存储，见 rawDate 的说明。
+	raw := rawDate(t, db, 1)
 	// ⚠ 必须与 EnsureUTCDates 迁移出来的形态**完全一致**，否则新旧行混在一列里，
 	// 空格与 T（0x20 / 0x54）不同序，排序照样乱。
-	if raw != "2026-09-16T11:09:44Z" {
-		t.Errorf("落库形态不对：%q（想要 2026-09-16T11:09:44Z）", raw)
+	if raw != "2026-09-16 11:09:44+00:00" {
+		t.Errorf("落库形态不对：%q（想要 2026-09-16 11:09:44+00:00）", raw)
 	}
 
 	var back message.Message
@@ -177,4 +175,107 @@ func seedFolder(t *testing.T, db *gorm.DB, email string) uint {
 		t.Fatalf("建文件夹：%v", err)
 	}
 	return f.ID
+}
+
+// rawDate 读出 date 列的**真实存储文本**。
+//
+// ⚠ 不能用 Pluck / Scan 到 string——驱动在读取时会把带偏移的文本归一化成
+// `...T...Z`，两种截然不同的存储形态看起来完全一样。上一版的测试正是这么写的，
+// 所以库里混着两种表示、新邮件排到旧邮件后面，它却一直是绿的。
+// `|| ”` 让 SQLite 按字符串求值，绕过驱动的日期类型转换。
+func rawDate(t *testing.T, db *gorm.DB, uid int) string {
+	t.Helper()
+	var raw string
+	if err := db.Raw("SELECT date || '' FROM messages WHERE uid = ?", uid).Scan(&raw).Error; err != nil {
+		t.Fatalf("读真实存储失败：%v", err)
+	}
+	return raw
+}
+
+// ⚠⚠ 规范形态必须等于**驱动写 UTC 时间时产出的**文本。
+//
+// 这是排序错乱的根：EnsureUTCDates 只在**启动时**跑一次，之后每封新邮件都按驱动的
+// 形态落库。两者只要不一致，库里就会长期混着两种表示——按字节序排序时新邮件反而
+// 排在旧邮件后面（空格 0x20 < T 0x54），而按 date 的范围比较（分页游标、时间筛选）
+// 也会失准，因为绑定参数走的是驱动。
+//
+// ⚠ 测试必须复现这个**时序**：先迁移、再写新行。
+// 在同一次运行里「写一行、改成旧形态、跑迁移」是测不出来的——迁移会把驱动写的那行
+// 也一并规整掉，两行自然一致。真实场景里新邮件是在迁移之后才落库的，没人再规整它。
+func TestNewRowsKeepMigrationFormat(t *testing.T) {
+	db := freshDB(t)
+	folderID := seedFolder(t, db, "fmt@example.com")
+	at := time.Date(2026, 9, 16, 11, 9, 44, 0, time.UTC)
+	repo := message.NewRepository(db)
+
+	// ① 老库里的一行，形态五花八门
+	if err := repo.Upsert(&message.Message{
+		AccountID: 1, FolderID: folderID, UID: 101, Subject: "old", FromAddr: "a@x.com", Date: at,
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := db.Exec(`UPDATE messages SET date = '2026-09-16T19:09:44+08:00' WHERE uid = 101`).Error; err != nil {
+		t.Fatalf("改成旧形态失败：%v", err)
+	}
+
+	// ② 启动时跑一次迁移
+	if err := message.EnsureUTCDates(db); err != nil {
+		t.Fatalf("EnsureUTCDates: %v", err)
+	}
+	migrated := rawDate(t, db, 101)
+
+	// ③ 之后新到的邮件——这一封不会再被任何迁移碰到
+	if err := repo.Upsert(&message.Message{
+		AccountID: 1, FolderID: folderID, UID: 102, Subject: "new", FromAddr: "a@x.com", Date: at,
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	fresh := rawDate(t, db, 102)
+
+	if migrated != fresh {
+		t.Errorf("迁移后的老行与新到的邮件形态不一致：\n  迁移写的   %q\n  新邮件     %q\n"+
+			"两种表示混在同一列里，字节序排序会把新邮件排到旧邮件后面", migrated, fresh)
+	}
+}
+
+// 老库里混着两种表示时，迁移要能把排序收拾正确。
+//
+// 上面那条防的是「将来再次分裂」，这条管的是「已经分裂的库升级上来」——
+// 用户当前的库就是这个状态：18851 行 T...Z 加 6 行带偏移，最新的邮件排在了最后。
+func TestMigrationFixesMixedFormatOrdering(t *testing.T) {
+	db := freshDB(t)
+	folderID := seedFolder(t, db, "mix@example.com")
+	repo := message.NewRepository(db)
+
+	// 早到的一封，用 T...Z 表示
+	if err := repo.Upsert(&message.Message{
+		AccountID: 1, FolderID: folderID, UID: 1, Subject: "早到的",
+		FromAddr: "a@x.com", Date: time.Date(2026, 9, 17, 6, 20, 59, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := db.Exec(`UPDATE messages SET date = '2026-09-17T06:20:59Z' WHERE uid = 1`).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// 晚到的一封，走驱动的正常写入
+	if err := repo.Upsert(&message.Message{
+		AccountID: 1, FolderID: folderID, UID: 2, Subject: "晚到的",
+		FromAddr: "a@x.com", Date: time.Date(2026, 9, 17, 8, 51, 7, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// 此刻库里是混合状态，排序本来就是错的——那正是这个 bug 的样子，不必断言。
+	// 要钉的是「迁移能把它收拾干净」。
+	if err := message.EnsureUTCDates(db); err != nil {
+		t.Fatalf("EnsureUTCDates: %v", err)
+	}
+	var got []string
+	if err := db.Model(&message.Message{}).Where("folder_id = ?", folderID).
+		Order("date DESC").Pluck("subject", &got).Error; err != nil {
+		t.Fatalf("查询失败：%v", err)
+	}
+	if len(got) != 2 || got[0] != "晚到的" {
+		t.Fatalf("迁移之后排序仍然错：%v\n晚到的邮件排在后面，说明两种表示没被收敛成一种", got)
+	}
 }

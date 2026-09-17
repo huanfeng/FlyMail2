@@ -225,7 +225,18 @@ func RebuildFTS(db *gorm.DB) error {
 // QQ 通知后面；空格与 `T`（0x20 / 0x54）也不同序。只用一个服务商时看不出来，
 // 多账户一混就乱（实测库里 10321 行 +00:00、8568 行 +08:00）。
 //
-// 统一成 `2026-09-16T11:09:44Z` 这一种形态之后，字节序与时间序一致。
+// 统一成 `2026-09-16 11:09:44+00:00` 这一种形态之后，字节序与时间序一致。
+//
+// ⚠⚠ 规范形态必须**等于驱动写 UTC 时间时产出的文本**，不能自己另定一种。
+//
+// 2026-09-17 就栽在这里：上一版把规范形态定成了 `...T...Z`，而驱动写出来的是
+// `2026-09-17 08:51:07+00:00`。迁移只在启动时跑一次，之后每一封新邮件都按驱动的
+// 形态落库，于是库里混着两种表示，新邮件反而排到了旧邮件后面（空格 0x20 < T 0x54）。
+// 按 date 做范围比较的查询同样受影响——绑定参数走驱动、列值是迁移写的，两边对不上。
+//
+// ⚠ 验证时**不能用驱动读回来的值**当判据：驱动 Scan 时会把两种形态都归一化成
+// `...T...Z`，看起来完全一致。上一版的测试就是这么写的，所以它一直是绿的。
+// 要看真实存储得绕开驱动的类型转换，例如 `SELECT date || ”`。
 //
 // ⚠ 只改表示，不改时刻：strftime 认得串尾的偏移量并按它换算。秒以下精度被截掉，
 // 这不损失信息——IMAP 的 INTERNALDATE 与 Date 头本来就只到秒。
@@ -235,7 +246,7 @@ func RebuildFTS(db *gorm.DB) error {
 //
 // 写入侧的对应改动是 Repository.Upsert 里的 dbTime()。
 func EnsureUTCDates(db *gorm.DB) error {
-	const canonical = `strftime('%Y-%m-%dT%H:%M:%SZ', date)`
+	const canonical = `strftime('%Y-%m-%d %H:%M:%S+00:00', date)`
 	// strftime 解析失败会返回 NULL，加一条防止把日期抹成空
 	return db.Exec(`UPDATE messages SET date = ` + canonical + `
 	                WHERE date IS NOT NULL

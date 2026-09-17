@@ -187,10 +187,19 @@ func (s *Service) BatchMove(ids []uint, targetFolderID uint) error {
 }
 
 // BatchSetRead 批量标记已读/未读：本地立即改并刷新未读角标，STORE 入回写队列。
+//
+// ⚠ 要连同标签副本一起标。Gmail 的同一封邮件在 INBOX / 所有邮件 / 各标签下各有
+// 一行，只标被点的那份会让本地状态分裂——用户在收件箱读过之后，[Gmail]/重要 里
+// 那份仍是未读，而会话统计取的是收件箱那份（已读），于是「筛得出未读却标不掉」。
+// 详见 message/copies.go。
 func (s *Service) BatchSetRead(ids []uint, read bool) error {
 	op := wbOpUnread
 	if read {
 		op = wbOpRead
+	}
+	ids, err := s.messages.WithCopies(ids)
+	if err != nil {
+		return err
 	}
 	return s.batchSetFlag(ids, op, func(msgIDs []uint) error {
 		return s.messages.SetSeenByIDs(msgIDs, read)
@@ -243,6 +252,11 @@ func (s *Service) BatchSetFlagged(ids []uint, flagged bool) error {
 	op := wbOpUnstar
 	if flagged {
 		op = wbOpStar
+	}
+	// 星标同样是「按邮件」的属性，理由见 BatchSetRead
+	ids, err := s.messages.WithCopies(ids)
+	if err != nil {
+		return err
 	}
 	return s.batchSetFlag(ids, op, func(msgIDs []uint) error {
 		return s.messages.SetFlaggedByIDs(msgIDs, flagged)

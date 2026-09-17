@@ -13,41 +13,30 @@ import (
 )
 
 // SetRead 本地先标记已读/未读，然后持久化入队、异步回写 IMAP。
+// ⚠ 委托给 BatchSetRead，不要在这里自己写一遍。
+//
+// 原先这里是一份独立实现：只改被点的那一行、只给那一个文件夹入队。
+// 于是 Gmail 的标签副本改不到——用户在收件箱读完，[Gmail]/重要 里那份仍是未读
+// （详见 message/copies.go）。批量那条路径已经处理了副本扩展、逐文件夹的未读
+// 重算和分组入队，这里再维护一份只会继续分叉：这个 bug 就是两份实现改了一份
+// 造成的。
+//
+// 先 GetByID 是为了保住「邮件不存在返回 404」的语义——批量路径对不存在的 id
+// 是静默跳过的。
 func (s *Service) SetRead(messageID uint, read bool) error {
-	if err := s.messages.SetSeenLocal(messageID, read); err != nil {
+	if _, err := s.messages.GetByID(messageID); err != nil {
 		return err
 	}
-	m, err := s.messages.GetByID(messageID)
-	if err != nil {
-		return err
-	}
-	// 重算该文件夹未读数并持久化，使文件夹列表未读角标即时刷新（不必等下次同步）。
-	if unread, uerr := s.messages.UnreadCountByFolder(m.FolderID); uerr == nil {
-		_ = s.folders.SetUnreadCount(m.FolderID, int(unread))
-	}
-	op := wbOpUnread
-	if read {
-		op = wbOpRead
-	}
-	s.enqueueWriteback(m.AccountID, m.FolderID, m.UID, op)
-	return nil
+	return s.BatchSetRead([]uint{messageID}, read)
 }
 
 // SetFlagged 本地先标记星标/取消星标，然后持久化入队、异步回写 IMAP。
+// 同 SetRead：委托给批量路径，星标也是「按邮件」的属性，各标签副本要一起改。
 func (s *Service) SetFlagged(messageID uint, flagged bool) error {
-	if err := s.messages.SetFlaggedLocal(messageID, flagged); err != nil {
+	if _, err := s.messages.GetByID(messageID); err != nil {
 		return err
 	}
-	m, err := s.messages.GetByID(messageID)
-	if err != nil {
-		return err
-	}
-	op := wbOpUnstar
-	if flagged {
-		op = wbOpStar
-	}
-	s.enqueueWriteback(m.AccountID, m.FolderID, m.UID, op)
-	return nil
+	return s.BatchSetFlagged([]uint{messageID}, flagged)
 }
 
 // enqueueWriteback 构造单封邮件的回写操作并投递。

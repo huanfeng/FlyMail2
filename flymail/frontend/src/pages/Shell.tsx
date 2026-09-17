@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { createDeepLinkResolver } from '@/lib/deep-link'
 import { pickDefaultFolder } from '@/lib/default-folder'
+import { emptyKept, nextKept, withKept, type KeptRows } from '@/lib/kept-rows'
 import { rememberAccount, resolveContextAccount } from '@/lib/last-account'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
@@ -67,7 +68,15 @@ import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
 import { createAutoReadGate } from '@/lib/list-guards'
 import type { LayoutMode } from '@/lib/layout-mode'
 import api from '@/lib/api'
-import type { Account, Draft, Folder, MessageDetail, Notification, ThreadListItem } from '@/lib/types'
+import type {
+  Account,
+  Draft,
+  Folder,
+  MessageDetail,
+  MessageListItem,
+  Notification,
+  ThreadListItem,
+} from '@/lib/types'
 
 /**
  * 撤销窗口。删除/归档/移动的请求挂起这么久才真正发出。
@@ -232,18 +241,69 @@ export function ShellPage() {
   // 两个列表都用 useMemo 固定引用：flatMap 每渲染都产出新数组，
   // 直接进 useMemo/useEffect 的依赖数组等于「每渲染必重算」。
   const msgPages = msgSource.data?.pages
-  const messages = useMemo(() => {
+  const rawMessages = useMemo(() => {
     if (conversationView) return []
     const all = msgPages?.flatMap((p) => p.messages) ?? []
     return hiddenIds.size === 0 ? all : all.filter((m) => !hiddenIds.has(m.id))
   }, [conversationView, msgPages, hiddenIds])
   // null = 单封模式；MailList 据此决定渲染哪种行
   const threadPages = threadSource.data?.pages
-  const threads: ThreadListItem[] | null = useMemo(() => {
+  const rawThreads: ThreadListItem[] | null = useMemo(() => {
     if (!conversationView) return null
     const all = threadPages?.flatMap((p) => p.threads) ?? []
     return hiddenThreadIds.size === 0 ? all : all.filter((th) => !hiddenThreadIds.has(th.thread_id))
   }, [conversationView, threadPages, hiddenThreadIds])
+
+  /**
+   * 在一次浏览期间，把读过的行留在列表里（显示成已读），而不是读一封少一行。
+   *
+   * 开着「未读」筛选时每读一封它就被筛掉：正在读的那封从列表消失、上下按钮变灰，
+   * 而且**后面的行整体上移、下标全变**，「下一封」跳到的不是眼睛看到的下一行。
+   * 换筛选或换文件夹（viewKey 变化）时整批清掉。详见 lib/kept-rows.ts。
+   *
+   * ⚠ 在渲染期同步这个 state 而不是放进 effect：effect 要等一次提交之后才跑，
+   * 中间那一帧列表已经少了一行、下标已经错位，会看到明显的跳动。
+   * nextKept 在无变化时返回同一引用，据此跳过 setState，不会反复触发。
+   */
+  const viewKey = `${accountId}|${folderId}|${agg ?? ''}|${searching ? debouncedQuery : ''}` +
+    `|${filter.unread ? 'u' : ''}${filter.flagged ? 'f' : ''}${filter.attachment ? 'a' : ''}`
+
+  // 只有未读筛选下才需要「改成已读的样子」：星标/附件筛选下行消失的原因不是被读了，
+  // 跟着改 seen 就是瞎猜，会把真正未读的邮件显示成已读。
+  const msgReadLook = filter.unread
+    ? { isRead: (m: MessageListItem) => m.seen, asRead: (m: MessageListItem) => ({ ...m, seen: true }) }
+    : undefined
+  const threadReadLook = filter.unread
+    ? { isRead: (th: ThreadListItem) => th.unread === 0, asRead: (th: ThreadListItem) => ({ ...th, unread: 0 }) }
+    : undefined
+
+  const [keptMsgs, setKeptMsgs] = useState<KeptRows<MessageListItem>>(() => emptyKept())
+  const nextKeptMsgs = nextKept(keptMsgs, viewKey, rawMessages,
+    messageId == null ? null : String(messageId), (m) => String(m.id))
+  if (nextKeptMsgs !== keptMsgs) setKeptMsgs(nextKeptMsgs)
+
+  const [keptThreads, setKeptThreads] = useState<KeptRows<ThreadListItem>>(() => emptyKept())
+  const nextKeptThreads = nextKept(keptThreads, viewKey, rawThreads ?? [], threadId, (th) => th.thread_id)
+  if (nextKeptThreads !== keptThreads) setKeptThreads(nextKeptThreads)
+
+  // ⚠ 比较函数必须与后端的排序一致，含次级键：后端排的是 (date DESC, id DESC)
+  // 与 (date DESC, thread_id DESC)。只比 date 的话，同一秒到达的几封次序未定义，
+  // 插回去就会打乱，而「下一封」是按数组下标走的。
+  const messages = useMemo(
+    () => withKept(rawMessages, keptMsgs, (m) => String(m.id),
+      (a, b) => b.date.localeCompare(a.date) || b.id - a.id, msgReadLook),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawMessages, keptMsgs, filter.unread],
+  )
+  const threads: ThreadListItem[] | null = useMemo(
+    () => (rawThreads == null ? null
+      : withKept(rawThreads, keptThreads, (th) => th.thread_id,
+        (a, b) => b.date.localeCompare(a.date) || b.thread_id.localeCompare(a.thread_id),
+        threadReadLook)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawThreads, keptThreads, filter.unread],
+  )
+
   // 会话列表的裸数组：j/k 导航与「上一条/下一条」都要按它的顺序走，
   // 声明位置必须早于快捷键 hook。
   const threadList = threads ?? []

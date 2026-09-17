@@ -882,14 +882,20 @@ export function ShellPage() {
     // 列表与第三栏共处一屏，点列表就是要求第三栏显示那封邮件——
     // 视图归属应当跟随这个意图，而不是让用户先手动退出通知。
     setNotifOpen(false)
-    setParam((p) => p.set('message', String(id)))
+    // 已经在读某封时换一封是「同一个位置换内容」，替换而不是新开一条历史。
+    // 否则连读 20 封就往历史里塞 20 条，返回键要按 20 次才回得到列表，
+    // 浏览器的历史列表也被同一个页面刷屏（每条还各带一枚当时的未读角标图标）。
+    // 从「没选中」到「选中」仍然 push：返回键要能从阅读区回到列表，
+    // 移动端尤其依赖这一步（阅读区是盖住列表的整屏）。
+    setParam((p) => p.set('message', String(id)), messageId != null)
   }
 
   // 会话模式下第三栏由 thread_id 驱动；latest_id / account_id 从当前列表行取，
   // 因此这里只记 id，展开哪一封由 ThreadReader 依据列表行给出的 latestId 决定。
   function selectThread(id: string) {
     setNotifOpen(false)
-    setParam((p) => p.set('thread', id))
+    // 与 selectMessage 同理：换会话是替换，首次打开才 push
+    setParam((p) => p.set('thread', id), threadId != null)
   }
 
   /**

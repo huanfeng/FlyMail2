@@ -1152,6 +1152,35 @@ export function MailList({
     }
   }
 
+  // 当前停留在哪一行（虚拟化用的 rows 下标，含表头行）；不在列表里时返回 -1。
+  function activeRowIndex(): number {
+    return rows.findIndex(
+      (r) =>
+        r.type !== 'header' &&
+        (r.type === 'thread' ? r.item.thread_id === activeThreadId : r.msg.id === activeMessageId),
+    )
+  }
+
+  /**
+   * 选中行始终滚进视口。
+   *
+   * ⚠ 这一条**不看焦点在哪**。滚动是显示，焦点是交互，两者的判据不一样：
+   * 「当前读的是哪一封」在列表上必须看得见，不管用户此刻的焦点落在哪儿。
+   *
+   * 早前它和下面的焦点跟随合在一个 effect 里、共用 focusInListRef 这个判据，
+   * 于是只要焦点不在列表里就连滚都不滚了——而这恰恰是最常见的情形：
+   * 点开一封邮件焦点就进了阅读区，此后用 j / k（全局快捷键，刻意不动焦点）或
+   * 工具栏的上一封 / 下一封翻信，选中行一路往下走，列表却一动不动，
+   * 翻几封之后高亮就跑到视口外面去了，看不出自己读到哪儿。
+   *
+   * scrollToIndex 默认 align: 'auto'，行已经可见时不动，不会让列表无谓地跳。
+   */
+  useEffect(() => {
+    const rowIndex = activeRowIndex()
+    if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMessageId, activeThreadId])
+
   // 焦点跟随停留点。只在焦点本来就在列表里时才动，否则 j / k 会把焦点从
   // 搜索框或工具栏抢过来。
   useEffect(() => {
@@ -1168,15 +1197,8 @@ export function MailList({
     // **必须放行 body**：行被删除时 activeElement 正是回落到 body，那一路要补焦点。
     const active = document.activeElement
     if (active && active !== document.body && !rowsRef.current?.contains(active)) return
-    // 先把目标行滚进视口：j / k 和「删除后自动前进跨过多行」不经过 moveRoving，
-    // 目标行超出 overscan 时虚拟化根本没渲染它，查不到就无处落焦点。
-    const rowIndex = rows.findIndex(
-      (r) =>
-        r.type !== 'header' &&
-        (r.type === 'thread' ? r.item.thread_id === activeThreadId : r.msg.id === activeMessageId),
-    )
-    if (rowIndex >= 0) virtualizer.scrollToIndex(rowIndex)
-    // 等一帧让虚拟化把目标行渲染出来
+    // 等一帧让虚拟化把目标行渲染出来（上一个 effect 已经把它滚进视口；
+    // 超出 overscan 的行在滚过去之前根本没渲染，查不到就无处落焦点）
     const id = requestAnimationFrame(() => {
       const target = rowsRef.current?.querySelector<HTMLElement>('[data-roving="true"]')
       if (target && target !== document.activeElement) target.focus()

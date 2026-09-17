@@ -13,6 +13,32 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh' } }),
 }))
 
+// 记下 scrollToIndex 要求滚到的下标。
+//
+// jsdom 没有真实布局，验不了「滚到没滚到」（scrollTo 的参数恒为 0）。但本次要验的
+// 就是**有没有按正确的下标提出滚动请求**——真正的滚动交给浏览器，实机另有验证。
+// 只包一次：virtualizer 实例每渲染都是同一个，重复包会一层层套下去。
+const scrollIndexCalls: number[] = []
+const patchedVirtualizers = new WeakSet<object>()
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@tanstack/react-virtual')>()
+  return {
+    ...mod,
+    useVirtualizer: ((opts: never) => {
+      const v = mod.useVirtualizer(opts)
+      if (!patchedVirtualizers.has(v)) {
+        patchedVirtualizers.add(v)
+        const orig = v.scrollToIndex
+        v.scrollToIndex = ((index: number, o?: never) => {
+          scrollIndexCalls.push(index)
+          return orig(index, o)
+        }) as typeof v.scrollToIndex
+      }
+      return v
+    }) as typeof mod.useVirtualizer,
+  }
+})
+
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // jsdom 没实现 Element.scrollTo（切数据源时重置滚动会调它）
@@ -506,12 +532,35 @@ describe('删除当前邮件后焦点不掉出列表', () => {
     await act(async () => frame.focus())
     expect(document.activeElement).toBe(frame)
 
-    // 此后 active 变化不该把焦点连同滚动位置一起拽回列表
+    // 此后 active 变化不该把焦点拽回列表（滚动仍然要做，见下一条）
     await mount({ messages: three, activeMessageId: 2 })
     await act(async () => {
       await new Promise((r) => requestAnimationFrame(() => r(null)))
     })
 
+    expect(document.activeElement).toBe(frame)
+    frame.remove()
+  })
+
+  it('焦点在阅读区时，选中行仍然滚进视口', async () => {
+    // j / k 是全局快捷键、刻意不动焦点，而点开一封邮件后焦点就落在阅读区。
+    // 这两种最常见的情形下「当前读到哪一封」在列表上必须看得见，否则翻几封
+    // 高亮就跑到视口外面了。滚动是显示、焦点是交互，判据不能共用——早前两者
+    // 合在一个 effect 里共用 focusInListRef，焦点一离开列表就连滚都不滚了。
+    await mount({ messages: many, activeMessageId: 1 })
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    await act(async () => frame.focus())
+    scrollIndexCalls.length = 0
+
+    await mount({ messages: many, activeMessageId: 8 })
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+    })
+
+    // 8 封同一天的邮件 + 1 行日期分组标题，第 8 封在下标 8
+    expect(scrollIndexCalls).toContain(8)
+    // 滚了，但焦点仍留在阅读区
     expect(document.activeElement).toBe(frame)
     frame.remove()
   })

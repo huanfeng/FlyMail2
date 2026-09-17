@@ -23,7 +23,8 @@ type Message struct {
 	// in_reply_to 带索引：线程归属要反向查「谁回复了我」（回复比原信先入库的场景）。
 	InReplyTo  string `gorm:"index" json:"in_reply_to"`
 	References string `gorm:"column:references_hdr" json:"references"`
-	// thread_id 形如 "{account_id}:{根邮件 Message-ID}"，入库后由 AssignThreads 赋值，老库由 RebuildThreads 回填。
+	// thread_id 形如 "{account_id}:{根邮件 Message-ID 的摘要}"（摘要而非原文的理由见 threadKey），
+	// 入库后由 AssignThreads 赋值，老库由 RebuildThreads 回填、由 EnsureOpaqueThreadIDs 换成摘要形态。
 	ThreadID string `gorm:"index;index:idx_msg_folder_thread,priority:2;index:idx_msg_unread,priority:2,where:seen = 0;index:idx_msg_flagged,priority:2,where:flagged = 1" json:"thread_id"`
 
 	Subject  string `json:"subject"`

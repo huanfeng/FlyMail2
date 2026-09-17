@@ -56,6 +56,11 @@ func Migrate(db *gorm.DB) error {
 	if err := message.EnsureUTCDates(db); err != nil {
 		return err
 	}
+	// 老库升级：thread_id 里的 Message-ID 换成摘要——它会出现在 URL / 历史 / 访问日志里，
+	// 而 Message-ID 嵌着发件方域名（见 threadKey 的说明）。只改名，不动会话划分。
+	if err := message.EnsureOpaqueThreadIDs(db); err != nil {
+		return err
+	}
 	// 老库升级：清掉账户已删但数据还留着的孤儿行（级联删除是后加的）
 	if err := account.PurgeOrphans(db); err != nil {
 		return err

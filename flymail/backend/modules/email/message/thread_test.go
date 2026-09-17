@@ -1,6 +1,8 @@
 package message_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -62,6 +64,16 @@ func seedThreadFixture(t *testing.T, db *gorm.DB) {
 	}
 }
 
+// wantTID 是 threadKey 对某个 Message-ID 的期望产物：账户 id + SHA-256 前 20 位十六进制。
+//
+// ⚠ 这里把公式重算了一遍，所以它**挡不住**实现和它一起漂移——格式本身由
+// TestThreadKeyGolden（threadid_test.go）用写死的期望值钉住，这里只负责让
+// 归属逻辑的断言不依赖具体格式。
+func wantTID(acct int, messageID string) string {
+	sum := sha256.Sum256([]byte(messageID))
+	return fmt.Sprintf("%d:%s", acct, hex.EncodeToString(sum[:])[:20])
+}
+
 var t0 = time.Date(2026, 3, 1, 9, 0, 0, 0, time.Local)
 
 func at(h int) time.Time { return t0.Add(time.Duration(h) * time.Hour) }
@@ -74,17 +86,17 @@ func TestAssignThreadsForwardAndReverse(t *testing.T) {
 	a := put(t, repo, &message.Message{AccountID: 1, FolderID: 1, UID: 1, MessageID: "a@x", Subject: "hi", Date: at(0)})
 	b := put(t, repo, &message.Message{AccountID: 1, FolderID: 2, UID: 1, MessageID: "b@x", InReplyTo: "a@x", References: "a@x", Subject: "Re: hi", Date: at(1)})
 	c := put(t, repo, &message.Message{AccountID: 1, FolderID: 1, UID: 2, MessageID: "c@x", InReplyTo: "b@x", References: "a@x b@x", Subject: "Re: hi", Date: at(2)})
-	if a.ThreadID != "1:a@x" || b.ThreadID != a.ThreadID || c.ThreadID != a.ThreadID {
+	if a.ThreadID != wantTID(1, "a@x") || b.ThreadID != a.ThreadID || c.ThreadID != a.ThreadID {
 		t.Fatalf("forward chain: %q %q %q", a.ThreadID, b.ThreadID, c.ThreadID)
 	}
 
 	// 回复先到（Sent 先同步）：E 回复 D，D 后入库 → 反向认领 E 的线程
 	e := put(t, repo, &message.Message{AccountID: 1, FolderID: 2, UID: 2, MessageID: "e@x", InReplyTo: "d@x", Subject: "Re: later", Date: at(4)})
-	if e.ThreadID != "1:e@x" {
+	if e.ThreadID != wantTID(1, "e@x") {
 		t.Fatalf("orphan reply should open its own thread: %q", e.ThreadID)
 	}
 	d := put(t, repo, &message.Message{AccountID: 1, FolderID: 1, UID: 3, MessageID: "d@x", Subject: "later", Date: at(3)})
-	if d.ThreadID != "1:e@x" {
+	if d.ThreadID != wantTID(1, "e@x") {
 		t.Errorf("root should adopt reply's thread: %q", d.ThreadID)
 	}
 
@@ -105,7 +117,7 @@ func TestAssignThreadsForwardAndReverse(t *testing.T) {
 		t.Errorf("threads must be account-scoped: %q", a2.ThreadID)
 	}
 
-	// 在线归属之后整库重建：分组不变，且**沿用既有 id**（d 认领了 e 的线程 "1:e@x"，重建不改成 "1:d@x"）
+	// 在线归属之后整库重建：分组不变，且**沿用既有 id**（d 认领了 e 的线程，重建不改成 d 自己的 key）
 	before := map[string]string{}
 	for _, k := range [][2]uint{{1, 1}, {2, 1}, {1, 2}, {1, 3}, {2, 2}, {1, 4}, {1, 5}, {1, 6}, {4, 1}} {
 		before[fmt.Sprint(k)] = threadOf(t, repo, k[0], uint32(k[1]))
@@ -208,7 +220,7 @@ func TestRebuildThreadsLegacyAndSubjectFallback(t *testing.T) {
 		t.Fatalf("EnsureThreads: %v", err)
 	}
 	ta := threadOf(t, repo, 1, 1)
-	if ta != "1:a@x" {
+	if ta != wantTID(1, "a@x") {
 		t.Errorf("root thread id: %q", ta)
 	}
 	if threadOf(t, repo, 2, 1) != ta || threadOf(t, repo, 1, 2) != ta {

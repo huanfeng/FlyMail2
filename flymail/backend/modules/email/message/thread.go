@@ -1,6 +1,8 @@
 package message
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,11 +17,31 @@ import (
 
 // ── 线程 id ──────────────────────────────────────────────────────────────────
 
+// threadDigestHex 是摘要保留的十六进制位数（20 位 = 80 bit）。
+//
+// 碰撞的后果不是报错而是**两段无关对话被静默并成一个**，所以余量要给足：
+// 80 bit 下，即使一个账户有一百万个会话，碰撞概率也在 1e-13 量级。
+const threadDigestHex = 20
+
+// threadDigest 把 Message-ID 换成不可读的定长摘要。见 threadKey 的说明。
+func threadDigest(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:threadDigestHex]
+}
+
 // threadKey 给一封邮件一个「自己开线程」时用的 id：按账户隔离（两个账户收到同一条讨论不合并，
-// 否则会话级移动会撞上跨账户限制），主体用 Message-ID；没有 Message-ID 的用 (folder, uid) 兜底。
+// 否则会话级移动会撞上跨账户限制），主体用 Message-ID 的摘要；没有 Message-ID 的用
+// (folder, uid) 兜底。
+//
+// ⚠ 主体用摘要而不是 Message-ID 本身，是因为 thread_id 会原样出现在前端 URL 上
+// （?thread=…），于是也落进浏览器历史、截图，以及应用自己的访问日志——每打开一个
+// 会话就留下一条 `GET /api/v1/threads/messages?thread_id=1%3A…%40github.com`。
+// Message-ID 里嵌着发件方域名，这些地方长期累积就是一份「跟哪些服务通信」的清单。
+// thread_id 对全系统只是个不透明键（只做相等比较、分组、和排序次级键，没有任何地方
+// 解析它的内部结构），换成摘要不影响任何逻辑。老库由 EnsureOpaqueThreadIDs 就地改名。
 func threadKey(m *Message) string {
 	if m.MessageID != "" {
-		return fmt.Sprintf("%d:%s", m.AccountID, m.MessageID)
+		return fmt.Sprintf("%d:%s", m.AccountID, threadDigest(m.MessageID))
 	}
 	return fmt.Sprintf("%d:u%d-%d", m.AccountID, m.FolderID, m.UID)
 }

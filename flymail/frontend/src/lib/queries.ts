@@ -1248,6 +1248,42 @@ export function useChangePassword() {
   })
 }
 
+/**
+ * 账户排序。传的是**完整顺序**，不是「把第 N 个上移一位」。
+ *
+ * 相对操作要求前后端对当前顺序的认知完全一致，一旦不一致（另一个标签页刚加了
+ * 账户）就会错位且无从察觉；整份列表则是幂等的，后端写完必然是 1..n。
+ *
+ * 必须乐观更新：点一次箭头等一个来回，连着挪三格就要等三次，
+ * 而且每次列表都会在原地闪一下——排序这种连续操作，那种手感是不能接受的。
+ */
+export function useReorderAccounts() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: number[]): Promise<void> => {
+      await api.put('/accounts/order', { ids })
+    },
+    onMutate: async (ids) => {
+      // 先停掉在途重取，否则它带着旧顺序回来会盖掉我们刚写进去的新顺序
+      await qc.cancelQueries({ queryKey: ['accounts'] })
+      const prev = qc.getQueryData<Account[]>(['accounts'])
+      if (prev) {
+        const byID = new Map(prev.map((a) => [a.id, a]))
+        // 过滤掉 undefined：ids 理论上与 prev 同集合，但真要对不上，
+        // 这里宁可少显示一个也不能让列表里出现 undefined 把渲染整个打挂。
+        const next = ids.map((id) => byID.get(id)).filter((a): a is Account => a != null)
+        qc.setQueryData<Account[]>(['accounts'], next)
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData<Account[]>(['accounts'], ctx.prev)
+    },
+    // 成功与失败都重取：失败时回滚的那份也可能已经过时（409 正是因为它过时了）
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['accounts'] }) },
+  })
+}
+
 export function useSetAccountEnabled() {
   const qc = useQueryClient()
   return useMutation({

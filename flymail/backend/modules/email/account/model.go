@@ -42,6 +42,16 @@ type Account struct {
 	Status     string `gorm:"default:new"`
 	LastSyncAt *time.Time
 
+	// SortOrder 是账户在侧栏与设置页里的显示位次，由用户手动调整。
+	//
+	// 排序是**服务端的单一事实**：List 按它排好再返回，前端照数组顺序渲染，
+	// 不再自己排一遍。否则侧栏、设置页、写信的发件人选择器就会各有一份排序逻辑，
+	// 迟早漂移成三种顺序。
+	//
+	// 老库经 AutoMigrate 加列后全为 0，靠 List 里的 id 兜底排序保持原样，
+	// 直到用户第一次调整顺序（Reorder 会把全表重写成 0..n-1）。
+	SortOrder int `gorm:"not null;default:0" json:"-"`
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

@@ -22,6 +22,10 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	g.POST("/export", h.exportAccounts)
 	g.POST("/import", h.importAccounts)
 	g.POST("/:id/enabled", h.setEnabled)
+	// 静态段要与 "/:id" 并存。gin 支持这种同层兄弟，但顺序敏感的实现历来是
+	// 这类路由的翻车点，所以 handler_order_test.go 里钉了一条「PUT /accounts/order
+	// 不会被 /:id 吃掉」的用例。
+	g.PUT("/order", h.reorder)
 	registerIdentityRoutes(g, h)
 	registerOAuthRoutes(g, h)
 }
@@ -109,6 +113,30 @@ func (h *handler) delete(c *gin.Context) {
 		return
 	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// reorder 接收完整的账户 ID 顺序并落库。
+//
+// 用完整列表而不是「上移一位」：见 Repository.Reorder 的注释。
+func (h *handler) reorder(c *gin.Context) {
+	var body struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体"})
+		return
+	}
+	if err := h.svc.Reorder(body.IDs); err != nil {
+		if errors.Is(err, ErrOrderMismatch) {
+			// 409 而不是 400：请求本身没毛病，是客户端手里的账户列表过时了。
+			// 前端据此重取列表并提示用户重来，而不是把这当成一个 bug 报错。
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

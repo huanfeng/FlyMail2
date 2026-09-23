@@ -671,6 +671,15 @@ body.is-resizing * { cursor: col-resize !important; }
 }
 .sidebar-foot .me-name { font-size: 13px; color: var(--ink); }
 .sidebar-foot .me-mail { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
+/* 账户卡片上的上移/下移按钮：纵向叠放，占一列的宽度而不是两个按钮的宽度 */
+.ac-reorder { display: flex; flex-direction: column; gap: 1px; }
+.ac-reorder .icon-btn { width: 24px; height: 17px; border-radius: 4px; }
+/* 置灰而非隐藏：首尾行的按钮位仍在，按钮列不会在行与行之间错位 */
+.ac-reorder .icon-btn:disabled { opacity: 0.3; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .ac-reorder .icon-btn:disabled:hover { background: none; color: var(--ink-3); }
+}
+
 .icon-btn {
   width: 28px; height: 28px; border-radius: 6px;
   display: grid; place-items: center; color: var(--ink-3);

@@ -132,6 +132,9 @@ func (s *Service) SetEnabled(id uint, enabled bool) error {
 	return nil
 }
 
+// Reorder 按给定的 ID 顺序重排账户；ids 必须与当前账户集合完全一致。
+func (s *Service) Reorder(ids []uint) error { return s.repo.Reorder(ids) }
+
 func (s *Service) IsEnabled(id uint) (bool, error) {
 	return s.repo.IsEnabled(id)
 }

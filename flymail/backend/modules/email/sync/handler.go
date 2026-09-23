@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"flymail/internal/htmlsan"
+	"flymail/internal/lang"
+	"flymail/internal/mailtext"
 	"flymail/modules/email/message"
 )
 
@@ -349,6 +351,11 @@ func (h *handler) detail(c *gin.Context) {
 	// 服务端净化：脚本与危险标签一律剥掉；远程资源只在用户要求（?remote=1）或发件人受信任时保留。
 	// 前端 iframe 的 CSP / sandbox 是纵深防御，不再承担净化。
 	allowRemote := c.Query("remote") == "1" || h.svc.trustedSender(d.FromAddr)
+	// ⚠ 语言识别必须在净化**之前**取正文：净化会把远程图换成占位符、
+	// 删掉整块元素，虽然不影响文本节点，但这里取的是原始正文，口径与
+	// 翻译那侧（同样基于原始正文）一致——两处若用不同的输入，会出现
+	// "识别说已经是中文了，翻译却真的翻出一版新的"这种自相矛盾。
+	d.DetectLang = lang.Detect(mailtext.Extract(d.TextBody, d.HTMLBody).Text)
 	res := htmlsan.Sanitize(d.HTMLBody, allowRemote)
 	d.HTMLBody = res.HTML
 	d.RemoteCount = res.RemoteCount

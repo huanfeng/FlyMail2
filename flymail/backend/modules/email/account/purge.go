@@ -19,8 +19,9 @@ import "gorm.io/gorm"
 //
 // ── ⚠ 删除顺序有讲究 ────────────────────────────────────────────────────────
 //
-// attachments / message_bodies 是靠 message_id 挂在邮件上的，**必须在 messages
-// 之前删**：messages 先没了，那两张表的子查询就选不出任何行，它们当场变成孤儿。
+// attachments / message_bodies / message_translations 是靠 message_id 挂在邮件上的，
+// **必须在 messages 之前删**：messages 先没了，那几张表的子查询就选不出任何行，
+// 它们当场变成孤儿。
 //
 // 全文索引由触发器维护（messages_fts_ad 等），走 SQL 删除会正常触发，不用另管。
 
@@ -81,9 +82,18 @@ func PurgeOrphans(db *gorm.DB) error {
 	return purgeMessageChildren(db, "message_id NOT IN (SELECT id FROM messages)")
 }
 
+// messageOwnedTables 是按 message_id 归属某封邮件的表。
+//
+// ⚠ 新增带 message_id 的表时必须加到这里，否则删邮件/删账户又会留下孤儿行。
+// 守卫见 purge_test.go。
+var messageOwnedTables = []string{"attachments", "message_bodies", "message_translations"}
+
+// MessageOwnedTables 返回按 message_id 归属邮件的表名，供跨包的守卫测试与剪枝复用。
+func MessageOwnedTables() []string { return append([]string(nil), messageOwnedTables...) }
+
 // purgeMessageChildren 删掉按 message_id 挂在邮件上的子表行。
 func purgeMessageChildren(db *gorm.DB, where string, args ...any) error {
-	for _, t := range []string{"attachments", "message_bodies"} {
+	for _, t := range messageOwnedTables {
 		if !db.Migrator().HasTable(t) {
 			continue
 		}

@@ -1,6 +1,10 @@
 package setting
 
-import "time"
+import (
+	"time"
+
+	"flymail/internal/lang"
+)
 
 // Setting 以键值对存储系统配置。
 type Setting struct {
@@ -63,6 +67,28 @@ const (
 	KeyNotifyBodyRunes     = "notify_body_runes"
 	DefaultNotifyBodyRunes = "8000"
 
+	// KeyAIBaseURL / KeyAIAPIKey / KeyAIModel 是 AI 翻译所用的 OpenAI 兼容接口配置。
+	//
+	// 只存这三样，是因为 OpenAI 兼容接口本来就只要这三样就能调通——地址决定
+	// 连谁（云端服务、自建网关、本机 Ollama 都是同一种形状），模型决定用哪个，
+	// 密钥是可选的（本地模型通常不要）。多存一个参数，就多一处"换个服务商
+	// 就要重新试"的地方。
+	//
+	// 地址在 handler 里归一化后落库：用户填 https://api.openai.com 还是
+	// .../v1 还是完整的 .../v1/chat/completions 都认（见 ai.Endpoint）。
+	KeyAIBaseURL = "ai_base_url"
+	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
+	KeyAIAPIKey = "ai_api_key"
+	KeyAIModel  = "ai_model"
+
+	// KeyTranslateTargetLang 是翻译的默认目标语言，取值见 lang.Supported。
+	//
+	// 默认简体中文而不是"跟随界面语言"：界面语言是用户看得懂的语言之一，
+	// 但未必是他想把邮件翻成的那门——把界面切成英文练听力的中文用户，
+	// 并不想让账单邮件也翻成英文。
+	KeyTranslateTargetLang     = "translate_target_lang"
+	DefaultTranslateTargetLang = lang.DefaultTarget
+
 	KeyOAuthGoogleClientID = "oauth_google_client_id"
 	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
 	KeyOAuthGoogleClientSecret = "oauth_google_client_secret"
@@ -73,7 +99,7 @@ const (
 // 读取一侧（All）把它们整个摘掉，换成 <key>_set 的布尔标记；写入一侧（SetMany）
 // 收到明文时先加密。名单集中在这里，是为了让「新增一个密文设置」只需要动一行——
 // 而不是指望下一个人记得在读和写两处各补一段。
-var secretKeys = []string{KeyOAuthGoogleClientSecret}
+var secretKeys = []string{KeyOAuthGoogleClientSecret, KeyAIAPIKey}
 
 // SecretSetSuffix 是密文设置在对外响应里的标记后缀：<key>_set = "true"/"false"。
 const SecretSetSuffix = "_set"

@@ -51,6 +51,67 @@ export interface AppSettings {
    * 因此界面上无法回显它，只能显示「已保存」并允许覆盖或清除。
    */
   oauth_google_client_secret_set: boolean
+  /**
+   * AI 翻译所用的 OpenAI 兼容接口地址。
+   *
+   * 后端在保存时就归一成了可直接请求的完整地址（.../chat/completions），
+   * 所以这里显示出来的未必是用户当初填的那串——那是刻意的：让用户看见
+   * 系统实际会请求哪个地址，比让他猜"我填的根地址会被拼成什么"有用。
+   *
+   * 留空 = 未配置，翻译入口置灰。
+   */
+  ai_base_url: string
+  /** 模型名，例如 gpt-4o-mini / deepseek-chat / qwen2.5:7b */
+  ai_model: string
+  /**
+   * API 密钥是否已保存。
+   *
+   * ⚠ 同 oauth_google_client_secret_set：密文永不出网，界面只能覆盖或清除。
+   */
+  ai_api_key_set: boolean
+  /** 默认翻译目标语言，取值见 GET /translate/languages */
+  translate_target_lang: string
+}
+
+/** 可选的翻译目标语言（由后端给出，避免前后端各维护一份清单） */
+export interface TranslateLanguage {
+  code: string
+  /** 给模型看的英文名 */
+  name: string
+  /** 给人看的自称名，下拉框直接显示它——「日本語」比任何译名都好认 */
+  native: string
+}
+
+/** GET /translate/languages */
+export interface TranslateLanguages {
+  languages: TranslateLanguage[]
+  default_target: string
+  /** AI 接口是否已配置到可用程度 */
+  enabled: boolean
+}
+
+/** 一封邮件在某目标语言下的译文 */
+export interface Translation {
+  message_id: number
+  target_lang: string
+  /** 翻译时识别出的源语言；识别不出为空串 */
+  source_lang: string
+  subject: string
+  /**
+   * 译文正文。与原文同构：原文是 HTML 就只有 html_body，纯文本就只有 text_body。
+   * 渲染时按同一条规则选分支，否则会出现"有译文却显示原文"。
+   */
+  text_body: string
+  html_body: string
+  /** 正文过长，只翻译了前面一部分 */
+  partial: boolean
+  /** 产出这份译文的模型名 */
+  model: string
+  /** 这次没有调用 AI（命中缓存） */
+  cached: boolean
+  remote_count: number
+  remote_allowed: boolean
+  created_at: string
 }
 
 /** 管理员资料 */
@@ -470,6 +531,13 @@ export interface MessageDetail extends MessageListItem {
    * 由服务端的返回内容决定，前端不需要、也不应该再去猜。
    */
   remote_allowed: boolean
+  /**
+   * 正文语言的识别结果（服务端本地识别，识别不出为空串）。
+   *
+   * 用来判断"这封信还要不要翻译"。识别在服务端做而不是前端各认一遍：
+   * 同一封信必须得到同一个答案，否则按钮的样子会和实际行为对不上。
+   */
+  detect_lang?: string
   /**
    * 只能取这一封邮件附件、一小时过期的令牌。
    *

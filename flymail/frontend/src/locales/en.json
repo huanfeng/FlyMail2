@@ -259,7 +259,18 @@
     "largeAttachBody": "Large attachments are saved only after the download completes, with no progress shown in between.",
     "attachShowAll": "Show all {{n}} attachments",
     "attachShowLess": "Show fewer attachments",
-    "linkExpired": "This message is no longer available — it may have been moved or deleted"
+    "linkExpired": "This message is no longer available — it may have been moved or deleted",
+    "translate": "Translate",
+    "showOriginal": "Show original",
+    "translating": "Translating…",
+    "translatedBy": "Translated by AI ({{model}})",
+    "translatedFrom": "Translated from {{lang}} ({{model}})",
+    "translatePartial": "This message is long — only the first part was translated, the rest is left as-is.",
+    "translateFailed": "Translation failed",
+    "translateRetry": "Retry",
+    "translateRedo": "Translate again",
+    "translateNotConfigured": "No AI endpoint configured yet — set one up in Settings → AI translation",
+    "translateSameLang": "This message is already in {{lang}}"
   },
   "account": {
     "add": "Add Account",
@@ -949,7 +960,29 @@
       "saved": "Saved",
       "errSave": "Could not save, please try again"
     },
-    "navOAuth": "Sign-in"
+    "navOAuth": "Sign-in",
+    "navAI": "AI translation",
+    "ai": {
+      "title": "AI translation",
+      "intro": "Point FlyMail at any OpenAI-compatible endpoint to translate messages while you read. Translations are stored, so the same message in the same language is only paid for once.",
+      "statusReady": "Configured, current model: {{model}}",
+      "statusEmpty": "Not configured yet — the translate button in the message toolbar stays disabled.",
+      "baseUrl": "Endpoint",
+      "baseUrlHelp": "The provider's base URL is enough; it is expanded to the full chat/completions address on save. OpenAI, DeepSeek, Zhipu, SiliconFlow, OpenRouter and a local Ollama / LM Studio all use this same shape.",
+      "presets": "Common:",
+      "model": "Model",
+      "modelHelp": "The model name from your provider's docs, e.g. gpt-4o-mini, deepseek-chat, qwen2.5:7b.",
+      "apiKey": "API key",
+      "apiKeyHelp": "Stored encrypted and never shown again. Locally hosted models usually need no key — leave it empty.",
+      "keySaved": "Saved (leave empty to keep)",
+      "keyEmpty": "Not set",
+      "clearKey": "Clear key",
+      "targetLang": "Translate into",
+      "targetLangHelp": "The language the translate button uses by default.",
+      "save": "Save",
+      "saved": "Saved",
+      "errSave": "Could not save, please try again"
+    }
   },
   "dateGroup": {
     "today": "Today",

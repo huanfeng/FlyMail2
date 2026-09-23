@@ -26,6 +26,7 @@ import (
 	"flymail/modules/email/rule"
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
+	"flymail/modules/email/translate"
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/privacy"
@@ -308,6 +309,26 @@ func New(cfg *config.Config) (*App, error) {
 	syncSvc.SetAttachmentTokenIssuer(authSvc.IssueAttachmentToken)
 	loginLimiter := auth.NewLimiter(db)
 
+	// AI 翻译：配置每次现取（设置页改完即刻生效，与 OAuth 凭据同一套做法）。
+	//
+	// 远程图策略跟详情接口共用同一个信任名单判断——否则会出现原文里图片
+	// 正常显示、一按翻译全变占位符这种"翻译顺便改了别的"的观感。
+	translateSvc := translate.NewService(
+		translate.NewRepository(db),
+		syncSvc.MessageDetail,
+		messageSvc.GetByID,
+		func() translate.Settings {
+			return translate.Settings{
+				BaseURL: settingSvc.GetString(setting.KeyAIBaseURL, ""),
+				APIKey:  settingSvc.GetSecret(setting.KeyAIAPIKey),
+				Model:   settingSvc.GetString(setting.KeyAIModel, ""),
+				DefaultTarget: settingSvc.GetString(
+					setting.KeyTranslateTargetLang, setting.DefaultTranslateTargetLang),
+			}
+		},
+	)
+	translateSvc.SetTrustedSenderCheck(privacySvc.IsTrusted)
+
 	// 系统监控（只读聚合）
 	monitoringSvc := monitoring.NewService(accountSvc, folderSvc, syncSvc, manager, time.Now(), appVersion, cfg.DBPath())
 	// SSE 连接票据：受保护端点签发，EventSource 用 ?ticket= 连接，握手时核销。
@@ -327,6 +348,7 @@ func New(cfg *config.Config) (*App, error) {
 		Monitoring:       monitoringSvc,
 		Rule:             ruleSvc,
 		Privacy:          privacySvc,
+		Translate:        translateSvc,
 		LoginLimiter:     loginLimiter,
 		TrustedProxies:   cfg.Server.TrustedProxies,
 		Events:           eventsHandler,

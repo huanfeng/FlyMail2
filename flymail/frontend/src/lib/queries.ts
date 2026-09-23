@@ -68,6 +68,8 @@ import type {
   PortableBundle,
   ImportMode,
   ImportResult,
+  Translation,
+  TranslateLanguages,
 } from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
@@ -1237,6 +1239,10 @@ export function useSettings() {
         app_base_url: data.settings?.app_base_url ?? '',
         oauth_google_client_id: data.settings?.oauth_google_client_id ?? '',
         oauth_google_client_secret_set: data.settings?.oauth_google_client_secret_set === 'true',
+        ai_base_url: data.settings?.ai_base_url ?? '',
+        ai_model: data.settings?.ai_model ?? '',
+        ai_api_key_set: data.settings?.ai_api_key_set === 'true',
+        translate_target_lang: data.settings?.translate_target_lang ?? 'zh',
       }
     },
   })
@@ -1256,6 +1262,97 @@ export function useUpdateSettings() {
       await api.put('/settings', { settings })
     },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+}
+
+// ── AI 翻译 ────────────────────────────────────────────────────────────────
+
+/**
+ * 可选目标语言清单。
+ *
+ * 清单由后端给：语言代码要同时用于提示词和校验，前端再维护一份迟早会漂移，
+ * 到时候表现为"下拉框里选得到、点了翻译却报不支持"。
+ */
+export function useTranslateLanguages() {
+  return useQuery({
+    queryKey: ['translate-languages'],
+    // 清单只随版本变，一次会话里不必反复问
+    staleTime: Infinity,
+    queryFn: async (): Promise<TranslateLanguages> => {
+      const { data } = await api.get<TranslateLanguages>('/translate/languages')
+      return data
+    },
+  })
+}
+
+/**
+ * 查一封邮件的译文缓存。**不会**触发任何 AI 调用。
+ *
+ * 打开邮件时就问一句，界面据此把按钮显示成「翻译」还是「显示译文」——
+ * 后者点下去是纯本地切换，不再等一次网络往返。
+ *
+ * ⚠ remote 必须进 key，理由同 useMessageDetail：拦住远程图的译文与放行的译文
+ * 是两份不同的正文，共用一个缓存条目会把一次性的选择变成永久的。
+ */
+export function useMessageTranslation(
+  messageId: number | null,
+  lang: string,
+  opts?: { remote?: boolean; enabled?: boolean },
+) {
+  // 与 useMessageDetail 读同一个开关：用户打开了「默认显示远程图片」时，
+  // 原文按 remote=1 取，译文也必须——否则同一封信的两个视图会给出不同的图。
+  const defaultRemote = useSyncExternalStore(
+    subscribePrivacyPrefs,
+    getRemoteImageDefault,
+    getRemoteImageDefault,
+  )
+  const remote = opts?.remote ?? defaultRemote
+  return useQuery({
+    queryKey: ['translation', messageId, lang, remote],
+    enabled: messageId != null && lang !== '' && (opts?.enabled ?? true),
+    queryFn: async (): Promise<Translation | null> => {
+      const { data, status } = await api.get<Translation | ''>(
+        `/messages/${messageId}/translation`,
+        { params: { lang, ...(remote ? { remote: 1 } : {}) } },
+      )
+      // 204 = 这封信存在，只是还没翻过。空对象和"没有译文"要分得开，
+      // 否则界面会把未翻译当成翻译结果为空。
+      if (status === 204 || data === '' || data == null) return null
+      return data as Translation
+    },
+  })
+}
+
+/** 翻译一封邮件。后端缓存优先，force 才真的重新花钱。 */
+export function useTranslateMessage() {
+  const qc = useQueryClient()
+  // ⚠ 必须与 useMessageTranslation 用同一个默认值：两边算出不同的 remote，
+  // 写进去的缓存键就对不上查询用的键，刚翻完的结果会"存了等于没存"。
+  const defaultRemote = useSyncExternalStore(
+    subscribePrivacyPrefs,
+    getRemoteImageDefault,
+    getRemoteImageDefault,
+  )
+  return useMutation({
+    mutationFn: async (v: {
+      id: number
+      lang: string
+      remote?: boolean
+      force?: boolean
+    }): Promise<Translation> => {
+      const remote = v.remote ?? defaultRemote
+      const { data } = await api.post<Translation>(
+        `/messages/${v.id}/translate`,
+        { lang: v.lang, force: v.force ?? false },
+        { params: remote ? { remote: 1 } : undefined },
+      )
+      return data
+    },
+    // 结果直接写进查询缓存：刚翻完就再 GET 一次纯属多余的往返，
+    // 而且那一趟回来的内容与手里这份完全一样。
+    onSuccess: (data, v) => {
+      qc.setQueryData(['translation', v.id, v.lang, v.remote ?? defaultRemote], data)
+    },
   })
 }
 

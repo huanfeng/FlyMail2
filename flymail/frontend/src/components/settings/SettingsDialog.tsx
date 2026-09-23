@@ -16,6 +16,7 @@ import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSecti
 import { BrowserNotifySection } from '@/components/settings/BrowserNotifySection'
 import { BaseUrlSection } from '@/components/settings/BaseUrlSection'
 import { OAuthSection } from '@/components/settings/OAuthSection'
+import { AISection } from '@/components/settings/AISection'
 import { MonitoringSection } from '@/components/settings/MonitoringSection'
 import { RulesSection } from '@/components/settings/RulesSection'
 import { BlocklistSection } from '@/components/settings/BlocklistSection'
@@ -65,7 +66,7 @@ const BODY_DAYS_MIN = 1
 const BODY_DAYS_MAX = 3650
 
 /** 设置分区 ID */
-type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'oauth' | 'mail' | 'signature' | 'aliases' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
+type SettingSection = 'profile' | 'appearance' | 'general' | 'accounts' | 'oauth' | 'ai' | 'mail' | 'signature' | 'aliases' | 'rules' | 'blocklist' | 'privacy' | 'notify' | 'monitoring' | 'security' | 'shortcuts' | 'about'
 
 // ── Props ─────────────────────────────────────────────────
 interface SettingsDialogProps {
@@ -1299,6 +1300,7 @@ export function SettingsDialog({
     { id: 'general',    labelKey: 'settings.navGeneral',          icon: 'settings' },
     { id: 'accounts',   labelKey: 'settings.navAccounts',         icon: 'inbox' },
     { id: 'oauth',      labelKey: 'settings.navOAuth',            icon: 'shield' },
+    { id: 'ai',         labelKey: 'settings.navAI',               icon: 'languages' },
     { id: 'mail',       labelKey: 'settings.navMail',             icon: 'send' },
     { id: 'signature',  labelKey: 'settings.navSignature',        icon: 'draft' },
     { id: 'aliases',    labelKey: 'settings.navAliases',          icon: 'mail' },
@@ -1399,6 +1401,7 @@ export function SettingsDialog({
                 这里是「这台部署允许用哪些方式登录邮箱」——后者是一次性的部署配置，
                 而且带着大段的外部操作说明，混在账户列表下面既挤又找不着。 */}
             {section === 'oauth' && <OAuthSection />}
+            {section === 'ai' && <AISection />}
             {section === 'mail' && (
               <MailSection
                 conversationView={conversationView}

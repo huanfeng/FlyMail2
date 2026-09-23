@@ -1168,6 +1168,15 @@ mark.hl {
 @media (hover: hover) and (pointer: fine) {
   .tb-btn.tb-icon:disabled:hover { background: transparent; color: var(--ink-2); }
 }
+/* 按下态（目前只有翻译按钮用）：它是个开关，用户需要一眼看出"现在看的是译文"。
+   配色沿用 accent-soft / accent-ink 这一组——它在全部色调 × 明暗主题下都
+   验证过对比度，不能改用 accent-wash（那是列表选中行的底色，太浅）。
+   放在 :hover 规则之后：hover 只是临时反馈，不该把按下态盖掉。 */
+.tb-btn.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+@media (hover: hover) and (pointer: fine) {
+  .tb-btn.is-active:hover { background: var(--accent-soft); color: var(--accent-ink); }
+}
+
 .tb-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; flex: 0 0 auto; }
 
 /* scrollbar-gutter: stable —— iframe 高度在图片加载后回弹，滚动条随之出现，
@@ -1279,6 +1288,23 @@ mark.hl {
 .remote-img-bar > .remote-img-note { flex: 1 1 15rem; min-width: 0; }
 /* 按钮不参与收缩：被压扁的按钮点不准，也读不出标签 */
 .remote-img-bar > .pill-btn { flex: 0 0 auto; }
+
+/* ── 译文状态条 ──────────────────────────────────────────────────────────
+   与远程图拦截条同一套视觉：都是"关于下面这份正文的一句说明 + 一两个动作"，
+   长得不一样只会让人以为它们是两种不同性质的东西。
+   .is-error 只换文字色，不换底色——底色一变，一条可重试的提示就会被当成
+   整封邮件出了问题。 */
+.translated-bar {
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 12px;
+  border-radius: 8px; background: var(--accent-wash);
+  border: 1px solid var(--rule);
+  font-size: 12.5px; color: var(--ink-2);
+}
+.translated-bar > .tr-note { flex: 1 1 15rem; min-width: 0; }
+.translated-bar > .pill-btn { flex: 0 0 auto; }
+.translated-bar.is-error > .tr-note { color: var(--destructive); }
 
 /* ── 引用折叠开关 ────────────────────────────────────────────────────────
    做成一颗低调的小胶囊而不是普通链接：它出现在正文与附件之间，

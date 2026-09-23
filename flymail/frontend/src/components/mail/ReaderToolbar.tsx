@@ -1,4 +1,4 @@
-// 阅读区工具栏：上一封/下一封 · 回复 转发 · 归档 删除 · 更多。
+// 阅读区工具栏：上一封/下一封 · 回复 转发 · 翻译 · 归档 删除 · 更多。
 //
 // 单封视图与会话视图的按钮布局完全一致，只是每颗按钮打到哪里不同——
 // 单封打在当前邮件上，会话打在整条会话（回复/转发例外，见 ThreadReader）。
@@ -20,6 +20,22 @@ export interface ReaderToolbarProps {
   onNext?: (() => void) | null
   onReply?: () => void
   onForward?: () => void
+  /**
+   * 翻译 / 显示原文。undefined = 整颗按钮不出现（后端没有这个能力）。
+   *
+   * 它是一个**开关**，不是一次性动作：点开显示译文，再点回到原文。
+   * 翻译中的转圈、失败的提示都在正文区表达——工具栏上只保留"现在在看哪一版"。
+   */
+  onTranslate?: () => void
+  /** 当前正显示译文 */
+  translateActive?: boolean
+  /** 正在翻译（按钮置灰并显示进行中的文案） */
+  translateBusy?: boolean
+  /** 不可用（AI 未配置 / 这封信没有可翻译的文字），按钮置灰但仍可见——
+      隐藏起来的话用户只会以为功能坏了，置灰配上 title 才说得清为什么 */
+  translateDisabled?: boolean
+  /** 按钮的悬浮说明，用来解释置灰的原因或已识别的源语言 */
+  translateTitle?: string
   /** 归档：null 表示该账户没有归档文件夹或已在归档里，按钮不出现 */
   onArchive?: (() => void) | null
   archiveBusy?: boolean
@@ -35,6 +51,11 @@ export function ReaderToolbar({
   onNext,
   onReply,
   onForward,
+  onTranslate,
+  translateActive,
+  translateBusy,
+  translateDisabled,
+  translateTitle,
   onArchive,
   archiveBusy,
   onDelete,
@@ -102,6 +123,32 @@ export function ReaderToolbar({
       )}
 
       <div className="tb-sep" />
+
+      {/* 翻译：自成一组放在回复/转发之后。
+          不塞进「更多」菜单，是因为它在外文邮件上是**每封都要点**的动作，
+          藏进二级菜单等于每封信多点一次。 */}
+      {onTranslate && (
+        <>
+          <button
+            type="button"
+            className={'tb-btn' + (translateActive ? ' is-active' : '')}
+            onClick={onTranslate}
+            disabled={translateDisabled || translateBusy}
+            title={translateTitle}
+            aria-pressed={translateActive}
+          >
+            <Icon name="languages" size={14} />
+            <span>
+              {translateBusy
+                ? t('reader.translating')
+                : translateActive
+                  ? t('reader.showOriginal')
+                  : t('reader.translate')}
+            </span>
+          </button>
+          <div className="tb-sep" />
+        </>
+      )}
 
       {/* 一键归档（仅当账户有归档文件夹、且当前不在归档里时出现）*/}
       {onArchive && (

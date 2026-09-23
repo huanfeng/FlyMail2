@@ -259,7 +259,18 @@
     "largeAttachBody": "大附件需要完整下载完才会保存，期间没有进度显示。",
     "attachShowAll": "显示全部 {{n}} 个附件",
     "attachShowLess": "收起附件",
-    "linkExpired": "这封邮件已经不在了，可能被移走或删除了"
+    "linkExpired": "这封邮件已经不在了，可能被移走或删除了",
+    "translate": "翻译",
+    "showOriginal": "显示原文",
+    "translating": "正在翻译…",
+    "translatedBy": "由 AI 翻译（{{model}}）",
+    "translatedFrom": "从{{lang}}翻译（{{model}}）",
+    "translatePartial": "正文较长，只翻译了前面一部分，其余保持原文。",
+    "translateFailed": "翻译失败",
+    "translateRetry": "重试",
+    "translateRedo": "重新翻译",
+    "translateNotConfigured": "尚未配置 AI 接口，请先到设置 → AI 翻译里填写",
+    "translateSameLang": "这封邮件已经是{{lang}}"
   },
   "account": {
     "add": "添加账户",
@@ -949,7 +960,29 @@
       "saved": "已保存",
       "errSave": "保存失败，请稍后重试"
     },
-    "navOAuth": "授权登录"
+    "navOAuth": "授权登录",
+    "navAI": "AI 翻译",
+    "ai": {
+      "title": "AI 翻译",
+      "intro": "配置一个 OpenAI 兼容的接口，阅读邮件时就能一键翻译。译文会保存下来，同一封信的同一种语言只会消耗一次用量。",
+      "statusReady": "已配置，当前模型：{{model}}",
+      "statusEmpty": "尚未配置，邮件工具栏上的翻译按钮不可用。",
+      "baseUrl": "接口地址",
+      "baseUrlHelp": "填服务商给的接口根地址即可，保存时会自动补全成完整的 chat/completions 地址。OpenAI、DeepSeek、智谱、硅基流动、OpenRouter，以及本机的 Ollama / LM Studio 都用这一种形状。",
+      "presets": "常用：",
+      "model": "模型",
+      "modelHelp": "服务商文档里的模型名，例如 gpt-4o-mini、deepseek-chat、qwen2.5:7b。",
+      "apiKey": "API 密钥",
+      "apiKeyHelp": "加密保存，保存后不再回显。本机运行的模型通常不需要密钥，可以留空。",
+      "keySaved": "已保存（留空则不改动）",
+      "keyEmpty": "未配置",
+      "clearKey": "清除密钥",
+      "targetLang": "默认翻译成",
+      "targetLangHelp": "点翻译按钮时默认翻成这门语言。",
+      "save": "保存",
+      "saved": "已保存",
+      "errSave": "保存失败，请稍后重试"
+    }
   },
   "dateGroup": {
     "today": "今天",

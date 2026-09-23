@@ -41,6 +41,7 @@ export type IconName =
   | 'shield'
   | 'eye'
   | 'eye-off'
+  | 'languages'
 
 interface IconProps {
   name: IconName
@@ -269,6 +270,20 @@ export function Icon({ name, size = 16, stroke = 1.6, className }: IconProps) {
           <path d="M9.9 11.6c-.6.16-1.25.24-1.9.24-4 0-6.5-3.84-6.5-3.84A12.4 12.4 0 0 1 4 5.3"/>
           <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/>
           <path d="M2 2l12 12"/>
+        </svg>
+      )
+
+    case 'languages':
+      return (
+        <svg {...p}>
+          {/* 左上「文」的横撇捺 + 右下一个 A：翻译类图标的通行画法。
+              16px 下笔画必须拉开，把 24 格的原图等比缩下来会糊成一块。 */}
+          <path d="M1.5 3.5h7" />
+          <path d="M5 2v1.5" />
+          <path d="M7 3.5c0 2.6-1.9 4.9-4.5 5.8" />
+          <path d="M4 6.6c.8 1.5 2 2.6 3.5 3.2" />
+          <path d="M9 14l3-7 3 7" />
+          <path d="M10.1 11.6h3.8" />
         </svg>
       )
 

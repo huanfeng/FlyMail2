@@ -11,6 +11,7 @@ import {
   useDelayedFlag,
 } from '@/lib/mail-format'
 import { useMessageDetail, useMarkRead, useToggleFlag, useFolders, useAccounts } from '@/lib/queries'
+import { useMessageTranslator } from '@/hooks/useMessageTranslator'
 import type { MessageDetail } from '@/lib/types'
 
 // ── 主组件 Props ─────────────────────────────────────────
@@ -62,6 +63,7 @@ export function Reader({
   const { data: accountFolders = [] } = useFolders(detail?.account_id ?? null)
   // 账户列表：用于识别收件人中的「我」（已在别处请求过，这里命中缓存）
   const { data: accounts = [] } = useAccounts()
+  const translate = useMessageTranslator(messageId)
 
   // ── 加载态：宁可短暂留住上一封，也不要闪一帧骨架 ──────────
   // keepPreviousData 让切换瞬间仍有内容可渲染，但那是上一封邮件（id 对不上）。
@@ -150,6 +152,11 @@ export function Reader({
         onNext={onNext}
         onReply={onReply ? () => onReply(detail) : undefined}
         onForward={onForward ? () => onForward(detail) : undefined}
+        onTranslate={translate.toggle}
+        translateActive={translate.showing}
+        translateBusy={translate.busy}
+        translateDisabled={!translate.available}
+        translateTitle={translate.hint(detail.detect_lang)}
         onArchive={onArchive}
         onDelete={onDelete}
         moreItems={moreItems}
@@ -234,7 +241,16 @@ export function Reader({
             </div>
 
             {/* 消息正文（远程图拦截 / iframe / 引用折叠 / 附件都在这里）*/}
-            <MessageBody key={detail.id} detail={detail} onMailto={onMailto} />
+            <MessageBody
+              key={detail.id}
+              detail={detail}
+              onMailto={onMailto}
+              translation={translate.translation}
+              translating={translate.busy}
+              translateError={translate.error}
+              onRetranslate={translate.redo}
+              onShowOriginal={translate.hide}
+            />
           </div>
           {/* 底部回复框已移除：入口在顶部工具栏已有一份，占着正文空间不划算 */}
         </div>

@@ -41,7 +41,8 @@ import {
   useToggleFlag,
 } from '@/lib/queries'
 import { defaultExpanded } from '@/lib/thread-format'
-import type { Folder, MessageDetail, MessageListItem } from '@/lib/types'
+import { useMessageTranslator } from '@/hooks/useMessageTranslator'
+import type { Folder, MessageDetail, MessageListItem, Translation } from '@/lib/types'
 
 // ── 手风琴单项 ───────────────────────────────────────────
 
@@ -64,6 +65,18 @@ interface ThreadItemProps {
   accountFolders: Folder[]
   /** 正文里点到 mailto: 链接时打开撰写器 */
   onMailto?: (href: string) => void
+  /**
+   * 译文相关状态，只传给当前活动的那一封。
+   *
+   * 工具栏上只有一颗翻译按钮，它跟回复/转发一样打在 activeId 上——
+   * 一次翻译整条会话（可能十几封）不是用户按下那颗按钮时想要的事，
+   * 那会在他没预期的情况下花掉十几倍的用量。
+   */
+  translation?: Translation | null
+  translating?: boolean
+  translateError?: string | null
+  onRetranslate?: () => void
+  onShowOriginal?: () => void
 }
 
 function ThreadItem({
@@ -77,6 +90,11 @@ function ThreadItem({
   onMailto,
   onComposeTo,
   onSearchAddr,
+  translation,
+  translating,
+  translateError,
+  onRetranslate,
+  onShowOriginal,
 }: ThreadItemProps) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -307,7 +325,16 @@ function ThreadItem({
           </div>
 
           {detail ? (
-            <MessageBody key={detail.id} detail={detail} onMailto={onMailto} />
+            <MessageBody
+              key={detail.id}
+              detail={detail}
+              onMailto={onMailto}
+              translation={translation}
+              translating={translating}
+              translateError={translateError}
+              onRetranslate={onRetranslate}
+              onShowOriginal={onShowOriginal}
+            />
           ) : (
             <div className="ti-loading">{t('reader.loading')}</div>
           )}
@@ -463,6 +490,8 @@ export function ThreadReader({
 
   // 回复/转发针对当前展开且最近点击的那封；详情多半已由展开项拉过，这里命中缓存
   const { data: activeDetail } = useMessageDetail(activeId)
+  // 翻译同样打在这一封上（理由见 ThreadItemProps.translation）
+  const translate = useMessageTranslator(activeId)
 
   // ── 会话级操作 ────────────────────────────────────────
   const ids = threadId != null ? [threadId] : []
@@ -552,6 +581,11 @@ export function ThreadReader({
         onNext={onNext}
         onReply={onReply && activeDetail ? () => onReply(activeDetail) : undefined}
         onForward={onForward && activeDetail ? () => onForward(activeDetail) : undefined}
+        onTranslate={activeId != null ? translate.toggle : undefined}
+        translateActive={translate.showing}
+        translateBusy={translate.busy}
+        translateDisabled={!translate.available}
+        translateTitle={translate.hint(activeDetail?.detect_lang)}
         onArchive={onArchive}
         onDelete={onDelete}
         moreItems={moreItems}
@@ -584,6 +618,11 @@ export function ThreadReader({
                 onMailto={onMailto}
                 onComposeTo={(email) => onMailto?.(`mailto:${email}`)}
                 onSearchAddr={onSearchAddr}
+                translation={m.id === activeId ? translate.translation : null}
+                translating={m.id === activeId && translate.busy}
+                translateError={m.id === activeId ? translate.error : null}
+                onRetranslate={m.id === activeId ? translate.redo : undefined}
+                onShowOriginal={m.id === activeId ? translate.hide : undefined}
               />
             ))}
           </div>

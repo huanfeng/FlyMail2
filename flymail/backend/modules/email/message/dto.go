@@ -41,6 +41,12 @@ type MessageDetail struct {
 	// （用户要求显示，或发件人在信任名单里）。两者由详情接口在净化后填写。
 	RemoteCount   int  `json:"remote_count"`
 	RemoteAllowed bool `json:"remote_allowed"`
+	// DetectLang 是本地识别出的正文语言（见 internal/lang），识别不出时为空串。
+	//
+	// 由详情接口填写，供界面判断"这封信要不要提示翻译"。放在详情里而不是
+	// 让前端自己认：识别规则只该有一处实现，否则前后端迟早对同一封信
+	// 给出不同的答案——而"已是目标语言"这个判断会决定翻译按钮的样子。
+	DetectLang string `json:"detect_lang"`
 	// AttachmentToken 是限定这一封、短时效的附件令牌：前端拼 cid 内联图与附件链接时用它，
 	// 不把长期 access token 写进邮件 HTML 所在的文档。
 	AttachmentToken string `json:"attachment_token"`

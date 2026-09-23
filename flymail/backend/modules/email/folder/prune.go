@@ -1,6 +1,10 @@
 package folder
 
-import "gorm.io/gorm"
+import (
+	"flymail/modules/email/account"
+
+	"gorm.io/gorm"
+)
 
 // 清理服务端已经不存在的文件夹。
 //
@@ -44,12 +48,13 @@ func (r *Repository) pruneMissing(accountID uint, keep map[string]bool) (int, er
 	}
 
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		// ⚠ 顺序有讲究：attachments / message_bodies 靠 message_id 挂在邮件上，
-		// 必须**在 messages 之前删**——messages 先没了，那两张表的子查询就选不出
-		// 任何行，它们当场变成永远没人认领的孤儿。
+		// ⚠ 顺序有讲究：attachments / message_bodies / message_translations 靠
+		// message_id 挂在邮件上，必须**在 messages 之前删**——messages 先没了，
+		// 那几张表的子查询就选不出任何行，它们当场变成永远没人认领的孤儿。
+		// 表名从 account 包取同一份名单，免得新增子表时这里漏掉一处。
 		// 全文索引由触发器维护，走 SQL 删除会正常触发，不用另管。
 		const sub = "SELECT id FROM messages WHERE folder_id IN (?)"
-		for _, t := range []string{"attachments", "message_bodies"} {
+		for _, t := range account.MessageOwnedTables() {
 			if !tx.Migrator().HasTable(t) {
 				continue
 			}

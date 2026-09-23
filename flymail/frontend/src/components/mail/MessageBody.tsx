@@ -30,8 +30,8 @@ import {
 import { getDarkBody, subscribePrivacyPrefs } from '@/lib/privacy-prefs'
 import { getThemeMode, subscribeThemeMode } from '@/lib/theme'
 import { QUOTE_HIDE_CSS, markHtmlQuotes, splitTextQuote } from '@/lib/quote-fold'
-import { useAddTrustedSender, useMessageDetail } from '@/lib/queries'
-import type { MessageDetail } from '@/lib/types'
+import { useAddTrustedSender, useMessageDetail, useMessageTranslation, useTranslateLanguages } from '@/lib/queries'
+import type { MessageDetail, Translation } from '@/lib/types'
 import {
   attachmentUrl,
   downloadAttachment,
@@ -215,6 +215,22 @@ interface MessageBodyProps {
   detail: MessageDetail
   /** 正文里点到 mailto: 链接时的回调；不传则该链接静默无效 */
   onMailto?: (href: string) => void
+  /**
+   * 译文。非空时正文区整体显示这一份，而不是原文。
+   *
+   * 走"替换 view"这条路而不是另起一套渲染：远程图拦截、cid 改写、引用折叠、
+   * iframe 高度测量这一整套逻辑对译文一字不差地同样适用，复制第二份的下场
+   * 是两份实现慢慢长歪。
+   */
+  translation?: Translation | null
+  /** 正在翻译（还没有译文可显示） */
+  translating?: boolean
+  /** 翻译失败的原因；非空时正文上方显示一条可重试的提示 */
+  translateError?: string | null
+  /** 重试 / 重新翻译（force），由调用方决定是否真的再花一次钱 */
+  onRetranslate?: () => void
+  /** 切回原文 */
+  onShowOriginal?: () => void
 }
 
 /**
@@ -222,7 +238,15 @@ interface MessageBodyProps {
  *
  * 单封视图与会话手风琴共用：前者一屏一个实例，后者每个展开项一个实例。
  */
-export function MessageBody({ detail, onMailto }: MessageBodyProps) {
+export function MessageBody({
+  detail,
+  onMailto,
+  translation,
+  translating,
+  translateError,
+  onRetranslate,
+  onShowOriginal,
+}: MessageBodyProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const confirm = useConfirm()
@@ -234,6 +258,9 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
   const [showQuote, setShowQuote] = useState(false)
   const [trustError, setTrustError] = useState<string | null>(null)
   const addTrusted = useAddTrustedSender()
+  // 语言清单只为把 source_lang 显示成人看得懂的名字；staleTime 是 Infinity，
+  // 每个正文实例都调它不会产生额外请求。
+  const { data: languages } = useTranslateLanguages()
 
   // 点了「显示图片」之后带 remote=1 再取一份：净化在服务端，
   // 「放行远程引用」这件事只有服务端说了算，前端没有一份保留了远程地址的正文可用。
@@ -243,7 +270,33 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
   )
   // ⚠ 比一次 id：useMessageDetail 带 keepPreviousData，拿到的可能是上一封的残留
   const remoteDetail = remoteQuery.data
-  const view = remoteDetail && remoteDetail.id === detail.id ? remoteDetail : detail
+  const original = remoteDetail && remoteDetail.id === detail.id ? remoteDetail : detail
+
+  // 译文也要跟着「显示图片」走：译文的远程引用同样是服务端按请求参数净化的，
+  // 拦住的那一版里图片地址已经换成了占位符，前端手里没有能还原的东西。
+  const translationRemoteQuery = useMessageTranslation(
+    showRemote && translation != null && !translation.remote_allowed ? detail.id : null,
+    translation?.target_lang ?? '',
+    { remote: true },
+  )
+  const remoteTranslation = translationRemoteQuery.data
+  const shownTranslation =
+    remoteTranslation && remoteTranslation.message_id === detail.id ? remoteTranslation : translation
+
+  // 译文视图 = 原文的结构与附件 + 译文的主题和正文。
+  //
+  // remote_count / remote_allowed 必须一并取译文那份：拦截横幅问的是
+  // "现在屏幕上这份正文里有几个远程引用"，而不是原文里有几个。
+  const view: MessageDetail = shownTranslation
+    ? {
+        ...original,
+        subject: shownTranslation.subject || original.subject,
+        text_body: shownTranslation.text_body,
+        html_body: shownTranslation.html_body,
+        remote_count: shownTranslation.remote_count,
+        remote_allowed: shownTranslation.remote_allowed,
+      }
+    : original
 
   // 内联 cid 图引用改写成本地附件接口；远程内容此时已由服务端处理完毕。
   // ⚙ 必须用 attachment_token：改写结果直接落进那份由发件人控制的文档，
@@ -319,6 +372,12 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
     }
   }
 
+  // 源语言显示成自称名（「英语」而不是 en）。清单还没回来时就不显示语言，
+  // 退回"由 AI 翻译"那句——宁可少说一句，也不要在提示条上露出一个语言代码。
+  const sourceLangName = shownTranslation?.source_lang
+    ? (languages?.languages ?? []).find((l) => l.code === shownTranslation.source_lang)?.native ?? ''
+    : ''
+
   // 服务端报告有远程引用、且这一封尚未放行 → 显示拦截横幅
   const blockedRemote = view.remote_count > 0 && !view.remote_allowed
   const senderAddr = view.from_addr?.trim() ?? ''
@@ -338,6 +397,44 @@ export function MessageBody({ detail, onMailto }: MessageBodyProps) {
 
   return (
     <div className="thread-body">
+      {/* 翻译状态条：进行中 / 失败 / 正在看译文，三者互斥。
+          放在正文**上方**而不是工具栏上：工具栏那颗按钮只表达"看哪一版"，
+          而"从哪门语言翻的、是不是只翻了一部分、失败了能不能重试"都是
+          关于这份正文的说明，跟着正文走才读得懂。 */}
+      {translating ? (
+        <div className="translated-bar">
+          <span className="tr-note">{t('reader.translating')}</span>
+        </div>
+      ) : translateError ? (
+        <div className="translated-bar is-error">
+          <span className="tr-note">{translateError}</span>
+          {onRetranslate && (
+            <button type="button" className="pill-btn" onClick={onRetranslate}>
+              {t('reader.translateRetry')}
+            </button>
+          )}
+        </div>
+      ) : shownTranslation ? (
+        <div className="translated-bar">
+          <span className="tr-note">
+            {sourceLangName
+              ? t('reader.translatedFrom', { lang: sourceLangName, model: shownTranslation.model })
+              : t('reader.translatedBy', { model: shownTranslation.model })}
+            {shownTranslation.partial && ' ' + t('reader.translatePartial')}
+          </span>
+          {onShowOriginal && (
+            <button type="button" className="pill-btn" onClick={onShowOriginal}>
+              {t('reader.showOriginal')}
+            </button>
+          )}
+          {onRetranslate && (
+            <button type="button" className="pill-btn" onClick={onRetranslate}>
+              {t('reader.translateRedo')}
+            </button>
+          )}
+        </div>
+      ) : null}
+
       {/* 远程内容拦截提示条 */}
       {blockedRemote && (
         <div className="remote-img-bar">

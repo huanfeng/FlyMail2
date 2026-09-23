@@ -30,6 +30,9 @@ func (h *handler) getAll(c *gin.Context) {
 	if _, ok := m[KeySyncMaxIdleConns]; !ok {
 		m[KeySyncMaxIdleConns] = DefaultSyncMaxIdleConns
 	}
+	if _, ok := m[KeyNotifyBodyRunes]; !ok {
+		m[KeyNotifyBodyRunes] = DefaultNotifyBodyRunes
+	}
 	c.JSON(http.StatusOK, gin.H{"settings": m})
 }
 
@@ -63,6 +66,19 @@ func (h *handler) setAll(c *gin.Context) {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 || n > 1000 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_max_idle_conns 必须是 0..1000 的整数"})
+			return
+		}
+	}
+
+	// 校验 notify_body_runes。
+	//
+	// 上界 20000 不是飞书的限制（那是按字节算的，另有兜底裁剪），
+	// 而是「再多也没意义」：两万字的邮件推进聊天群，谁也不会在那里读完。
+	// 允许 0，表示用内置默认。
+	if v, ok := body.Settings[KeyNotifyBodyRunes]; ok && v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 20000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "notify_body_runes 必须是 0..20000 的整数"})
 			return
 		}
 	}

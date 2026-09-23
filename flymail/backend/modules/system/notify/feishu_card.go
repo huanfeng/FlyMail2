@@ -1,5 +1,10 @@
 package notify
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // 飞书消息卡片（msg_type = interactive）。
 //
 // 比纯文本多出来的是：标题栏能按事件类型配色、发件人/主题分栏、以及一个真正的
@@ -80,8 +85,11 @@ func plainText(content string) map[string]any {
 	return map[string]any{"tag": "plain_text", "content": content}
 }
 
-// feishuCard 把事件渲染成卡片消息体。
-func feishuCard(evt Event, level ContentLevel) map[string]any {
+// feishuCard 把事件渲染成卡片消息体；bodyRunes 是本次正文的字符上限。
+//
+// 上限作为参数而不是就地取配置：fitFeishuCard 需要用递减的上限反复重建卡片，
+// 直到序列化后的字节数落进飞书的预算里。
+func feishuCard(evt Event, level ContentLevel, bodyRunes int) map[string]any {
 	elements := make([]map[string]any, 0, 4)
 
 	from, _, ok := mailFields(evt.Mail)
@@ -112,9 +120,13 @@ func feishuCard(evt Event, level ContentLevel) map[string]any {
 		}
 	}
 
-	if body := cardBody(evt, level, ok); body != "" {
+	if body := cardBody(evt, level, ok, bodyRunes); body != "" {
 		elements = append(elements, map[string]any{"tag": "hr"})
 		elements = append(elements, map[string]any{"tag": "div", "text": plainText(body)})
+	}
+
+	if links := linkElement(evt, level); links != nil {
+		elements = append(elements, links)
 	}
 
 	if evt.URL != "" {
@@ -148,11 +160,11 @@ func feishuCard(evt Event, level ContentLevel) map[string]any {
 // 有结构化字段时按内容级别取（basic 档就是不放）；没有时（非邮件事件）
 // 回落到事件自带的 Body，那是同步失败原因之类的固定文案，不受级别影响——
 // 内容级别管的是**邮件正文**带多少，不该把故障原因也一起掐掉。
-func cardBody(evt Event, level ContentLevel, structured bool) string {
+func cardBody(evt Event, level ContentLevel, structured bool, bodyRunes int) string {
 	if structured {
-		return bodyFor(evt.Mail, level, feishuBodyRunes)
+		return bodyFor(evt.Mail, level, bodyRunes)
 	}
-	return truncateRunes(evt.Body, feishuBodyRunes)
+	return truncateRunes(evt.Body, bodyRunes)
 }
 
 func cardButtonLabel(evt Event) string {
@@ -161,3 +173,104 @@ func cardButtonLabel(evt Event) string {
 	}
 	return "打开 FlyMail"
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 正文中的链接
+// ════════════════════════════════════════════════════════════════════════════
+
+// linkElement 渲染「正文中的链接」区块；没有链接时返回 nil。
+//
+// ── 为什么单独列出来，而不是让正文里的链接原位可点 ──────────────────────────
+//
+// 原位可点要把正文整段交给 lark_md 渲染，那就正面撞上本文件开头那条安全边界：
+// 邮件正文由发信人完全控制，而 lark_md 的 `[文字](url)` 会渲染成超链接且
+// 飞书不支持转义。一封正文写着「请登录 [icbc.com.cn](http://evil.com) 处理」的
+// 钓鱼邮件，在卡片里就是一条看起来完全正经的银行链接——而且它紧挨着我们自己的
+// 「打开邮件」按钮，比在邮件客户端里更可信。
+//
+// 单独列出来则绕开了这一点：**显示文本就是地址本身**，两者不可能不一致，
+// 也就没有「看着是 A、点过去是 B」这种伪造空间。代价是链接脱离了上下文，
+// 但推送本来就是个索引，真要读还是得点「打开邮件」。
+func linkElement(evt Event, level ContentLevel) map[string]any {
+	// 跟正文同一道闸门：basic 档一个字正文都不带，链接同样是正文内容。
+	if evt.Mail == nil || !level.wantsBody() || len(evt.Mail.Links) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(evt.Mail.Links))
+	for _, u := range evt.Mail.Links {
+		lines = append(lines, markdownLink(u))
+	}
+	return map[string]any{
+		"tag": "div",
+		"text": map[string]any{
+			"tag": "lark_md",
+			// 标签是我们自己写的固定文案，进 lark_md 无妨；值是经 markdownLink
+			// 处理过的地址，不是原样的用户内容。
+			"content": "**正文中的链接**\n" + strings.Join(lines, "\n"),
+		},
+	}
+}
+
+// markdownLink 把一条地址渲染成 lark_md 链接，显示文本与目标完全相同。
+//
+// `)` 和 `]` 必须转义掉：它们会提前终结 markdown 的链接构造，让后面本属于
+// 地址的部分溢出成普通文本——更糟的是，精心构造的地址能借此让**显示的那段**
+// 与**实际跳转的那段**分家，正是这个函数要杜绝的事。
+// 百分号编码是 URL 语义上等价的替换，不改变跳转目标。
+func markdownLink(u string) string {
+	safe := linkEscaper.Replace(u)
+	return "[" + safe + "](" + safe + ")"
+}
+
+// 显示与目标用的是同一个 safe 串，所以这里的替换必须对两者都适用——
+// 不能只转义其中一侧，那恰恰会制造出显示与目标不一致。
+var linkEscaper = strings.NewReplacer(
+	")", "%29",
+	"(", "%28",
+	"]", "%5D",
+	"[", "%5B",
+)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 字节预算
+// ════════════════════════════════════════════════════════════════════════════
+
+// fitFeishuCard 渲染卡片，并保证序列化后落在飞书的字节预算内。
+//
+// ── 为什么必须按字节量，而不是把字符上限调小一点了事 ────────────────────────
+//
+// 字符数和字节数之间没有可用的换算：中文一个字 UTF-8 占 3 字节，emoji 占 4，
+// JSON 转义还会把控制字符变成 6 字节的 \uXXXX。按字符算就只能取一个悲观值，
+// 结果是英文邮件白白被截掉一大半，而某些极端内容照样能超。
+//
+// 超了的后果还很难查：飞书直接拒收整条消息，用户看到的是「有几封邮件没推送」，
+// 而不是「正文被截短了」。
+//
+// 所以这里量的就是最终要发出去的那串字节。逐次收缩而不是一步到位算出该留多少，
+// 是因为收缩正文会连带改变整个 JSON 的转义情况——算出来的仍然是估计值，量出来的才是事实。
+func fitFeishuCard(evt Event, level ContentLevel) map[string]any {
+	runes := configuredBodyRunes()
+	for {
+		card := feishuCard(evt, level, runes)
+		if payload, err := json.Marshal(card); err != nil || len(payload) <= feishuPayloadBudget {
+			// 序列化失败时照常返回：错误会在 sendFeishu 那边浮现，
+			// 在这里静默吞掉只会把问题挪到更难查的地方。
+			return card
+		}
+		if runes <= minFeishuBodyRunes {
+			// 已经缩到底还是超预算，说明撑爆预算的不是正文（超长主题、
+			// 大量链接之类）。再缩下去只是空转，交出去让上层报错。
+			return card
+		}
+		next := runes * 7 / 10
+		if next < minFeishuBodyRunes {
+			next = minFeishuBodyRunes
+		}
+		runes = next
+	}
+}
+
+// minFeishuBodyRunes 是收缩的下限。
+//
+// 缩到这个份上还超预算，问题必然出在正文之外，继续缩没有意义。
+const minFeishuBodyRunes = 200

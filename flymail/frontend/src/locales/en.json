@@ -901,6 +901,15 @@
       "errTooLarge": "File is too large, probably the wrong one",
       "errUnreadable": "Could not read the file"
     },
+    "notifyBody": {
+      "title": "Push body length",
+      "label": "Max characters",
+      "hint": "Applies only to channels set to \"full body\". This is a layout preference, not a safety limit: whatever you set, the payload is trimmed again by actual byte size before sending, so it cannot exceed Feishu's hard 30KB card limit and get dropped entirely. Enter 0 to use the built-in default (8000).",
+      "save": "Save",
+      "saved": "Saved",
+      "err_range": "Must be a whole number between {{min}} and {{max}}",
+      "err_save": "Could not save, please try again"
+    },
     "baseUrl": {
       "title": "Public address",
       "label": "Service URL",

@@ -51,6 +51,12 @@ func sendWebhook(ch *Channel, evt Event, level ContentLevel) error {
 		if body := bodyFor(evt.Mail, level, webhookBodyRunes); body != "" {
 			mail["body"] = body
 		}
+		// 链接单独给一份：body 是已经剥成纯文本的正文，<a href> 的地址在那一步
+		// 就没了，消费方从 body 里再也解不出来。走与正文同一道级别闸门——
+		// basic 档一个字正文都不带，重置链接之类自然也不能漏。
+		if level.wantsBody() && len(evt.Mail.Links) > 0 {
+			mail["links"] = evt.Mail.Links
+		}
 		out["mail"] = mail
 	}
 	payload, _ := json.Marshal(out)
@@ -95,7 +101,7 @@ func plainBody(evt Event, level ContentLevel, limit int) string {
 // 签名字段挂在**最外层**（与 msg_type / card 平级），所以渲染与签名分开：
 // 渲染只管消息体长什么样，签名在这里补。
 func sendFeishu(ch *Channel, evt Event, level ContentLevel) error {
-	body := feishuCard(evt, level)
+	body := fitFeishuCard(evt, level)
 	if ch.Secret != "" {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		sign, err := feishuSign(ts, ch.Secret)

@@ -34,6 +34,11 @@ type MailData struct {
 	Date    time.Time
 	Snippet string
 	Body    string
+	// Links 是正文里的 http/https 链接，已去重并限量。
+	//
+	// 单独带出来而不是让渲染层从 Body 里扫：Body 是已经降级过的纯文本，
+	// <a href="…">点这里</a> 到这一步只剩「点这里」，地址早没了。
+	Links []string
 }
 
 // ChannelInput 是创建/更新渠道的入参。

@@ -55,6 +55,14 @@ const (
 	// 放数据库而不是只认环境变量，是因为配 OAuth 应用要反复试：回调地址填错、
 	// 测试用户没加、secret 复制漏一位，每试一次重启一次容器不可接受。
 	// 两处都有值时以数据库为准——那是管理员在界面上刚做的事，应当压过部署时的默认。
+	// KeyNotifyBodyRunes 外发通知里正文的字符上限；0 或留空用内置默认。
+	//
+	// 它只是「想放多少」的排版偏好，不是安全上限：无论配多大，最终都还要过一道
+	// 按序列化字节数算的裁剪（notify.fitFeishuCard），否则配个 999999
+	// 就会因为超出飞书 30KB 的请求体上限而整条发不出去。
+	KeyNotifyBodyRunes     = "notify_body_runes"
+	DefaultNotifyBodyRunes = "8000"
+
 	KeyOAuthGoogleClientID = "oauth_google_client_id"
 	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
 	KeyOAuthGoogleClientSecret = "oauth_google_client_secret"

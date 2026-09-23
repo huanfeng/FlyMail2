@@ -106,7 +106,7 @@ func TestFeishuCardKeepsUserContentOutOfMarkdown(t *testing.T) {
 	m := sampleMail()
 	m.Subject = "[点此查收](https://evil.example.com)"
 	m.From = "**Alice**"
-	card := feishuCard(mailEvent(m), LevelSnippet)
+	card := feishuCard(mailEvent(m), LevelSnippet, feishuBodyRunes)
 
 	raw, err := json.Marshal(card)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestFeishuCardKeepsUserContentOutOfMarkdown(t *testing.T) {
 // basic 档的卡片里不能出现正文元素。
 func TestFeishuCardBasicHasNoBody(t *testing.T) {
 	m := sampleMail()
-	card := feishuCard(mailEvent(m), LevelBasic)
+	card := feishuCard(mailEvent(m), LevelBasic, feishuBodyRunes)
 	raw, _ := json.Marshal(card)
 
 	if strings.Contains(string(raw), "会议室 A") {
@@ -144,7 +144,7 @@ func TestFeishuCardBasicHasNoBody(t *testing.T) {
 
 // 卡片的基本结构：标题栏 + 「打开邮件」按钮。
 func TestFeishuCardStructure(t *testing.T) {
-	card := feishuCard(mailEvent(sampleMail()), LevelSnippet)
+	card := feishuCard(mailEvent(sampleMail()), LevelSnippet, feishuBodyRunes)
 	if card["msg_type"] != "interactive" {
 		t.Fatalf("msg_type = %v", card["msg_type"])
 	}
@@ -199,7 +199,7 @@ func TestFeishuCardHeaderCarriesSubject(t *testing.T) {
 func TestFeishuCardDoesNotRepeatSubject(t *testing.T) {
 	m := sampleMail()
 	m.Subject = "季度复盘会议安排"
-	card := feishuCard(mailEvent(m), LevelBasic)
+	card := feishuCard(mailEvent(m), LevelBasic, feishuBodyRunes)
 
 	n := 0
 	for _, node := range collectTextNodes(t, card) {
@@ -235,12 +235,12 @@ func TestFeishuCardRuleEventNamesTheRule(t *testing.T) {
 	evt.Type = EventMailRule
 	evt.Title = "规则命中 · 老板来信"
 
-	raw, _ := json.Marshal(feishuCard(evt, LevelBasic))
+	raw, _ := json.Marshal(feishuCard(evt, LevelBasic, feishuBodyRunes))
 	if !strings.Contains(string(raw), "老板来信") {
 		t.Errorf("规则命中的卡片没说是哪条规则：%s", raw)
 	}
 	// 配色也要和普通新邮件区分开
-	card := feishuCard(evt, LevelBasic)["card"].(map[string]any)
+	card := feishuCard(evt, LevelBasic, feishuBodyRunes)["card"].(map[string]any)
 	if h, _ := card["header"].(map[string]any); h["template"] == "blue" {
 		t.Error("规则命中和普通新邮件用了同一个配色，看不出区别")
 	}
@@ -262,7 +262,7 @@ func TestFeishuCardNonMailHeader(t *testing.T) {
 func TestFeishuCardWithoutURLHasNoButton(t *testing.T) {
 	evt := mailEvent(sampleMail())
 	evt.URL = ""
-	raw, _ := json.Marshal(feishuCard(evt, LevelSnippet))
+	raw, _ := json.Marshal(feishuCard(evt, LevelSnippet, feishuBodyRunes))
 	if strings.Contains(string(raw), `"tag":"button"`) {
 		t.Errorf("没配对外地址却放了按钮：%s", raw)
 	}
@@ -275,7 +275,7 @@ func TestFeishuCardWithoutURLHasNoButton(t *testing.T) {
 func TestNonMailEventKeepsItsBodyAtAnyLevel(t *testing.T) {
 	evt := Event{Type: EventSyncFailed, Title: "同步失败 · 163", Body: "连接超时"}
 	for _, level := range []ContentLevel{LevelBasic, LevelSnippet, LevelFull} {
-		raw, _ := json.Marshal(feishuCard(evt, level))
+		raw, _ := json.Marshal(feishuCard(evt, level, feishuBodyRunes))
 		if !strings.Contains(string(raw), "连接超时") {
 			t.Errorf("%s 档把故障原因掐掉了：%s", level, raw)
 		}
@@ -284,7 +284,7 @@ func TestNonMailEventKeepsItsBodyAtAnyLevel(t *testing.T) {
 		}
 	}
 	// 故障类事件的标题栏要显眼
-	card := feishuCard(evt, LevelBasic)["card"].(map[string]any)
+	card := feishuCard(evt, LevelBasic, feishuBodyRunes)["card"].(map[string]any)
 	if h, _ := card["header"].(map[string]any); h["template"] != "red" {
 		t.Errorf("同步失败的标题栏配色 = %v，想要 red", h["template"])
 	}

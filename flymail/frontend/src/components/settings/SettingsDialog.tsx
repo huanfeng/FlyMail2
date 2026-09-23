@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/Icon'
 import { useToast } from '@/components/ui/Toast'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { PortabilityDialog } from '@/components/settings/PortabilityDialog'
+import { NotifyBodySection } from '@/components/settings/NotifyBodySection'
 import { NotifyChannelsSection } from '@/components/settings/NotifyChannelsSection'
 import { BrowserNotifySection } from '@/components/settings/BrowserNotifySection'
 import { BaseUrlSection } from '@/components/settings/BaseUrlSection'
@@ -1417,6 +1418,9 @@ export function SettingsDialog({
                 {/* 对外访问地址紧挨着外发渠道：它只对外发的通知有意义
                     （站内通知点一下就跳，不需要绝对地址） */}
                 <BaseUrlSection Row={Row} />
+                {/* 长度上限排在渠道之前：它是所有外发渠道共用的排版设置，
+                    而渠道列表是一串条目，夹在中间会像是某个渠道的属性 */}
+                <NotifyBodySection Row={Row} />
                 <NotifyChannelsSection />
               </>
             )}

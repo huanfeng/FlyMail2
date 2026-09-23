@@ -1231,12 +1231,22 @@ export function useSettings() {
         sync_poll_interval: Number(data.settings?.sync_poll_interval ?? 180) || 180,
         body_sync_mode: parseBodySyncMode(data.settings?.body_sync_mode),
         body_sync_recent_days: Number(data.settings?.body_sync_recent_days ?? 30) || 30,
+        // 不能套 `|| 8000`：0 是合法取值（表示"用内置默认"），会被 || 吞掉，
+        // 于是用户存的 0 在界面上显示成 8000，看着像没保存成功。
+        notify_body_runes: normalizeNotifyBodyRunes(data.settings?.notify_body_runes),
         app_base_url: data.settings?.app_base_url ?? '',
         oauth_google_client_id: data.settings?.oauth_google_client_id ?? '',
         oauth_google_client_secret_set: data.settings?.oauth_google_client_secret_set === 'true',
       }
     },
   })
+}
+
+/** 解析推送正文上限：非法值回落到默认，但 0 要原样保留（它表示"用内置默认"）。 */
+function normalizeNotifyBodyRunes(raw: string | undefined): number {
+  if (raw == null || raw === '') return 8000
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 0 ? n : 8000
 }
 
 export function useUpdateSettings() {

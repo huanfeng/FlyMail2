@@ -28,6 +28,13 @@ export interface AppSettings {
   /** recent 模式的天数窗口 */
   body_sync_recent_days: number
   /**
+   * 外发通知里正文的字符上限（0 = 用内置默认）。
+   *
+   * 只是排版偏好，不是安全上限：后端还会按序列化后的实际字节数再裁一道，
+   * 因为飞书对卡片请求体有 30KB 硬限制，超了整条静默发不出去。
+   */
+  notify_body_runes: number
+  /**
    * FlyMail 对外可访问的根地址，用于通知里的「打开邮件」链接。
    * 留空表示没配，通知就不带链接（服务端猜不出自己的对外地址）。
    *

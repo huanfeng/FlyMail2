@@ -3,6 +3,7 @@ package message
 import (
 	"encoding/json"
 	"flymail/internal/fts"
+	"flymail/internal/mailtext"
 	"regexp"
 	"strings"
 	"time"
@@ -421,6 +422,22 @@ func (s *Service) BodyText(messageID uint) (text string, known bool) {
 		return b.TextBody, true
 	}
 	return fts.StripHTML(b.HTMLBody), true
+}
+
+// BodyForDisplay 返回一封邮件用于**展示给人看**的正文与其中的链接。
+//
+// 与 BodyText 的分工：BodyText 服务于规则匹配与索引，只要词对就行，所以复用了
+// fts.StripHTML（把换行一并压成空格）。推送卡片要给人读，段落不能丢，
+// 还要能把链接单独列出来变成可点的，因此走 mailtext。
+//
+// 两者刻意不合并：BodyText 的输出形态是已配规则的匹配依据，改它会悄悄改变
+// 用户现有规则的命中结果。
+func (s *Service) BodyForDisplay(messageID uint) (mailtext.Result, bool) {
+	b, err := s.bodyRepo.GetByMessageID(messageID)
+	if err != nil || b == nil {
+		return mailtext.Result{}, false
+	}
+	return mailtext.Extract(b.TextBody, b.HTMLBody), true
 }
 
 // AttachmentNames 返回一封邮件的附件文件名（含内联部件）。

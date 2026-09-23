@@ -223,13 +223,20 @@ func New(cfg *config.Config) (*App, error) {
 			Snippet: msg.Snippet,
 		}
 		if wantFull {
-			// BodyText 优先纯文本，没有就把 HTML 剥成文本——通知是纯文本/卡片形态，
-			// 直接塞 HTML 源码过去只会是一堆标签。
-			if text, known := messageSvc.BodyText(messageID); known {
-				d.Body = text
+			// 走 BodyForDisplay 而不是 BodyText：后者是给规则匹配用的，
+			// 会把换行一并压成空格，推到聊天里就是一坨没有段落的墙。
+			// 链接也在这里一并取出——降级成文本之后地址就找不回来了。
+			if res, known := messageSvc.BodyForDisplay(messageID); known {
+				d.Body = res.Text
+				d.Links = res.Links
 			}
 		}
 		return d
+	})
+
+	// 正文字符上限：设置页改完立刻生效（用时现取，不缓存）。
+	notify.SetBodyRunesProvider(func() int {
+		return settingSvc.GetInt(setting.KeyNotifyBodyRunes, 0)
 	})
 
 	baseEmit := notifySvc.EmitFunc()

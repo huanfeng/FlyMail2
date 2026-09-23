@@ -1,6 +1,9 @@
 package notify
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // 外发消息的排版。
 //
@@ -19,9 +22,55 @@ import "strings"
 // 飞书对整个卡片 JSON 有大小限制，超了整条发不出去），webhook 那边多半是程序
 // 在消费，容忍度高但也不该无限。
 const (
-	feishuBodyRunes  = 2000
+	// feishuBodyRunes 是飞书正文的默认字符上限（用户未配置时）。
+	//
+	// 这个数字只是「排版上想放多少」，不是安全上限——真正兜底的是
+	// feishuPayloadBudget 那道按字节算的裁剪（见 fitFeishuCard）。
+	// 按字符算永远不可能准：中文一个字 UTF-8 占 3 字节，JSON 转义还会再膨胀。
+	feishuBodyRunes  = 8000
 	webhookBodyRunes = 20000
 )
+
+// feishuPayloadBudget 是整个卡片 JSON 的字节预算。
+//
+// 飞书对卡片消息请求体的硬限制是 30KB，超了整条发不出去（而且是静默失败的
+// 那种失败——用户只会发现"有几封邮件没推送"）。留 4KB 余量给签名字段、
+// 标题栏、按钮，以及我们没预料到的转义膨胀。
+const feishuPayloadBudget = 26 * 1024
+
+// bodyRunesProvider 供 app 注入「当前配置的正文字符上限」。
+//
+// 取的是函数而不是一个值：设置页改完要立刻生效，存值就得再搭一套变更通知。
+// 这也是仓里既有的做法（SetSyncDepthProvider、SetPollIntervalProvider）。
+//
+// 不塞进 Event 或 Channel：它是**部署级的排版偏好**，既不属于"发生了什么"
+// （Event），也不属于"发去哪里"（Channel）。
+// 投递 worker 与设置页改配置分属不同 goroutine，所以要加锁。
+var (
+	bodyRunesMu       sync.RWMutex
+	bodyRunesProvider func() int
+)
+
+// SetBodyRunesProvider 注入正文字符上限的取数函数；返回 <= 0 表示用默认值。
+func SetBodyRunesProvider(fn func() int) {
+	bodyRunesMu.Lock()
+	defer bodyRunesMu.Unlock()
+	bodyRunesProvider = fn
+}
+
+// configuredBodyRunes 返回当前生效的飞书正文字符上限。
+func configuredBodyRunes() int {
+	bodyRunesMu.RLock()
+	fn := bodyRunesProvider
+	bodyRunesMu.RUnlock()
+	if fn == nil {
+		return feishuBodyRunes
+	}
+	if n := fn(); n > 0 {
+		return n
+	}
+	return feishuBodyRunes
+}
 
 // bodyFor 按内容级别取出该带的正文，并截到上限。
 //

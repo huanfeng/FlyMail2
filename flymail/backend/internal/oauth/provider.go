@@ -30,6 +30,13 @@ type Provider struct {
 	Scopes    []string
 	IMAP      ServerPreset
 	SMTP      ServerPreset
+
+	// PasswordAuth 报告该服务商的 IMAP/SMTP 是否还接受「用户名 + 密码」。
+	//
+	// 这决定了「没配 OAuth 凭据」对用户意味着什么：Gmail 那边只是多绕一步
+	// （申请个应用专用密码照样能用），Outlook 那边则是此路不通。
+	// 界面要据此给出不同的退路，给错了比不给更糟——让人照着一条死路试半天。
+	PasswordAuth bool
 }
 
 // SupportsDeviceCode 报告该提供方是否可走设备码流程。
@@ -53,6 +60,10 @@ func googleProvider() Provider {
 		Scopes:    []string{"https://mail.google.com/", "openid", "email"},
 		IMAP:      ServerPreset{Host: "imap.gmail.com", Port: 993, Security: "ssl"},
 		SMTP:      ServerPreset{Host: "smtp.gmail.com", Port: 465, Security: "ssl"},
+		// Google 在 2024-09 停掉了「不够安全的应用」那种明文口令，但**应用专用密码
+		// 仍然可用**（前提是账号开了两步验证）。Google 已放话要逐步淘汰，
+		// 真的关掉那天，这里改成 false 即可，界面文案会跟着变。
+		PasswordAuth: true,
 	}
 }
 
@@ -81,6 +92,9 @@ func microsoftProvider(tenant string) Provider {
 		},
 		IMAP: ServerPreset{Host: "outlook.office365.com", Port: 993, Security: "ssl"},
 		SMTP: ServerPreset{Host: "smtp.office365.com", Port: 587, Security: "starttls"},
+		// Microsoft 于 2024-09-16 对个人 Outlook.com/Hotmail/Live 账户彻底关闭了
+		// 基本认证，连应用专用密码这条退路都没有——Outlook 只能走 OAuth。
+		PasswordAuth: false,
 	}
 }
 

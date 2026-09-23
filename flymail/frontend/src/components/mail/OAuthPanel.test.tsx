@@ -32,6 +32,9 @@ const GOOGLE: OAuthProviderInfo = {
   device_code: false,
   imap_host: 'imap.gmail.com',
   smtp_host: 'smtp.gmail.com',
+  // 空串 = 走 loopback（后端与浏览器同机），这些用例本来就是照 loopback 写的
+  redirect_uri: '',
+  password_auth: true,
 }
 
 describe('OAuthPanel', () => {

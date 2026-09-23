@@ -312,7 +312,10 @@
     "oauthLoopbackWarning": "注意：当前回调地址指向你本机的 127.0.0.1，而 FlyMail 是远程访问的，授权很可能无法完成。请让部署方配置 oauth.redirect_base_url 为 FlyMail 的公开地址。",
     "reset": "清空",
     "resetHint": "把表单恢复到初始状态",
-    "draftRestored": "已恢复上次未完成的填写"
+    "draftRestored": "已恢复上次未完成的填写",
+    "oauthNotConfigured": "尚未配置该提供方的应用凭据，请到「设置 → 授权登录」填写。",
+    "oauthNotConfiguredHint": "需要先在「设置 → 授权登录」里填写 OAuth 应用凭据",
+    "oauthPasswordFallback": "也可以跳过授权，用该邮箱的应用专用密码在下方手动添加。"
   },
   "compose": {
     "title": "写邮件",
@@ -908,7 +911,36 @@
       "err_scheme": "必须以 http:// 或 https:// 开头",
       "err_host": "缺少主机名",
       "err_save": "保存失败，请稍后重试"
-    }
+    },
+    "oauth": {
+      "title": "Google 授权登录",
+      "intro": "配置你自己的 Google OAuth 应用后，添加账户时就能用「使用 Google 登录」接入 Gmail。这一步是可选的：纯自用的话，用 Gmail 的应用专用密码手动添加账户更省事，不必配这里。",
+      "guideTitle": "如何获取这些凭据？",
+      "guideStep1": "新建一个 Google Cloud 项目（不需要开通结算）。",
+      "guideStep2": "启用 Gmail API——不启用的话，第 4 步里搜不到 mail.google.com 这个权限范围。",
+      "guideStep3": "打开「Google 身份验证平台」点「开始使用」，填应用名称与支持邮箱，「目标对象」选「外部」。",
+      "guideStep4": "在「数据访问」里点「添加或移除范围」，手动粘贴添加 https://mail.google.com/ 。",
+      "guideStep5": "在「目标对象」下方的「测试用户」里加入你自己的 Gmail 地址——不加的话授权会被直接拒绝（403 access_denied）。",
+      "guideStep6": "在「客户端」里创建客户端，应用类型选「Web 应用」，把上面的回调地址原样粘贴进「已获授权的重定向 URI」；创建完把客户端 ID 与密钥填到下面保存，无需重启服务。",
+      "guideNoteProject": "以上链接都落在控制台顶栏当前选中的项目上，第 1 步建好项目后记得先在顶栏切过去。另外控制台已把「OAuth 同意屏幕」并入「Google 身份验证平台」，网上旧教程的菜单名和截图对不上是正常的。",
+      "guideNote": "Google 只接受 https:// 的回调地址，或 http://localhost、http://127.0.0.1。内网 http 地址（如 http://192.168.1.10:8086）会被拒绝登记，这类部署需要套一层 https 反代，或把端口转发到本机后用 localhost。",
+      "clientId": "客户端 ID",
+      "clientIdHelp": "以 .apps.googleusercontent.com 结尾。留空表示不启用 Google 登录。",
+      "clientSecret": "客户端密钥",
+      "clientSecretHelp": "加密后存放，保存之后不再显示。要更换直接填新值；要停用请点「清除」。",
+      "secretSaved": "已保存（留空则不修改）",
+      "secretEmpty": "尚未设置",
+      "clearSecret": "清除",
+      "redirectUri": "回调地址",
+      "redirectUriHelp": "把这个地址一字不差地登记到 Google 应用的「已获授权的重定向 URI」里，多一个斜杠都会被拒。",
+      "redirectUriMissing": "尚未设置「对外访问地址」，当前会回落到本机回环回调，只有浏览器与后端在同一台机器上才能完成授权。远程访问请先到「通知」设置里填写对外访问地址。",
+      "copy": "复制",
+      "copied": "已复制",
+      "save": "保存",
+      "saved": "已保存",
+      "errSave": "保存失败，请稍后重试"
+    },
+    "navOAuth": "授权登录"
   },
   "dateGroup": {
     "today": "今天",

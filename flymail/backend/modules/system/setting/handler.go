@@ -1,8 +1,10 @@
 package setting
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -90,7 +92,23 @@ func (h *handler) setAll(c *gin.Context) {
 		}
 	}
 
+	// 校验 oauth_google_client_id：允许留空（= 撤掉入口），否则去掉首尾空白后存。
+	// 只做空白裁剪不做格式校验：Google 的客户端 ID 形如 <数字>-<串>.apps.googleusercontent.com，
+	// 但这个格式由 Google 定、随时可能变，拿正则卡住只会在人家改格式那天变成假故障。
+	// 真正的判据是走一次授权——填错了那边会明确报 invalid_client。
+	// 裁空白则是必须的：从后台复制粘贴极容易带上换行或空格，而带空格的 client_id
+	// 会让授权在浏览器里报一个与「填错了」毫无关系的错。
+	for _, k := range []string{KeyOAuthGoogleClientID, KeyOAuthGoogleClientSecret} {
+		if v, ok := body.Settings[k]; ok {
+			body.Settings[k] = strings.TrimSpace(v)
+		}
+	}
+
 	if err := h.svc.SetMany(body.Settings); err != nil {
+		if errors.Is(err, ErrNoEncryptor) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败"})
 		return
 	}

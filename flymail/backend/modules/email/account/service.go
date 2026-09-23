@@ -12,6 +12,9 @@ type Service struct {
 	enc  *crypto.Encryptor
 	// oauthCfg 部署级 OAuth 客户端凭据，由 app 层注入（见 SetOAuthSettings）。
 	oauthCfg OAuthSettings
+	// oauthCfgFn 非空时取代 oauthCfg：凭据改为**每次用时现取**，管理员在设置页
+	// 改完即刻生效，不必重启进程（见 SetOAuthSettingsProvider）。
+	oauthCfgFn func() OAuthSettings
 	// tokenLocks 按账户 ID 串行化令牌刷新，防止并发刷新互相作废（见 accountLock）。
 	tokenLocks sync.Map
 	// flows 正在进行的授权流程，键为 flow_id（见 oauth_flow.go）。

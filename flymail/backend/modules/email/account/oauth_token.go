@@ -39,16 +39,35 @@ type OAuthSettings struct {
 	RedirectBaseURL string
 }
 
-// SetOAuthSettings 注入 OAuth 客户端凭据。
+// SetOAuthSettings 注入一份固定的 OAuth 客户端凭据（进程启动时读一次）。
 func (s *Service) SetOAuthSettings(cfg OAuthSettings) { s.oauthCfg = cfg }
+
+// SetOAuthSettingsProvider 注入「每次用时现取」的凭据来源，取代 SetOAuthSettings。
+//
+// 凭据现在可以由管理员在设置页里改（存数据库），而进程启动时读一次的话，
+// 改完必须重启容器才生效——配 OAuth 应用恰恰是要反复试的事（回调地址填错、
+// 测试用户没加、secret 复制漏一位），每试一次重启一次不可接受。
+//
+// 与 syncDepthFn / SetPollIntervalProvider 是同一个模式：account 包不依赖 setting 包，
+// 由 app 层把「怎么取」注入进来。
+func (s *Service) SetOAuthSettingsProvider(fn func() OAuthSettings) { s.oauthCfgFn = fn }
+
+// oauthSettings 返回当前生效的凭据。全包唯一的读取出口。
+func (s *Service) oauthSettings() OAuthSettings {
+	if s.oauthCfgFn != nil {
+		return s.oauthCfgFn()
+	}
+	return s.oauthCfg
+}
 
 // OAuthConfigured 报告某个提供方是否已配置凭据，供前端决定是否展示入口。
 func (s *Service) OAuthConfigured(provider string) bool {
+	cfg := s.oauthSettings()
 	switch provider {
 	case oauth.ProviderGoogle:
-		return s.oauthCfg.GoogleClientID != ""
+		return cfg.GoogleClientID != ""
 	case oauth.ProviderMicrosoft:
-		return s.oauthCfg.MicrosoftClientID != ""
+		return cfg.MicrosoftClientID != ""
 	default:
 		return false
 	}
@@ -56,10 +75,11 @@ func (s *Service) OAuthConfigured(provider string) bool {
 
 // lookupProvider 解析提供方定义。默认走内置表，测试可替换为指向 httptest 的假端点。
 func (s *Service) lookupProvider(id string) (oauth.Provider, bool) {
+	tenant := s.oauthSettings().MicrosoftTenant
 	if s.providerLookup != nil {
-		return s.providerLookup(id, s.oauthCfg.MicrosoftTenant)
+		return s.providerLookup(id, tenant)
 	}
-	return oauth.Lookup(id, s.oauthCfg.MicrosoftTenant)
+	return oauth.Lookup(id, tenant)
 }
 
 // oauthClient 按提供方组装一个协议客户端。
@@ -68,12 +88,13 @@ func (s *Service) oauthClient(provider string) (*oauth.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("未知的 OAuth 提供方: %s", provider)
 	}
+	cfg := s.oauthSettings()
 	c := &oauth.Client{Provider: p}
 	switch provider {
 	case oauth.ProviderGoogle:
-		c.ClientID, c.ClientSecret = s.oauthCfg.GoogleClientID, s.oauthCfg.GoogleClientSecret
+		c.ClientID, c.ClientSecret = cfg.GoogleClientID, cfg.GoogleClientSecret
 	case oauth.ProviderMicrosoft:
-		c.ClientID, c.ClientSecret = s.oauthCfg.MicrosoftClientID, s.oauthCfg.MicrosoftClientSecret
+		c.ClientID, c.ClientSecret = cfg.MicrosoftClientID, cfg.MicrosoftClientSecret
 	}
 	if c.ClientID == "" {
 		return nil, ErrOAuthNotConfigured

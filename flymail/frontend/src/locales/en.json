@@ -312,7 +312,10 @@
     "oauthLoopbackWarning": "Heads up: the callback points at 127.0.0.1 on your own machine while FlyMail is accessed remotely, so authorization will likely fail. Ask the deployer to set oauth.redirect_base_url to FlyMail’s public address.",
     "reset": "Reset",
     "resetHint": "Restore the form to its initial state",
-    "draftRestored": "Restored your unfinished input"
+    "draftRestored": "Restored your unfinished input",
+    "oauthNotConfigured": "No application credentials configured for this provider. Add them under Settings → Sign-in.",
+    "oauthNotConfiguredHint": "OAuth application credentials must be configured under Settings → Sign-in first",
+    "oauthPasswordFallback": "You can also skip authorization and add the account manually below using an app password."
   },
   "compose": {
     "title": "Compose",
@@ -908,7 +911,36 @@
       "err_scheme": "Must start with http:// or https://",
       "err_host": "Missing host name",
       "err_save": "Save failed, please try again"
-    }
+    },
+    "oauth": {
+      "title": "Sign in with Google",
+      "intro": "Configure your own Google OAuth application to enable \"Sign in with Google\" when adding a Gmail account. This is optional: for personal use, adding the account manually with a Gmail app password is simpler and needs nothing here.",
+      "guideTitle": "How do I get these credentials?",
+      "guideStep1": "Create a Google Cloud project (no billing required).",
+      "guideStep2": "Enable the Gmail API — without it, the https://mail.google.com/ scope will not show up in step 4.",
+      "guideStep3": "Open the Google Auth Platform, click Get started, fill in the app name and support email, and set Audience to External.",
+      "guideStep4": "Under Data Access, click Add or remove scopes and paste in https://mail.google.com/ manually.",
+      "guideStep5": "Under Audience → Test users, add your own Gmail address — without it, authorization is rejected outright (403 access_denied).",
+      "guideStep6": "Under Clients, create a client of type Web application and paste the redirect URI shown above into Authorized redirect URIs. Then enter the client ID and secret below and save. No restart required.",
+      "guideNoteProject": "These links always land on whichever project is selected in the console's top bar, so switch to your new project there after step 1. Note also that the console folded the old \"OAuth consent screen\" into the Google Auth Platform, so older tutorials and screenshots will not match the current menus.",
+      "guideNote": "Google only accepts https:// redirect URIs, or http://localhost and http://127.0.0.1. A plain-http LAN address such as http://192.168.1.10:8086 will be refused, so such deployments need an https reverse proxy, or a forwarded port accessed via localhost.",
+      "clientId": "Client ID",
+      "clientIdHelp": "Ends in .apps.googleusercontent.com. Leave empty to disable Google sign-in.",
+      "clientSecret": "Client secret",
+      "clientSecretHelp": "Stored encrypted and never shown again. Enter a new value to replace it, or use Clear to remove it.",
+      "secretSaved": "Saved (leave empty to keep)",
+      "secretEmpty": "Not set",
+      "clearSecret": "Clear",
+      "redirectUri": "Redirect URI",
+      "redirectUriHelp": "Register this value verbatim under \"Authorized redirect URIs\" in your Google application; even one extra slash is rejected.",
+      "redirectUriMissing": "No external address is set, so authorization falls back to a loopback callback, which only works when the browser and the server run on the same machine. For remote access, set the external address under Notifications first.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "save": "Save",
+      "saved": "Saved",
+      "errSave": "Could not save, please try again"
+    },
+    "navOAuth": "Sign-in"
   },
   "dateGroup": {
     "today": "Today",

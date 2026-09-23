@@ -148,6 +148,16 @@ type ProviderInfo struct {
 	DeviceCode bool   `json:"device_code"`
 	IMAPHost   string `json:"imap_host"`
 	SMTPHost   string `json:"smtp_host"`
+	// RedirectURI 是必须登记到服务商后台的重定向 URI；走 loopback 时为空。
+	//
+	// 由后端算而不是让前端拼：这个值必须与授权请求里实际发出的那个**逐字节一致**，
+	// 差一个斜杠 Google 就报 redirect_uri_mismatch。前端拼的话，同一个地址就有了
+	// 两处实现，而它们不一致时的报错出现在 Google 的页面上，与 FlyMail 毫无关联。
+	RedirectURI string `json:"redirect_uri"`
+	// PasswordAuth 报告该服务商是否还接受 IMAP/SMTP 的口令认证。
+	// 界面靠它决定「凭据没配」时该不该建议用应用专用密码顶上——
+	// Gmail 可以，Outlook 已于 2024-09 关闭基本认证，建议了就是把人往死路上指。
+	PasswordAuth bool `json:"password_auth"`
 }
 
 // OAuthProviders 返回内置提供方及其配置状态。
@@ -163,6 +173,8 @@ func (s *Service) OAuthProviders() []ProviderInfo {
 			Configured: s.OAuthConfigured(id),
 			DeviceCode: p.SupportsDeviceCode(),
 			IMAPHost:   p.IMAP.Host, SMTPHost: p.SMTP.Host,
+			RedirectURI:  s.RedirectURI(),
+			PasswordAuth: p.PasswordAuth,
 		})
 	}
 	return out
@@ -243,6 +255,22 @@ func (s *Service) StartOAuth(req StartOAuthRequest) (*StartOAuthResponse, error)
 // CallbackPath 是固定回调模式下后端暴露的回调路径（相对 API 根）。
 const CallbackPath = "/accounts/oauth/callback"
 
+// apiPrefix 是 CallbackPath 之前的那段，与 internal/server/router.go 的 api 分组一致。
+const apiPrefix = "/api/v1"
+
+// RedirectURI 返回当前该登记到服务商后台的重定向 URI；走 loopback 时返回空串。
+//
+// 与 startCodeFlow 共用同一套拼法，供设置页把地址直接显示给管理员复制——
+// 「重定向 URI 不匹配」是配 OAuth 应用最常见的一次失败，而它的正确值只有后端知道
+// （取决于配的是 oauth.redirect_base_url 还是对外访问地址）。
+func (s *Service) RedirectURI() string {
+	base := s.oauthSettings().RedirectBaseURL
+	if base == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + apiPrefix + CallbackPath
+}
+
 // startCodeFlow 构造授权地址并安排接收回调。
 //
 // 两种回调形态：
@@ -260,9 +288,13 @@ func (s *Service) startCodeFlow(ctx context.Context, f *oauthFlow, client *oauth
 	if err != nil {
 		return err
 	}
-	if base := s.oauthCfg.RedirectBaseURL; base != "" {
+	if redirectURI := s.RedirectURI(); redirectURI != "" {
 		f.state, f.verifier = state, pkce.Verifier
-		f.redirectURI = strings.TrimRight(base, "/") + CallbackPath
+		// ⚠ 必须与 RedirectURI() 同源。这里曾经自己拼 base + CallbackPath，漏掉了
+		// 路由实际所在的 /api/v1 前缀，于是服务商把浏览器重定向到一个后端没有的
+		// 路径，授权码永远送不回来——流程卡在「等待授权」直到超时，而 FlyMail 这侧
+		// 连一条日志都没有（请求根本没到后端）。
+		f.redirectURI = redirectURI
 		f.authURL = client.AuthCodeURL(f.redirectURI, state, pkce, loginHint)
 		s.states.Store(state, f.id)
 		// 流程结束时清掉索引，避免 state 无限堆积。

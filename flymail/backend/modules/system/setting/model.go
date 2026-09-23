@@ -48,7 +48,37 @@ const (
 	// KeyBodySyncRecentDays 是 recent 模式的天数窗口。
 	KeyBodySyncRecentDays     = "body_sync_recent_days"
 	DefaultBodySyncRecentDays = "30"
+
+	// KeyOAuthGoogleClientID / KeyOAuthGoogleClientSecret 是 Google OAuth 应用的客户端凭据，
+	// 由管理员在设置页填写（也可用 FLYMAIL_OAUTH_GOOGLE_* 环境变量，见 internal/config）。
+	//
+	// 放数据库而不是只认环境变量，是因为配 OAuth 应用要反复试：回调地址填错、
+	// 测试用户没加、secret 复制漏一位，每试一次重启一次容器不可接受。
+	// 两处都有值时以数据库为准——那是管理员在界面上刚做的事，应当压过部署时的默认。
+	KeyOAuthGoogleClientID = "oauth_google_client_id"
+	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
+	KeyOAuthGoogleClientSecret = "oauth_google_client_secret"
 )
+
+// secretKeys 是值以密文存储、且**任何情况下都不得回显**的设置键。
+//
+// 读取一侧（All）把它们整个摘掉，换成 <key>_set 的布尔标记；写入一侧（SetMany）
+// 收到明文时先加密。名单集中在这里，是为了让「新增一个密文设置」只需要动一行——
+// 而不是指望下一个人记得在读和写两处各补一段。
+var secretKeys = []string{KeyOAuthGoogleClientSecret}
+
+// SecretSetSuffix 是密文设置在对外响应里的标记后缀：<key>_set = "true"/"false"。
+const SecretSetSuffix = "_set"
+
+// isSecretKey 报告某个键是否属于密文设置。
+func isSecretKey(key string) bool {
+	for _, k := range secretKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
 
 // 正文预取模式取值。
 const (

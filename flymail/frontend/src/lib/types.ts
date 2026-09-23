@@ -30,8 +30,20 @@ export interface AppSettings {
   /**
    * FlyMail 对外可访问的根地址，用于通知里的「打开邮件」链接。
    * 留空表示没配，通知就不带链接（服务端猜不出自己的对外地址）。
+   *
+   * 远程部署下它同时是 OAuth 回调的基地址——两者要的是同一个东西，
+   * 分成两个设置项只会制造它们不一致的机会。
    */
   app_base_url: string
+  /** Google OAuth 应用的客户端 ID；留空表示未配置，添加账户时的入口会置灰 */
+  oauth_google_client_id: string
+  /**
+   * client_secret 是否已保存。
+   *
+   * ⚠ 这里只有布尔标记，没有值：密文永不出网（见后端 setting.All）。
+   * 因此界面上无法回显它，只能显示「已保存」并允许覆盖或清除。
+   */
+  oauth_google_client_secret_set: boolean
 }
 
 /** 管理员资料 */
@@ -272,6 +284,18 @@ export interface OAuthProviderInfo {
   device_code: boolean
   imap_host: string
   smtp_host: string
+  /**
+   * 必须登记到服务商后台的重定向 URI；走 loopback（后端与浏览器同机）时为空。
+   * 由后端算出：它必须与授权请求里实际发出的那个逐字节一致，差一个斜杠就报
+   * redirect_uri_mismatch，所以不能由前端拼第二份。
+   */
+  redirect_uri: string
+  /**
+   * 该服务商的 IMAP/SMTP 是否还接受口令认证（应用专用密码）。
+   * 决定「凭据没配」时能不能建议用密码顶上：Gmail 可以，
+   * Outlook 已于 2024-09 关闭基本认证，建议了就是把人往死路上指。
+   */
+  password_auth: boolean
 }
 
 /** 授权方式：授权码（浏览器回调）或设备码（另一台设备输码） */

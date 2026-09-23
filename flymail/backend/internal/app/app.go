@@ -121,19 +121,39 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	accountSvc := account.NewService(account.NewRepository(db), enc)
-	accountSvc.SetOAuthSettings(account.OAuthSettings{
-		GoogleClientID:        cfg.OAuth.Google.ClientID,
-		GoogleClientSecret:    cfg.OAuth.Google.ClientSecret,
-		MicrosoftClientID:     cfg.OAuth.Microsoft.ClientID,
-		MicrosoftClientSecret: cfg.OAuth.Microsoft.ClientSecret,
-		MicrosoftTenant:       cfg.OAuth.Microsoft.Tenant,
-		RedirectBaseURL:       cfg.OAuth.RedirectBaseURL,
-	})
 	folderSvc := folder.NewService(folder.NewRepository(db))
 	messageSvc := message.NewService(message.NewRepository(db), message.NewBodyRepository(db))
 	syncSvc := syncmod.NewService(accountSvc, folderSvc, messageSvc)
 	settingSvc := setting.NewService(setting.NewRepository(db))
+	// 密文设置（目前只有 OAuth 的 client_secret）与账户密码共用同一把密钥。
+	settingSvc.SetEncryptor(enc)
 	syncSvc.SetSyncDepthProvider(func() int { return settingSvc.GetInt(setting.KeySyncDepth, 1000) })
+
+	// OAuth 客户端凭据：每次用时现取，管理员在设置页改完即刻生效，不必重启。
+	//
+	// 两个来源的优先级是「数据库 > 配置文件/环境变量」：库里的值是管理员刚在界面上
+	// 做的事，理应压过部署时写下的默认值。反过来的话，一旦 compose 里留了个
+	// FLYMAIL_OAUTH_GOOGLE_CLIENT_ID，界面上怎么改都不生效，而界面还显示已保存。
+	//
+	// 回调基地址复用「对外访问地址」（app_base_url）：两者要的是同一个东西——
+	// FlyMail 对外是什么地址。让用户在两个地方填两遍同一个值，只会制造它们不一致的机会。
+	// oauth.redirect_base_url 仍然优先，供需要把回调指到别处的部署使用。
+	accountSvc.SetOAuthSettingsProvider(func() account.OAuthSettings {
+		redirect := cfg.OAuth.RedirectBaseURL
+		if redirect == "" {
+			redirect = settingSvc.GetString(setting.KeyAppBaseURL, "")
+		}
+		return account.OAuthSettings{
+			GoogleClientID: settingSvc.GetString(
+				setting.KeyOAuthGoogleClientID, cfg.OAuth.Google.ClientID),
+			GoogleClientSecret: firstNonEmpty(
+				settingSvc.GetSecret(setting.KeyOAuthGoogleClientSecret), cfg.OAuth.Google.ClientSecret),
+			MicrosoftClientID:     cfg.OAuth.Microsoft.ClientID,
+			MicrosoftClientSecret: cfg.OAuth.Microsoft.ClientSecret,
+			MicrosoftTenant:       cfg.OAuth.Microsoft.Tenant,
+			RedirectBaseURL:       redirect,
+		}
+	})
 	sendSvc := send.NewService(accountSvc, folderSvc)
 	draftSvc := draft.NewService(draft.NewRepository(db))
 
@@ -366,4 +386,14 @@ func (a *App) Shutdown() error {
 		_ = a.logClose() // 关闭日志文件句柄
 	}
 	return err
+}
+
+// firstNonEmpty 返回第一个非空字符串，用于「数据库值优先、回落配置文件」。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

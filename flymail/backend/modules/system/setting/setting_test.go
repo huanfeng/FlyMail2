@@ -144,7 +144,9 @@ func TestService_SetMany(t *testing.T) {
 		t.Fatalf("SetMany: %v", err)
 	}
 	all := svc.All()
-	if len(all) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(all))
+	// 查值而不是数条目：All() 的条目数从来不等于「存了几条」——密文设置会被换成
+	// <key>_set 标记（未配置时也在，前端据此显示「尚未设置」），handler 还会再补默认值。
+	if all["x"] != "10" || all["y"] != "20" {
+		t.Fatalf("SetMany 写入的值不对：x=%q y=%q", all["x"], all["y"])
 	}
 }

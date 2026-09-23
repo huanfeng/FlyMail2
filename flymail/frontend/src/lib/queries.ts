@@ -1232,6 +1232,8 @@ export function useSettings() {
         body_sync_mode: parseBodySyncMode(data.settings?.body_sync_mode),
         body_sync_recent_days: Number(data.settings?.body_sync_recent_days ?? 30) || 30,
         app_base_url: data.settings?.app_base_url ?? '',
+        oauth_google_client_id: data.settings?.oauth_google_client_id ?? '',
+        oauth_google_client_secret_set: data.settings?.oauth_google_client_secret_set === 'true',
       }
     },
   })

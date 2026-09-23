@@ -2152,6 +2152,60 @@ mark.hl {
   font-size: 12.5px; color: var(--ink-3); margin-top: 2px;
 }
 
+/* 纵向表单字段：label 在上、控件在下、说明在最下。
+   与 .settings-row 互补而不是替代——那个是 `1fr auto` 两列栅格，只适合
+   「一句话 + 一个开关」；要填的东西一旦带上说不清就说不清的说明，
+   长文本会把左列撑高、而右列 align-items:center 垂直居中，看着就是错位，
+   放进 auto 那列则直接把栅格撑破。 */
+.settings-field {
+  padding: 14px 0; border-top: 1px solid var(--rule);
+}
+.settings-field:first-of-type { border-top: 0; }
+.settings-field .sf-label {
+  display: block; font-size: 13.5px; font-weight: 500;
+  color: var(--ink); margin-bottom: 7px;
+}
+.settings-field .sf-help {
+  font-size: 12.5px; color: var(--ink-3); margin-top: 7px;
+  text-wrap: pretty; line-height: 1.6;
+}
+/* 输入框占满可用宽度但不过长：超过这个宽度只会让眼睛在 label 与内容之间来回跑 */
+.settings-field input { width: 100%; max-width: 440px; }
+
+/* 只读地址条：给「复制出去登记到别处」的值用。
+   flex-wrap + min-width:0 是为了窄屏——长 URL 不换行就会把整个浮层撑出横向滚动。 */
+.settings-copybar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-copybar code {
+  flex: 1 1 280px; min-width: 0;
+  font-size: 12px; padding: 7px 10px; border-radius: 6px;
+  background: var(--bg-alt); color: var(--ink-2);
+  border: 1px solid var(--rule); word-break: break-all;
+}
+
+/* 折叠的配置指引：默认收起。
+   分步骤的外部操作说明（去哪个后台、点哪个菜单）必须写清楚，但它不该在
+   用户每次打开设置时都占半屏——真正要看它的只有第一次配置的那一遍。 */
+.settings-guide { margin: 2px 0 14px; }
+.settings-guide summary {
+  cursor: pointer; font-size: 13px; color: var(--accent);
+  width: fit-content;
+}
+.settings-guide ol {
+  margin: 10px 0 0; padding-left: 20px;
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.75;
+}
+.settings-guide li { margin-bottom: 6px; text-wrap: pretty; }
+/* 每步末尾另起一行的控制台直达地址 */
+.settings-guide .sg-link {
+  display: block; margin-top: 2px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--accent); word-break: break-all;
+}
+.settings-guide .sg-note {
+  margin: 10px 0 0; font-size: 12.5px; color: var(--ink-3);
+  text-wrap: pretty; line-height: 1.6;
+}
+
 /* 设置页里的紧凑列表行（规则执行日志、黑名单条目、投递日志）。
    这些行的骨架完全一样，各写一遍内联样式只会让它们慢慢漂移成三种间距。 */
 .settings-list-row {

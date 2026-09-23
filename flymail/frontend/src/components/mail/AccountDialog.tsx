@@ -151,7 +151,14 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
   const isOAuthAccount = account?.auth_type === 'oauth'
   const needsReauth = account?.status === ACCOUNT_STATUS_NEEDS_REAUTH
   const { data: oauthProviders } = useOAuthProviders()
-  const availableProviders = (oauthProviders ?? []).filter((p) => p.configured)
+  /**
+   * ⚠ 未配置凭据的提供方**不过滤掉**，而是置灰并说明去哪配。
+   *
+   * 这里原先是 `.filter((p) => p.configured)`，于是没配 client_id 时整个入口
+   * 凭空消失——用户看到的是「这个功能没做」，而真相是「还差一步配置」。
+   * 后端也是照这个契约写的（见 account.OAuthProviders 的头注释）。
+   */
+  const availableProviders = oauthProviders ?? []
 
   /*
    * 表单的初始化与**保留**。
@@ -427,18 +434,31 @@ export function AccountDialog({ open, account, onOpenChange }: AccountDialogProp
             ) : (
             <>
 
-            {/* ── OAuth 入口（仅新建）：Gmail / Outlook 已停用基本认证，授权登录才是主路径 ── */}
+            {/* ── OAuth 入口（仅新建）──
+                排在手填表单前面是因为两家的口令认证都在收缩：Outlook 个人账户
+                已于 2024-09-16 彻底关闭基本认证（没有应用专用密码这条退路），
+                Gmail 还留着应用专用密码但已放话要淘汰。
+                所以「没配凭据」对两家的意义不同，退路提示要看 password_auth。 */}
             {!isEdit && availableProviders.length > 0 && (
               <div className="flex flex-col gap-2">
                 {availableProviders.map((p) => (
-                  <Button
-                    key={p.id}
-                    type="button"
-                    variant="outline"
-                    onClick={() => setOAuthWith(p)}
-                  >
-                    {t('account.oauthSignIn', { provider: p.name })}
-                  </Button>
+                  <React.Fragment key={p.id}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!p.configured}
+                      title={p.configured ? undefined : t('account.oauthNotConfiguredHint')}
+                      onClick={() => setOAuthWith(p)}
+                    >
+                      {t('account.oauthSignIn', { provider: p.name })}
+                    </Button>
+                    {!p.configured && (
+                      <span className="text-xs" style={{ color: 'var(--ink-3)' }}>
+                        {t('account.oauthNotConfigured')}
+                        {p.password_auth && ` ${t('account.oauthPasswordFallback')}`}
+                      </span>
+                    )}
+                  </React.Fragment>
                 ))}
                 <div className="flex items-center gap-3 py-1">
                   <span className="h-px flex-1" style={{ background: 'var(--rule)' }} />

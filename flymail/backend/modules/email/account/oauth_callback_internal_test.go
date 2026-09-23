@@ -49,7 +49,9 @@ func TestFixedCallback_UsesPublicRedirect(t *testing.T) {
 	if strings.Contains(redirect, "127.0.0.1") {
 		t.Fatalf("固定回调模式不应使用回环地址: %s", redirect)
 	}
-	want := "https://mail.example.com" + CallbackPath
+	// 硬编码而不是复述 CallbackPath 的拼法：这个值要与登记在服务商后台的那个
+	// 逐字节一致，用实现里的常量拼出期望值，等于实现怎么错测试就怎么跟着错。
+	want := "https://mail.example.com/api/v1/accounts/oauth/callback"
 	if redirect != want {
 		t.Fatalf("回调地址 = %q，期望 %q", redirect, want)
 	}
@@ -62,7 +64,7 @@ func TestFixedCallback_Success(t *testing.T) {
 		if form.Get("code_verifier") == "" {
 			t.Error("必须提交 PKCE verifier")
 		}
-		if form.Get("redirect_uri") != "https://mail.example.com"+CallbackPath {
+		if form.Get("redirect_uri") != "https://mail.example.com/api/v1/accounts/oauth/callback" {
 			t.Errorf("交换时的 redirect_uri 必须与授权时一致，实际 %q", form.Get("redirect_uri"))
 		}
 		json.NewEncoder(w).Encode(map[string]any{

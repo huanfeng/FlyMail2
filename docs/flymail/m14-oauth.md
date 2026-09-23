@@ -211,6 +211,28 @@ oauth:
 
 对应环境变量 `FLYMAIL_OAUTH_GOOGLE_CLIENT_ID` 等。
 
+### 设置页配置（Google，优先于配置文件）
+
+Google 的 `client_id` / `client_secret` 也可以在 **设置 → 账户 → Google 授权登录**
+里填，存数据库（secret 经 AES 加密，与账户密码同一把密钥），**改完即刻生效，不必重启**。
+
+两个来源的优先级是 **数据库 > 配置文件/环境变量**：库里的值是管理员刚在界面上做的事，
+理应压过部署时写下的默认。反过来的话，compose 里留一个 `FLYMAIL_OAUTH_GOOGLE_CLIENT_ID`
+就会让界面怎么改都不生效，而界面还显示「已保存」。
+
+为此 `account.Service` 的凭据改为**每次用时现取**（`SetOAuthSettingsProvider`，
+与 `SetSyncDepthProvider` 同一个模式）。启动时读一次的话，配 OAuth 应用这种
+要反复试的事——回调地址填错、测试用户没加、secret 漏一位——每试一次就要重启一次。
+
+⚠ `client_secret` **永不回显**：`GET /settings` 把密文整个摘掉，只回一个
+`oauth_google_client_secret_set` 布尔标记。界面因此只有「覆盖」与「清除」，没有「查看」。
+
+回调基地址复用**对外访问地址**（`app_base_url`，设置 → 通知）：两者要的是同一个东西，
+分成两个设置项只会制造它们不一致的机会。`oauth.redirect_base_url` 仍然优先，
+供需要把回调指到别处的部署使用。设置页会把算好的回调地址显示出来供直接复制——
+它必须与授权请求里发出的那个逐字节一致，所以由后端算（`Service.RedirectURI`），
+前端不拼第二份。
+
 ⚠ 每个键都必须 `v.SetDefault(...)` 注册：viper 的 `AutomaticEnv` 只对「已知的 key」
 在 Unmarshal 时生效，不注册则环境变量根本读不到（Docker 部署下凭据只能走环境变量）。
 这与 `log.dir` / `auth.jwt_secret` 是同一个坑。
@@ -251,12 +273,119 @@ oauth:
 
 **Google Cloud**：创建 OAuth 客户端，类型选「桌面应用」（自带 loopback 支持）。
 若走固定回调地址则选「Web 应用」并登记
-`<base>/api/v1/accounts/oauth/callback`。
+`<base>/api/v1/accounts/oauth/callback`（设置页里可直接复制这个地址）。
+
+⚠ Google 对「已获授权的重定向 URI」只接受 **https://** 的地址，或
+`http://localhost` / `http://127.0.0.1`。内网 http 地址（如 `http://192.168.1.10:8086`）
+会被 Google 后台拒绝登记，这类部署要么套一层 https 反代，要么把端口转发到本机
+用 `http://localhost:<port>`。
+
+⚠ Google 已于 2022 年停用设备码流程对 Gmail scope 的支持（`googleProvider().DeviceURL` 为空），
+所以 Gmail **没有**设备码这条退路：远程部署只能走固定回调。
 需要在 OAuth 同意屏幕申请 `https://mail.google.com/` —— 这是受限 scope，
 对外发布需通过 Google 的安全评估；自用可停在「测试」状态并把自己加进测试用户。
+
+Google Cloud 控制台已把「OAuth 同意屏幕」并入「Google 身份验证平台」，
+菜单名和网上旧教程对不上，「新建项目」更不在任何菜单项下（在顶栏项目选择器的弹窗里）。
+因此设置页的指引按页给直达地址，绕开找菜单这一步（`OAuthSection.tsx` 的 `GUIDE_STEPS`）：
+
+| 步骤 | 地址 |
+| --- | --- |
+| 新建项目 | `console.cloud.google.com/projectcreate` |
+| 启用 Gmail API | `console.cloud.google.com/apis/library/gmail.googleapis.com` |
+| 身份验证平台（开始使用 / 目标对象选「外部」） | `console.cloud.google.com/auth/overview` |
+| 数据访问（加 `https://mail.google.com/` scope） | `console.cloud.google.com/auth/scopes` |
+| 目标对象 → 测试用户 | `console.cloud.google.com/auth/audience` |
+| 客户端（建 Web 应用、填重定向 URI） | `console.cloud.google.com/auth/clients` |
+
+这些地址都落在控制台顶栏当前选中的项目上，建完项目要先在顶栏切过去。
+不先启用 Gmail API，「数据访问」里搜不到 `mail.google.com` 这个 scope。
 
 **Azure**：注册应用，「支持的账户类型」选「任何组织目录中的账户和个人 Microsoft 账户」，
 平台添加「移动和桌面应用程序」并勾选 `https://login.microsoftonline.com/common/oauth2/nativeclient`
 与自定义的 loopback 重定向；API 权限添加
 `IMAP.AccessAsUser.All`、`SMTP.Send`、`offline_access`。
 设备码流程需在「身份验证」里开启「允许公共客户端流」。
+
+## 决策：不提供 FlyMail 官方共享 client_id
+
+每个部署方都要自己去 Google Cloud 注册一遍应用，这个成本是真实的，
+所以「由项目方注册一个官方应用、所有安装共用」这条路被反复提起过。结论是**不做**。
+理由按重要性排列如下，省得以后（包括我自己）再把这条路重提一遍。
+
+### 共享凭据并不需要一个「通用后台」——需要的只是回调落点
+
+先澄清一个容易混淆的前提。当前链路里项目方的服务器全程不在其中：
+
+```
+用户浏览器 ──► accounts.google.com                          (授权)
+Google      ──► 用户自己的域名/api/v1/accounts/oauth/callback (302，带 code)
+用户的后端  ──► oauth2.googleapis.com/token                  (换 token，直连)
+用户的后端  ──► imap.gmail.com                               (收信，直连)
+```
+
+client_id / client_secret 只是两个字符串，嵌进二进制即可，换成共享凭据上面一步都不变。
+唯一需要托管服务的是第二步的落点：Google 只认预先精确登记的 redirect_uri，
+而自建部署的域名无法预知。解法是登记一个固定地址由它 302 回用户实例——
+一个**纯回调转发器**，不碰邮件。
+
+### 转发器本身的安全性尚可，但有两个不好绕的问题
+
+流过转发器的只有 authorization code、state、用户实例域名、时间与 IP。
+access_token、refresh_token、邮箱口令、邮件正文都不经过它——这些是第三步之后才存在的，
+而第三步是用户后端直连 Google。且**只要用 PKCE，那个 code 到了转发器手上也是废的**：
+换 token 还需要 `code_verifier`，它只存在于用户实例的内存里。
+
+⚠ 因此在共享凭据的前提下 PKCE 不是加分项而是**必需品**：
+共享意味着 client_secret 随二进制公开（Thunderbird 的 secret 就躺在它的开源仓库里），
+公开的 secret + 偷来的 code = 能换 token，没有 PKCE 就没有兜底。
+
+真正难办的是另外两点：
+
+1. **它本质上是个开放重定向**。要能 302 回任意自建域名就做不了白名单，
+   而这个开放重定向还挂在一个被 Google 验证过的域名下，比一般的更好用来钓鱼。
+   想堵住就得要求实例先注册、对 state 签名——那它就从「一个小 302」
+   变成一个有状态服务：要库、要运维、要备份。
+2. **它是信任锚**。域名忘续费、被抢注、被入侵，所有用户的授权会同时被劫持。
+   而选择自建的人，多半正是不想要这种单点。
+
+### 决定性的障碍是 Google 的审核，不是后台
+
+`https://mail.google.com/` 是**受限范围**（restricted scope，涵盖 IMAP/SMTP/POP3/REST
+的全部用法）。要让任意用户使用同一个 client_id，应用必须从「测试」发布到「正式」，
+而受限范围的发布要求 OAuth 应用验证（域名所有权、隐私政策、演示视频）
+外加**每 12 个月一次的第三方安全评估（CASA）**，公开报价区间约 $500–$4,500/年，年年复检。
+
+停在「测试」状态不发布的代价：
+
+- 上限 100 个测试用户，每个都要手动加邮箱白名单
+- **refresh token 7 天过期**——每个用户每周被踢下线一次
+
+第二条对邮件客户端是致命的。
+
+所以共享 client_id 的真实代价不是「搭个后台」，是**每年一笔安全评估费用
+外加长期维护一个信任锚**。对照组：Nextcloud Mail、Roundcube 的 OAuth 插件
+同样要求管理员自己注册应用；Thunderbird 内嵌凭据走 loopback、没有转发器，
+但它的应用早已通过验证处于正式状态，且有基金会承担这些持续成本。
+
+### 因此
+
+- Gmail 维持「部署方自己注册」，把一次性成本压到最低（设置页的直达链接即为此）。
+- Wails 桌面版属同机场景，将来可考虑内嵌凭据 + loopback 绕开 redirect_uri 问题，
+  但仍受 CASA 与 7 天过期的约束，除非去走验证。
+- **应用专用密码这条路不能在文档和界面里被 OAuth 盖掉**，见下。
+
+## 口令认证的现状：两家不一样
+
+| | 明文口令 | 应用专用密码 | 后果 |
+| --- | --- | --- | --- |
+| Gmail | 2024-09 起停用 | **仍可用**（需开两步验证） | 没配 OAuth 也还有退路 |
+| Outlook.com 个人 | 2024-09-16 起彻底关闭 | **不存在** | 只能走 OAuth |
+
+这个差别被建模成 `oauth.Provider.PasswordAuth`，经 `ProviderInfo.password_auth`
+透给前端，「添加账户」里的退路提示据此分叉。
+
+放在 provider 定义里而不是前端写死，是因为这是**协议事实而非界面偏好**：
+Google 已放话要逐步淘汰应用专用密码，真关掉那天改一个布尔值即可，
+界面文案会跟着变。给反了不会有任何报错，只会把 Outlook 用户指向一个
+根本不存在的设置项，让人翻半天然后断定是 FlyMail 坏了。

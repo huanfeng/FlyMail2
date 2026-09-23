@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import { CLIENT_ID } from '@/lib/client-id'
 import { setNotifyPrefs, resetNotifyPrefsCache } from '@/lib/notify-prefs'
 import type { RealtimeEvent } from '@/lib/types'
 
@@ -104,6 +105,71 @@ describe('useRealtimeSync', () => {
     const keys = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(keys.some((k) => k?.includes('messages'))).toBe(true)
     expect(keys.some((k) => k?.includes('aggregate-counts'))).toBe(true)
+  })
+
+  it('别的界面改了邮件状态 → 计数、列表与已打开的详情全部重取', async () => {
+    // 这条事件存在的全部理由：同时开着多个界面时，标已读此前不发任何风声，
+    // 而计数的三条自愈路径（轮询、focus 重取、SSE）当时一条都不通，
+    // 未读角标能一直停在错值上到用户按 F5。
+    vi.useFakeTimers()
+    try {
+      const qc = await mount()
+      const spy = vi.spyOn(qc, 'invalidateQueries')
+
+      await act(async () => emit?.({ type: 'mail_state', origin: 'another-tab' }))
+      await act(async () => { vi.advanceTimersByTime(500) })
+
+      const keys = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
+      for (const k of ['folders', 'messages', 'threads', 'thread-messages', 'aggregate-counts', 'account-unread']) {
+        expect(keys.some((key) => key?.includes(k)), `缺少 ${k}`).toBe(true)
+      }
+      // 别的界面改的可能正是此刻打开的那封（星标/标未读/删除），阅读窗格不能留旧值
+      expect(keys.some((key) => key === JSON.stringify(['message']))).toBe(true)
+      // 它只是「去重新拉」，与打扰用户无关
+      expect(showMailNotice).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连读刷屏时合并成一次失效', async () => {
+    // invalidateQueries 对活动查询是立刻重取的，**不看标签页可见性**。
+    // 用户在另一个标签页按住 j 连读，不合并的话这边就以每秒十几个请求打后端，
+    // 而这边屏幕上根本没人在看。
+    vi.useFakeTimers()
+    try {
+      const qc = await mount()
+      const spy = vi.spyOn(qc, 'invalidateQueries')
+
+      for (let i = 0; i < 10; i++) {
+        await act(async () => emit?.({ type: 'mail_state', origin: 'another-tab' }))
+        await act(async () => { vi.advanceTimersByTime(50) })
+      }
+      expect(spy, '防抖窗口内不该有任何失效').not.toHaveBeenCalled()
+
+      await act(async () => { vi.advanceTimersByTime(500) })
+      // 十条事件合成一轮：6 个列表/计数 key + 1 个详情 key
+      expect(spy).toHaveBeenCalledTimes(7)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('自己那次操作的回声不再重取一遍', async () => {
+    // 发起方在 mutation 的 onSettled 里已经失效过一轮。不认自己的话，
+    // 每点一封邮件就要白打一轮请求：folders ×账户数 + 两个计数接口。
+    vi.useFakeTimers()
+    try {
+      const qc = await mount()
+      const spy = vi.spyOn(qc, 'invalidateQueries')
+
+      await act(async () => emit?.({ type: 'mail_state', origin: CLIENT_ID }))
+      await act(async () => { vi.advanceTimersByTime(500) })
+
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('notify 且标签页不可见时，按偏好弹通知与提示音', async () => {

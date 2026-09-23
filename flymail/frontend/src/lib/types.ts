@@ -88,7 +88,24 @@ export interface SyncStatusEvent extends SyncStatus {
   phase: SyncPhase
 }
 
-export type RealtimeEvent = SyncEvent | NotifyEvent | SyncStatusEvent
+/**
+ * 邮件状态事件：语义是「有人改了本地邮件状态」——已读/未读、星标、删除、移动。
+ *
+ * 它存在的理由是**同时开着多个界面**（多标签页，或浏览器与桌面端并存）。
+ * 别的三种事件都只描述服务器那边的变化，用户自己点掉一封未读时，其它界面
+ * 收不到任何风声：计数类查询只有 30 秒轮询兜底，而标签页隐藏时浏览器会暂停
+ * 定时器，全局 refetchOnWindowFocus 又是关的——角标能在错误值上停到按 F5 为止。
+ *
+ * 不带账户/文件夹 id：批量与会话级操作本就横跨多个账户和文件夹，
+ * 接收方要做的只是把计数与列表重新拉一遍。
+ */
+export interface MailStateEvent {
+  type: 'mail_state'
+  /** 发起这次操作的客户端标识；等于自己的 CLIENT_ID 时应忽略（已失效过一轮） */
+  origin?: string
+}
+
+export type RealtimeEvent = SyncEvent | NotifyEvent | SyncStatusEvent | MailStateEvent
 
 export interface AccountStats {
   message_count: number

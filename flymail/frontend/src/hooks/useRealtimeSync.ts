@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { CLIENT_ID } from '@/lib/client-id'
 import { reconcileSyncStatus } from '@/lib/queries'
 import { connectRealtime, type RealtimeState } from '@/lib/sse'
 import { writeSyncStatus } from '@/lib/sync-cache'
@@ -33,6 +34,35 @@ export interface RealtimeOptions {
  * 都会断一下），而绝大多数在一两秒内就成功了，照实显示只会让提示条不停闪。
  */
 const OFFLINE_AFTER_MS = 6000
+
+/**
+ * 多久之内的 mail_state 合成一次失效。
+ *
+ * 这条事件不携带信息，只说「手里那份不作数」，所以晚半秒失效与立刻失效对用户
+ * 没有任何区别；而不合并的代价是实打实的：`invalidateQueries` 对活动查询立刻重取，
+ * **不受标签页是否可见影响**（focusManager 只管 refetchOnWindowFocus 与 refetchInterval）。
+ * 用户在一个标签页里按住 j 连读，每封一条事件、每条 6+ 个请求，另一个标签页就会
+ * 以每秒十几个请求的速度打后端——而那边屏幕上根本没人在看。
+ */
+const MAIL_STATE_DEBOUNCE_MS = 400
+
+/**
+ * 把「邮件视图」相关的缓存全部标脏。
+ *
+ * new_mail 与 mail_state 收到后要做的事完全一样：两者都只说明「本地数据变了，
+ * 手里这份不作数」，差别仅在变化是谁引起的。
+ */
+function invalidateMailViews(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: ['folders'] })
+  void qc.invalidateQueries({ queryKey: ['messages'] })
+  // 会话视图下列表数据来自 ['threads']：变化既可能新开一条会话，
+  // 也可能只是让某条已有会话的封数/未读数变化，两种都要重取。
+  void qc.invalidateQueries({ queryKey: ['threads'] })
+  // 变化可能正落在用户此刻展开的那条会话里
+  void qc.invalidateQueries({ queryKey: ['thread-messages'] })
+  void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
+  void qc.invalidateQueries({ queryKey: ['account-unread'] })
+}
 
 /**
  * 订阅 SSE 的结果。
@@ -78,6 +108,20 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): RealtimeStatus {
       }
     }
 
+    // mail_state 的合并计时器，同样与连接同生共死。
+    let mailStateTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleMailStateRefresh = () => {
+      if (mailStateTimer != null) clearTimeout(mailStateTimer)
+      mailStateTimer = setTimeout(() => {
+        mailStateTimer = null
+        invalidateMailViews(qc)
+        // 别的界面改的可能正是此刻打开的这封：星标、标为未读、删除都会。
+        // 只在这条分支补，不放进 invalidateMailViews——new_mail 不影响已打开的详情，
+        // 给它加上就是每来一封新邮件白发一个请求。
+        void qc.invalidateQueries({ queryKey: ['message'] })
+      }, MAIL_STATE_DEBOUNCE_MS)
+    }
+
     const close = connectRealtime((ev) => {
       if (ev.type === 'sync_status') {
         // 写进与轮询同一个缓存键。
@@ -94,15 +138,20 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): RealtimeStatus {
       }
 
       if (ev.type === 'new_mail') {
-        void qc.invalidateQueries({ queryKey: ['folders'] })
-        void qc.invalidateQueries({ queryKey: ['messages'] })
-        // 会话视图下列表数据来自 ['threads']：新邮件既可能新开一条会话，
-        // 也可能只是让某条已有会话的封数/未读数变化，两种都要重取。
-        void qc.invalidateQueries({ queryKey: ['threads'] })
-        // 新邮件可能正落在用户此刻展开的那条会话里
-        void qc.invalidateQueries({ queryKey: ['thread-messages'] })
-        void qc.invalidateQueries({ queryKey: ['aggregate-counts'] })
-        void qc.invalidateQueries({ queryKey: ['account-unread'] })
+        invalidateMailViews(qc)
+        return
+      }
+
+      if (ev.type === 'mail_state') {
+        // 自己那次操作的回声：onSettled 已经失效过一轮，再来一轮纯属白打请求
+        // （一次标已读要带出 folders ×账户数 + 两个计数接口）。
+        //
+        // ⚠ 这一句成立的前提：**后端 mailStateNotify 那一组路由，对应的每个前端
+        // mutation 都失效了 invalidateMailCaches 的那 6 个 key**（见 lib/queries.ts）。
+        // 往那组路由里加新接口时必须一并满足，否则发起方既不自己刷、又认掉回声，
+        // 表现是「只有做操作的那个标签页角标不动、别的都对」——所有排列里最难归因的一种。
+        if (ev.origin === CLIENT_ID) return
+        scheduleMailStateRefresh()
         return
       }
 
@@ -149,6 +198,7 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): RealtimeStatus {
     })
     return () => {
       clearOfflineTimer()
+      if (mailStateTimer != null) clearTimeout(mailStateTimer)
       close()
     }
   }, [qc])

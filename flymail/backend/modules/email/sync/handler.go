@@ -37,26 +37,35 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 	rg.GET("/accounts/:id/sync/status", h.status)
 	rg.GET("/accounts/:id/stats", h.stats)
 	rg.GET("/messages/:id", h.detail)
-	rg.POST("/messages/:id/read", h.markRead)
-	rg.POST("/messages/:id/flag", h.markFlag)
-	rg.POST("/messages/:id/delete", h.deleteMessage)
-	rg.POST("/messages/:id/move", h.moveMessage)
+
+	// 以下都会改动本地邮件状态，统一经 mailStateNotify 在成功后广播 mail_state，
+	// 让同时开着的其它界面把未读计数与列表重取一遍（详见 mailstate.go）。
+	//
+	// 判据是「这次请求会不会改动本地邮件库」，不是 HTTP 动词也不是像不像写操作：
+	// 触发同步（/accounts/:id/sync）改了库却不在其列，因为它自己会发 sync_status
+	// 与 new_mail；而 /search/remote 名字像查询，实际会把服务器上命中、本地没有的
+	// 邮件补抓入库（可以是未读的），所以它必须在。
+	wr := rg.Group("", h.mailStateNotify())
+	// 服务端搜索兜底：与 message 模块的 GET /search/messages 同前缀，但要走 runner 连接，所以挂在这里
+	wr.POST("/search/remote", h.remoteSearch)
+	wr.POST("/messages/:id/read", h.markRead)
+	wr.POST("/messages/:id/flag", h.markFlag)
+	wr.POST("/messages/:id/delete", h.deleteMessage)
+	wr.POST("/messages/:id/move", h.moveMessage)
 	// 批量操作用独立前缀，避免与 /messages/:id 的路由参数冲突。
-	rg.POST("/batch/delete", h.batchDelete)
-	rg.POST("/batch/move", h.batchMove)
-	rg.POST("/batch/read", h.batchRead)
-	rg.POST("/batch/flag", h.batchFlag)
+	wr.POST("/batch/delete", h.batchDelete)
+	wr.POST("/batch/move", h.batchMove)
+	wr.POST("/batch/read", h.batchRead)
+	wr.POST("/batch/flag", h.batchFlag)
 	// 文件夹级"全部标为已读"。不做成前端先拉 id 再调 /batch/read：
 	// 一个文件夹可能有几万封未读，那等于把几万个 id 传两趟。
-	rg.POST("/folders/:id/read-all", h.folderReadAll)
-	// 服务端搜索兜底：与 message 模块的 GET /search/messages 同前缀，但要走 runner 连接，所以挂在这里
-	rg.POST("/search/remote", h.remoteSearch)
+	wr.POST("/folders/:id/read-all", h.folderReadAll)
 
 	// 会话级操作（M10）：按 thread_id 解析成员后复用批量操作
-	rg.POST("/threads/batch/delete", h.threadDelete)
-	rg.POST("/threads/batch/move", h.threadMove)
-	rg.POST("/threads/batch/read", h.threadRead)
-	rg.POST("/threads/batch/flag", h.threadFlag)
+	wr.POST("/threads/batch/delete", h.threadDelete)
+	wr.POST("/threads/batch/move", h.threadMove)
+	wr.POST("/threads/batch/read", h.threadRead)
+	wr.POST("/threads/batch/flag", h.threadFlag)
 }
 
 // remoteSearch 用 IMAP SEARCH 在服务器上找本地没有的命中并补抓入库。

@@ -239,6 +239,9 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	syncSvc.SetEmitter(emit)
 	accountSvc.SetEmitter(emit)
+	// 用户改动邮件状态（已读/星标/删除/移动）后广播 mail_state，
+	// 让同时开着的其它界面重取计数与列表（详见 sync/mailstate.go）。
+	syncSvc.SetPublisher(hub)
 
 	// 后台同步管理器（IDLE + 轮询，新邮件经 Hub 推送）。
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)

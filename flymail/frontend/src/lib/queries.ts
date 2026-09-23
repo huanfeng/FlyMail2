@@ -88,6 +88,26 @@ export function useAccounts() {
 }
 
 /**
+ * 未读计数三件套（folders / aggregate-counts / account-unread）的重取策略。
+ *
+ * 全局默认关掉了 refetchOnWindowFocus（见 main.tsx）——对邮件正文、账户设置这类
+ * 一读定终身的数据，切个窗口就重拉整屏是纯噪音。但未读计数不一样：它是**会在
+ * 本界面之外被改掉**的数字，而这里原先的三条自愈路径同时失灵——
+ *
+ *   1. 标已读不发 SSE（这条已由 mail_state 补上，见 lib/types.ts）；
+ *   2. `refetchInterval` 在标签页隐藏时被浏览器暂停；
+ *   3. 切回来不重取。
+ *
+ * 结果是角标一旦对不上，就会一直错到用户按 F5。所以这三个查询单独把 focus
+ * 重取打开：代价是切回页面多三类请求，换来的是「看得见的数字永远是后端真值」。
+ *
+ * 配一个短 staleTime：全局没设，默认 0 意味着**每次** focus 都判定为过期，
+ * 于是 alt-tab 抖两下、切去 devtools 再切回来，都各重取一轮。5 秒把这些连续的
+ * focus 合成一次，而 30 秒轮询与 mail_state 两条路都不受它影响。
+ */
+const COUNT_REFETCH = { refetchOnWindowFocus: true, staleTime: 5_000 } as const
+
+/**
  * 取某个账户的文件夹。
  *
  * `enabled` 用于侧栏：折叠着的账户不必发请求。展开的账户各自调用本 hook，
@@ -100,6 +120,7 @@ export function useFolders(accountId: number | null, enabled = true) {
     // 轮询兜底：桌面端（Wails）SSE 经 WebView2 自定义协议可能失效/缓冲，
     // 新账户初始同步逐步发现文件夹时也没有 SSE 事件，定时刷新保证列表自更新。
     refetchInterval: 30_000,
+    ...COUNT_REFETCH,
     // enabled 已保证 accountId 非空
     queryFn: (): Promise<Folder[]> => fetchFolders(Number(accountId)),
   })
@@ -203,6 +224,7 @@ export function useAggregateCounts() {
     queryKey: ['aggregate-counts'],
     // 与 useFolders 同理：SSE 失效时的轮询兜底
     refetchInterval: 30_000,
+    ...COUNT_REFETCH,
     queryFn: async (): Promise<Record<AggregateView, number> & { inboxTotal: number }> => {
       const { data } = await api.get<{ counts: Record<string, number> }>('/aggregate/counts')
       const c = data.counts ?? {}
@@ -228,6 +250,7 @@ export function useAccountUnread() {
     queryKey: ['account-unread'],
     // 与 useFolders 同理：SSE 失效时的轮询兜底
     refetchInterval: 30_000,
+    ...COUNT_REFETCH,
     queryFn: async (): Promise<Record<number, number>> => {
       const { data } = await api.get<{ counts: Record<string, number> }>('/aggregate/account-unread')
       const out: Record<number, number> = {}
@@ -289,8 +312,17 @@ export function useReindexSearch() {
  *
  * 同步执行、最长约 90 秒——本地库只存已同步的部分，深层历史必须回服务器捞，
  * 这是「明明记得有这封信却搜不到」的唯一出路。
- * 成功后失效整个 ['messages'] 前缀：补抓的邮件既要出现在搜索结果里，
- * 也会出现在它所属的文件夹列表里。
+ *
+ * ⚠ 失效范围必须与其它写操作**完全一致**（invalidateMailCaches 那 6 个 key），
+ * 不能只失效三条列表：补抓回来的邮件可以是未读的，未读角标、文件夹计数同样会变。
+ * 这里原先漏掉计数三件套，于是一次远程搜索抓回 N 封未读之后，所有界面的角标
+ * 都要错到 30 秒轮询才回来——正是 mail_state 这套东西在修的那个毛病。
+ *
+ * 而且现在它也挂在后端的 mailStateNotify 上（见 sync/handler.go），发起方会**认出
+ * 自己的回声并忽略**，所以这里漏掉的 key 不再有任何人来补。
+ *
+ * 用 onSettled 而不是 onSuccess：RemoteSearch 是「逐账户尽力而为」，中途失败时
+ * 前面账户补抓的邮件已经落库了。
  */
 export function useRemoteSearch() {
   const qc = useQueryClient()
@@ -299,11 +331,7 @@ export function useRemoteSearch() {
       const { data } = await api.post<RemoteSearchResult>('/search/remote', { q })
       return data
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['messages'] })
-      qc.invalidateQueries({ queryKey: ['threads'] })
-      qc.invalidateQueries({ queryKey: ['thread-messages'] })
-    },
+    onSettled: () => invalidateMailCaches(qc),
   })
 }
 

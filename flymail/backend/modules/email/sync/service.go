@@ -179,6 +179,8 @@ type Service struct {
 	// attachmentToken 签发限定单封邮件的附件令牌（可为 nil：响应不带令牌，前端退回 access token）
 	attachmentToken func(messageID uint) (string, error)
 	orch            orchestrator
+	// pub 用于广播 mail_state（用户改动邮件状态后让其它界面重取）；可为 nil（单测）
+	pub Publisher
 
 	status  *statusStore
 	mu      gosync.Mutex

@@ -1,11 +1,15 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { auth } from '@/lib/auth'
+import { CLIENT_ID } from '@/lib/client-id'
 import { encodeNext } from '@/lib/next-path'
 
 // axios 实例：所有请求都走 /api/v1，开发环境由 vite proxy 转发到后端。
+//
+// X-Client-Id 标明「这一请求来自哪个界面」：后端把它原样放进 mail_state 事件，
+// 发起方据此忽略自己那一条回声（见 lib/client-id.ts 与 hooks/useRealtimeSync.ts）。
 const api = axios.create({
   baseURL: '/api/v1',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', 'X-Client-Id': CLIENT_ID },
 })
 
 // 请求拦截器：自动注入 Authorization: Bearer <access token>。

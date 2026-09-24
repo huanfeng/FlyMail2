@@ -23,14 +23,20 @@ var ErrNoContent = errors.New("这封邮件没有可翻译的文字内容")
 
 // Settings 是每次翻译前现取的配置。
 //
-// 现取而不是构造时定死：用户在设置页换了模型或密钥，应当下一次点翻译就生效，
-// 而不是等重启。这与 OAuth 凭据的做法一致（见 app 装配）。
+// 现取而不是构造时定死：用户在设置页换了模型或密钥、调了顺序，应当下一次点翻译
+// 就生效，而不是等重启。这与 OAuth 凭据的做法一致（见 app 装配）。
 type Settings struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	// Providers 是使用列表：启用中的 AI 配置，按用户排好的顺序。
+	Providers []Provider
 	// DefaultTarget 是请求未指定语言时用的目标语言。
 	DefaultTarget string
+}
+
+// Provider 是使用列表里的一条配置（密钥已解密）。
+type Provider struct {
+	ID     uint
+	Name   string
+	Config ai.Config
 }
 
 // DetailFunc 取一封邮件的详情（含正文）。
@@ -57,6 +63,8 @@ type Service struct {
 	trusted func(addr string) bool
 	// newClient 可在测试里替换成假客户端。生产环境恒为 ai.New。
 	newClient func(ai.Config) (chatter, error)
+	// health 记录各配置的冷却状态，与设置页展示的是同一份（见 SetHealth）。
+	health *ai.Health
 }
 
 // chatter 是服务用到的 AI 能力（*ai.Client 满足之）。
@@ -74,8 +82,13 @@ func NewService(repo *Repository, detail DetailFunc, meta MetaFunc, settings fun
 		newClient: func(cfg ai.Config) (chatter, error) {
 			return ai.New(cfg)
 		},
+		health: ai.NewHealth(),
 	}
 }
+
+// SetHealth 注入共享的健康状态表。设置页的「冷却中/正常」和这里的切换顺序
+// 必须看同一份，否则用户在那边点了「解除冷却」，这边照旧把它排在最后。
+func (s *Service) SetHealth(h *ai.Health) { s.health = h }
 
 // SetTrustedSenderCheck 注入「发件人是否在远程图片信任名单」的查询。
 //
@@ -96,10 +109,9 @@ func (s *Service) AllowRemoteFor(messageID uint) bool {
 	return s.trusted(m.FromAddr)
 }
 
-// Enabled 报告 AI 接口是否已配置到可用程度。
+// Enabled 报告是否至少有一条启用中的 AI 配置。
 func (s *Service) Enabled() bool {
-	cfg := s.settings()
-	return strings.TrimSpace(cfg.BaseURL) != "" && strings.TrimSpace(cfg.Model) != ""
+	return len(s.settings().Providers) > 0
 }
 
 // DefaultTarget 返回默认目标语言（配置为空或不认识时退回内置默认）。
@@ -141,14 +153,15 @@ func (s *Service) Translate(ctx context.Context, messageID uint, target string, 
 				zap.Uint("message_id", messageID), zap.Error(err))
 		}
 	}
-	if !s.Enabled() {
+	providers := s.settings().Providers
+	if len(providers) == 0 {
 		return nil, false, ai.ErrNotConfigured
 	}
 	d, err := s.detail(messageID)
 	if err != nil {
 		return nil, false, err
 	}
-	out, err := s.translateDetail(ctx, d, target)
+	out, err := s.translateWithFailover(ctx, d, target, providers)
 	if err != nil {
 		return nil, false, err
 	}
@@ -167,10 +180,95 @@ func (s *Service) Translate(ctx context.Context, messageID uint, target string, 
 // 超出的部分保留原文，并在结果里标出来（Partial），由界面告诉用户。
 const maxTotalRunes = 60000
 
-// translateDetail 是真正干活的那段：分段 → 分批 → 并发翻译 → 回填。
-func (s *Service) translateDetail(ctx context.Context, d *message.MessageDetail, target string) (*Translation, error) {
-	cfg := s.settings()
-	cli, err := s.newClient(ai.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.Model})
+// Attempt 是一次切换过程中某个配置的失败记录。
+type Attempt struct {
+	Name string
+	Kind ai.Kind
+	Err  error
+}
+
+// AllFailedError 表示使用列表里的配置全部失败。
+type AllFailedError struct{ Attempts []Attempt }
+
+func (e *AllFailedError) Error() string {
+	parts := make([]string, len(e.Attempts))
+	for i, a := range e.Attempts {
+		parts[i] = a.Name + "：" + a.Err.Error()
+	}
+	return fmt.Sprintf("%d 个 AI 配置均失败——%s", len(e.Attempts), strings.Join(parts, "；"))
+}
+
+// ConfigOnly 报告是否每一家都败在配置上（密钥、模型、余额）——
+// 这种情况下「稍后重试」没有意义，界面该引导用户去设置页。
+func (e *AllFailedError) ConfigOnly() bool {
+	for _, a := range e.Attempts {
+		switch a.Kind {
+		case ai.KindAuth, ai.KindQuota, ai.KindRejected, ai.KindNotConfigured:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// translateWithFailover 按使用列表依次尝试，**整封**翻译，失败就换下一家从头重来。
+//
+// ── 为什么整封重来而不是从失败的那一批接着翻 ─────────────────────────────
+//
+// 一封信的译文只出自一个模型：不同模型的措辞、术语、语气各不相同，拼在一起
+// 读起来像两个人写的。代价是切换时已经翻好的那几批作废、重复计费——切换本来
+// 就是少数情况，为它牺牲每一封信的一致性不划算。
+//
+// 候选顺序见 ai.Health.Order：冷却中的排到后面但不跳过。
+func (s *Service) translateWithFailover(ctx context.Context, d *message.MessageDetail, target string, providers []Provider) (*Translation, error) {
+	byID := make(map[uint]Provider, len(providers))
+	ids := make([]uint, len(providers))
+	for i, p := range providers {
+		byID[p.ID] = p
+		ids[i] = p.ID
+	}
+	order := s.health.Order(ids)
+
+	var attempts []Attempt
+	for i, id := range order {
+		p := byID[id]
+		// 容忍个别批失败的条件不只是「最后一个」，还包括「后面的全在冷却」：
+		// 主力 A 正常、备用 B 余额已空时，A 偶发一次 503 就整封作废、再去撞一个
+		// 大概率失败的 B，结果比只配 A 一条还糟——配了备用反而更不可用。
+		// 冷却中的 B 仍然会被试到（见 Order），只是不再为了它牺牲 A 的部分译文。
+		tolerant := s.health.AllCooling(order[i+1:])
+		out, err := s.translateDetail(ctx, d, target, p, tolerant)
+		if err == nil {
+			s.health.RecordOK(p.ID)
+			return out, nil
+		}
+		// 用户走了：立即停，不换下一家，也不算这一家的错。
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// 没有可翻译内容是这封信的事，换谁都一样。
+		if errors.Is(err, ErrNoContent) {
+			return nil, err
+		}
+		kind := s.health.RecordFail(p.ID, err)
+		logger.Warn("translate: AI 配置失败，切换下一个",
+			zap.String("provider", p.Name), zap.String("kind", string(kind)), zap.Error(err))
+		attempts = append(attempts, Attempt{Name: p.Name, Kind: kind, Err: err})
+	}
+	// 只有一个配置时保留原来的报错形状，不必说「1 个配置均失败」。
+	if len(attempts) == 1 {
+		return nil, fmt.Errorf("翻译失败：%w", attempts[0].Err)
+	}
+	return nil, &AllFailedError{Attempts: attempts}
+}
+
+// translateDetail 用一个配置翻译整封信：分段 → 分批 → 并发翻译 → 回填。
+//
+// tolerant 为假时任何一批出错都算这家失败（好让调用方整封换下一家）；
+// 为真时（已经是最后一个候选）个别批失败只退回原文——没有下家可换了，
+// 部分译文总比什么都没有强。
+func (s *Service) translateDetail(ctx context.Context, d *message.MessageDetail, target string, p Provider, tolerant bool) (*Translation, error) {
+	cli, err := s.newClient(p.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +301,7 @@ func (s *Service) translateDetail(ctx context.Context, d *message.MessageDetail,
 	if len(units) == 0 {
 		return nil, ErrNoContent
 	}
-	fatal, firstErr := s.runChunks(ctx, cli, chunkUnits(units, maxChunkRunes), target)
+	fatal, firstErr := s.runChunks(ctx, cli, chunkUnits(units, maxChunkRunes), target, tolerant)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -225,9 +323,9 @@ func (s *Service) translateDetail(ctx context.Context, d *message.MessageDetail,
 		// 也没用，真正的原因（连不上）一个字都没露出来。
 		// 部分成功时不报：那时用户手里有一份能读的译文，报错只会吓人。
 		if firstErr != nil {
-			return nil, fmt.Errorf("翻译失败：%w", firstErr)
+			return nil, firstErr
 		}
-		return nil, errors.New("AI 没有返回可用的译文，请稍后重试或更换模型")
+		return nil, fmt.Errorf("%w，请稍后重试或更换模型", ai.ErrBadOutput)
 	}
 
 	out := &Translation{
@@ -235,6 +333,7 @@ func (s *Service) translateDetail(ctx context.Context, d *message.MessageDetail,
 		TargetLang: target,
 		SourceLang: lang.Detect(mailtext.Extract(d.TextBody, d.HTMLBody).Text),
 		Model:      cli.Model(),
+		Provider:   p.Name,
 		Partial:    partial,
 	}
 	if subjectSeg != nil {
@@ -275,13 +374,16 @@ const chunkConcurrency = 3
 
 // runChunks 并发翻译各批，并把译文写回对应的单元。
 //
-// 错误的处理分两种：
+// 错误的处理：
+//   - tolerant 为假（后面还有别的配置可换）—— 任何一批出错都作为 fatal 返回，
+//     并取消其余批：这一家反正要整封作废，多等一秒都是白等。
+//   - tolerant 为真（最后一个候选）时分两种：
 //   - 不可重试（401 密钥错、400 模型名错）—— 作为 fatal 返回，整体失败。
 //     后面的批必然同样失败，继续发只是把同一个错误重复几十遍，还要用户多等几十秒。
 //   - 可重试/偶发 —— 记日志，并把**第一个**留作 firstErr。那一批的片段退回原文，
 //     其余照常显示：一封信里几段没翻，比整封翻译失败有用得多。
 //     firstErr 只在"一段都没翻出来"时才会被拿去报错（见调用方）。
-func (s *Service) runChunks(ctx context.Context, cli chatter, chunks [][]unit, target string) (fatal, firstErr error) {
+func (s *Service) runChunks(ctx context.Context, cli chatter, chunks [][]unit, target string, tolerant bool) (fatal, firstErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -313,7 +415,7 @@ func (s *Service) runChunks(ctx context.Context, cli chatter, chunks [][]unit, t
 				if firstErr == nil {
 					firstErr = err
 				}
-				if isFatal(err) && fatal == nil {
+				if (!tolerant || isFatal(err)) && fatal == nil {
 					fatal = err
 					cancel() // 其余批必然同样失败，不必让用户再等
 					return

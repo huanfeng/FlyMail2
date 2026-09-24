@@ -81,7 +81,7 @@ func TestTranslateOverRealHTTP(t *testing.T) {
 		func(uint) (*message.MessageDetail, error) { return d, nil },
 		func(id uint) (*message.Message, error) { return &message.Message{ID: id}, nil },
 		func() Settings {
-			return Settings{BaseURL: srv.URL, APIKey: "sk-test", Model: "test-model", DefaultTarget: "zh"}
+			return Settings{Providers: oneProvider(srv.URL, "sk-test", "test-model"), DefaultTarget: "zh"}
 		},
 	)
 
@@ -178,7 +178,7 @@ func TestTranslateSplitsIntoConcurrentChunks(t *testing.T) {
 		func(uint) (*message.MessageDetail, error) { return d, nil },
 		func(id uint) (*message.Message, error) { return &message.Message{ID: id}, nil },
 		func() Settings {
-			return Settings{BaseURL: srv.URL, Model: "m", DefaultTarget: "zh"}
+			return Settings{Providers: oneProvider(srv.URL, "", "m"), DefaultTarget: "zh"}
 		},
 	)
 
@@ -210,7 +210,7 @@ func TestTranslateSurfacesUpstreamErrorIn200(t *testing.T) {
 		NewRepository(newDB(t)),
 		func(uint) (*message.MessageDetail, error) { return d, nil },
 		func(id uint) (*message.Message, error) { return &message.Message{ID: id}, nil },
-		func() Settings { return Settings{BaseURL: srv.URL, Model: "m", DefaultTarget: "zh"} },
+		func() Settings { return Settings{Providers: oneProvider(srv.URL, "", "m"), DefaultTarget: "zh"} },
 	)
 
 	_, _, err := svc.Translate(context.Background(), 44, "zh", false)
@@ -251,7 +251,7 @@ func TestTranslateReportsConnectionFailure(t *testing.T) {
 		NewRepository(newDB(t)),
 		func(uint) (*message.MessageDetail, error) { return d, nil },
 		func(id uint) (*message.Message, error) { return &message.Message{ID: id}, nil },
-		func() Settings { return Settings{BaseURL: dead, Model: "m", DefaultTarget: "zh"} },
+		func() Settings { return Settings{Providers: oneProvider(dead, "", "m"), DefaultTarget: "zh"} },
 	)
 
 	_, _, err := svc.Translate(context.Background(), 45, "zh", false)

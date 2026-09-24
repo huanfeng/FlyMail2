@@ -70,6 +70,9 @@ import type {
   ImportResult,
   Translation,
   TranslateLanguages,
+  AIProvider,
+  AIProviderInput,
+  AIProviderTestResult,
 } from '@/lib/types'
 
 /** 取单个账户的文件夹。useFolders 与 useFoldersOfAccounts 共用，保证两处 query key 与解包方式一致。 */
@@ -1239,9 +1242,6 @@ export function useSettings() {
         app_base_url: data.settings?.app_base_url ?? '',
         oauth_google_client_id: data.settings?.oauth_google_client_id ?? '',
         oauth_google_client_secret_set: data.settings?.oauth_google_client_secret_set === 'true',
-        ai_base_url: data.settings?.ai_base_url ?? '',
-        ai_model: data.settings?.ai_model ?? '',
-        ai_api_key_set: data.settings?.ai_api_key_set === 'true',
         translate_target_lang: data.settings?.translate_target_lang ?? 'zh',
       }
     },
@@ -1266,6 +1266,112 @@ export function useUpdateSettings() {
 }
 
 // ── AI 翻译 ────────────────────────────────────────────────────────────────
+
+const AI_PROVIDERS_KEY = ['ai-providers'] as const
+
+/**
+ * AI 配置增删改之后要一并刷新的缓存。
+ *
+ * translate-languages 里的 enabled 取决于「有没有启用中的配置」——漏刷它，
+ * 用户刚加完第一条配置，阅读器里的翻译按钮还是灰的。
+ */
+function invalidateAIProviders(qc: QueryClient) {
+  void qc.invalidateQueries({ queryKey: AI_PROVIDERS_KEY })
+  void qc.invalidateQueries({ queryKey: ['translate-languages'] })
+}
+
+/** AI 配置列表（按使用顺序），含运行时健康状态 */
+export function useAIProviders() {
+  return useQuery({
+    queryKey: AI_PROVIDERS_KEY,
+    queryFn: async (): Promise<AIProvider[]> => {
+      const { data } = await api.get<{ providers: AIProvider[] }>('/ai/providers')
+      return data.providers ?? []
+    },
+  })
+}
+
+export function useCreateAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: AIProviderInput): Promise<AIProvider> => {
+      const { data } = await api.post<AIProvider>('/ai/providers', input)
+      return data
+    },
+    onSuccess: () => invalidateAIProviders(qc),
+  })
+}
+
+export function useUpdateAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: number; input: AIProviderInput }): Promise<AIProvider> => {
+      const { data } = await api.put<AIProvider>(`/ai/providers/${id}`, input)
+      return data
+    },
+    onSuccess: () => invalidateAIProviders(qc),
+  })
+}
+
+export function useDeleteAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/ai/providers/${id}`)
+    },
+    onSuccess: () => invalidateAIProviders(qc),
+  })
+}
+
+/** 按完整 ID 顺序重排；与账户排序同样乐观更新（理由见 useReorderAccounts） */
+export function useReorderAIProviders() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: number[]): Promise<void> => {
+      await api.put('/ai/providers/order', { ids })
+    },
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: AI_PROVIDERS_KEY })
+      const prev = qc.getQueryData<AIProvider[]>(AI_PROVIDERS_KEY)
+      if (prev) {
+        const byID = new Map(prev.map((p) => [p.id, p]))
+        const next = ids.map((id) => byID.get(id)).filter((p): p is AIProvider => p != null)
+        qc.setQueryData<AIProvider[]>(AI_PROVIDERS_KEY, next)
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData<AIProvider[]>(AI_PROVIDERS_KEY, ctx.prev)
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: AI_PROVIDERS_KEY }) },
+  })
+}
+
+/**
+ * 测试连接。结果会记进服务端的健康状态（通过就解除冷却），所以完成后要刷新列表。
+ * 测试失败也是 200，失败原因在结果里。
+ */
+export function useTestAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number): Promise<AIProviderTestResult> => {
+      const { data } = await api.post<AIProviderTestResult>(`/ai/providers/${id}/test`)
+      return data
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: AI_PROVIDERS_KEY }) },
+  })
+}
+
+/** 手动解除冷却（「我已经充值了」） */
+export function useResetAIProvider() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.post(`/ai/providers/${id}/reset`)
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: AI_PROVIDERS_KEY }) },
+  })
+}
 
 /**
  * 可选目标语言清单。

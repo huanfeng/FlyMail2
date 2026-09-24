@@ -141,12 +141,22 @@ func messageID(c *gin.Context) (uint, bool) {
 func writeTranslateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ai.ErrNotConfigured):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "尚未配置 AI 接口，请先到设置页填写"})
+		// 「没配」和「配了但全停用」对用户是同一件事：去设置页的 AI 翻译里处理
+		c.JSON(http.StatusBadRequest, gin.H{"error": "没有可用的 AI 配置，请到「设置 → AI 翻译」里添加或启用"})
 	case errors.Is(err, ErrNoContent):
 		c.JSON(http.StatusBadRequest, gin.H{"error": ErrNoContent.Error()})
 	case errors.Is(err, message.ErrMessageNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
 	default:
+		var all *AllFailedError
+		if errors.As(err, &all) {
+			if all.ConfigOnly() {
+				c.JSON(http.StatusBadRequest, gin.H{"error": all.Error()})
+			} else {
+				c.JSON(http.StatusBadGateway, gin.H{"error": all.Error()})
+			}
+			return
+		}
 		var apiErr *ai.APIError
 		if errors.As(err, &apiErr) && !apiErr.Retryable() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": apiErr.Error()})

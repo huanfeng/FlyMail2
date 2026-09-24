@@ -196,6 +196,11 @@ export function MailBodyFrame({ html, title, allowRemote, foldQuote, onMailto }:
 }
 
 /** 从附件 content_type 或文件名推断显示用的短类型标签（最多 3 字符） */
+/** 译文出处：「配置名 / 模型」；旧译文没有配置名时只给模型名 */
+function translatedByLabel(tr: Pick<Translation, 'provider' | 'model'>): string {
+  return tr.provider ? `${tr.provider} / ${tr.model}` : tr.model
+}
+
 function attachTypeLabel(filename: string, contentType: string): string {
   // 优先从 content_type 取
   const mime = contentType.toLowerCase()
@@ -417,9 +422,11 @@ export function MessageBody({
       ) : shownTranslation ? (
         <div className="translated-bar">
           <span className="tr-note">
+            {/* 配了多条 AI 配置、自动切换过时，得让用户看出这份是哪条线路翻的；
+                旧译文没有 provider 字段，只显示模型名。 */}
             {sourceLangName
-              ? t('reader.translatedFrom', { lang: sourceLangName, model: shownTranslation.model })
-              : t('reader.translatedBy', { model: shownTranslation.model })}
+              ? t('reader.translatedFrom', { lang: sourceLangName, model: translatedByLabel(shownTranslation) })
+              : t('reader.translatedBy', { model: translatedByLabel(shownTranslation) })}
             {shownTranslation.partial && ' ' + t('reader.translatePartial')}
           </span>
           {onShowOriginal && (

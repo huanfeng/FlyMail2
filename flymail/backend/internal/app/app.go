@@ -12,6 +12,7 @@ import (
 
 	"flymail-core/logger"
 
+	"flymail/internal/ai"
 	"flymail/internal/config"
 	"flymail/internal/crypto"
 	"flymail/internal/database"
@@ -27,6 +28,7 @@ import (
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/email/translate"
+	"flymail/modules/system/aiprovider"
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/privacy"
@@ -313,20 +315,39 @@ func New(cfg *config.Config) (*App, error) {
 	//
 	// 远程图策略跟详情接口共用同一个信任名单判断——否则会出现原文里图片
 	// 正常显示、一按翻译全变占位符这种"翻译顺便改了别的"的观感。
+	//
+	// AI 配置可以有多条，按使用顺序依次尝试（见 translate.translateWithFailover）。
+	// 健康状态表只有一份，设置页看到的「冷却中」与翻译时的切换顺序是同一个判断。
+	aiHealth := ai.NewHealth()
+	aiProviderRepo := aiprovider.NewRepository(db)
+	// 旧版的单配置（settings 里的三个键）搬成第一条；可重复执行。
+	if migrated, err := aiprovider.MigrateLegacy(aiProviderRepo, setting.NewRepository(db)); err != nil {
+		return nil, err
+	} else if migrated {
+		logger.Info("AI 配置：已把旧版单配置迁移为第一条配置")
+	}
+	aiProviderSvc := aiprovider.NewService(aiProviderRepo, enc, aiHealth)
 	translateSvc := translate.NewService(
 		translate.NewRepository(db),
 		syncSvc.MessageDetail,
 		messageSvc.GetByID,
 		func() translate.Settings {
+			active, err := aiProviderSvc.Active()
+			if err != nil {
+				logger.Warn("AI 配置：读取使用列表失败", zap.Error(err))
+			}
+			providers := make([]translate.Provider, len(active))
+			for i, a := range active {
+				providers[i] = translate.Provider{ID: a.ID, Name: a.Name, Config: a.Config}
+			}
 			return translate.Settings{
-				BaseURL: settingSvc.GetString(setting.KeyAIBaseURL, ""),
-				APIKey:  settingSvc.GetSecret(setting.KeyAIAPIKey),
-				Model:   settingSvc.GetString(setting.KeyAIModel, ""),
+				Providers: providers,
 				DefaultTarget: settingSvc.GetString(
 					setting.KeyTranslateTargetLang, setting.DefaultTranslateTargetLang),
 			}
 		},
 	)
+	translateSvc.SetHealth(aiHealth)
 	translateSvc.SetTrustedSenderCheck(privacySvc.IsTrusted)
 
 	// 系统监控（只读聚合）
@@ -349,6 +370,7 @@ func New(cfg *config.Config) (*App, error) {
 		Rule:             ruleSvc,
 		Privacy:          privacySvc,
 		Translate:        translateSvc,
+		AIProvider:       aiProviderSvc,
 		LoginLimiter:     loginLimiter,
 		TrustedProxies:   cfg.Server.TrustedProxies,
 		Events:           eventsHandler,

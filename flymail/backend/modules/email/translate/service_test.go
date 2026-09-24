@@ -88,6 +88,11 @@ func itoa(n int) string {
 	return string(b)
 }
 
+// oneProvider 造一个只含一条配置的使用列表。
+func oneProvider(baseURL, key, model string) []Provider {
+	return []Provider{{ID: 1, Name: "测试", Config: ai.Config{BaseURL: baseURL, APIKey: key, Model: model}}}
+}
+
 func newSvc(t *testing.T, detail *message.MessageDetail, chat *fakeChat) *Service {
 	t.Helper()
 	svc := NewService(
@@ -95,7 +100,7 @@ func newSvc(t *testing.T, detail *message.MessageDetail, chat *fakeChat) *Servic
 		func(id uint) (*message.MessageDetail, error) { return detail, nil },
 		func(id uint) (*message.Message, error) { return &message.Message{ID: id}, nil },
 		func() Settings {
-			return Settings{BaseURL: "https://x/v1", APIKey: "k", Model: "m", DefaultTarget: "zh"}
+			return Settings{Providers: oneProvider("https://x/v1", "k", "m"), DefaultTarget: "zh"}
 		},
 	)
 	svc.newClient = func(ai.Config) (chatter, error) { return chat, nil }
@@ -324,7 +329,7 @@ func TestResolveTarget(t *testing.T) {
 
 func TestDefaultTargetFallsBack(t *testing.T) {
 	svc := newSvc(t, htmlDetail(), &fakeChat{})
-	svc.settings = func() Settings { return Settings{BaseURL: "x", Model: "m", DefaultTarget: "zzz"} }
+	svc.settings = func() Settings { return Settings{Providers: oneProvider("x", "", "m"), DefaultTarget: "zzz"} }
 	if got := svc.DefaultTarget(); got != "zh" {
 		t.Errorf("库里存了非法值时应退回内置默认，得到 %q", got)
 	}

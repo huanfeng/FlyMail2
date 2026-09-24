@@ -34,6 +34,11 @@ func (r *Repository) Set(key, value string) error {
 	}).Create(&s).Error
 }
 
+// Delete 删除一个键；键不存在不算错误。
+func (r *Repository) Delete(key string) error {
+	return r.db.Delete(&Setting{}, "key = ?", key).Error
+}
+
 // All 返回所有已存储的键值对。
 func (r *Repository) All() (map[string]string, error) {
 	var list []Setting

@@ -38,9 +38,19 @@ var ErrNotConfigured = errors.New("未配置 AI 接口")
 type APIError struct {
 	Status int
 	Msg    string
+	// Code 是上游错误体里的 error.code（没有就取 error.type），如 insufficient_quota。
+	//
+	// 光看状态码分不出「限流」和「余额用完」：OpenAI 两者都回 429，
+	// 而前者等一分钟就好，后者等到天荒地老也不会好。见 Classify。
+	Code string
+	// RetryAfter 是上游 Retry-After 头给出的等待时间；没给为零。
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
+	if isQuota(e) {
+		return "AI 接口余额或配额不足（" + strconv.Itoa(e.Status) + "）：" + e.Msg
+	}
 	switch e.Status {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return "AI 接口拒绝了密钥（" + strconv.Itoa(e.Status) + "）：" + e.Msg
@@ -52,8 +62,11 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("AI 接口返回 %d：%s", e.Status, e.Msg)
 }
 
-// Retryable 报告这个错误是否值得重试。
+// Retryable 报告这个错误是否值得（在同一个服务商上）稍后重试。
 func (e *APIError) Retryable() bool {
+	if isQuota(e) {
+		return false
+	}
 	return e.Status == http.StatusTooManyRequests || e.Status >= 500
 }
 
@@ -162,9 +175,22 @@ type chatResponse struct {
 		Message      Message `json:"message"`
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error"`
+	Error *apiErrorBody `json:"error"`
+}
+
+// apiErrorBody 是 OpenAI 兼容的错误对象。code 有的服务给字符串、有的给数字，
+// 用 json.RawMessage 接住再转，免得一个数字 code 让整个响应解析失败。
+type apiErrorBody struct {
+	Message string          `json:"message"`
+	Type    string          `json:"type"`
+	Code    json.RawMessage `json:"code"`
+}
+
+func (b *apiErrorBody) code() string {
+	if c := strings.Trim(strings.TrimSpace(string(b.Code)), `"`); c != "" && c != "null" {
+		return c
+	}
+	return b.Type
 }
 
 // maxErrBody 限制读取错误响应体的长度：网关出错时回的可能是整页 HTML，
@@ -196,7 +222,13 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, error) {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
-		return "", &APIError{Status: resp.StatusCode, Msg: errMessage(snippet)}
+		msg, code := errMessage(snippet)
+		return "", &APIError{
+			Status:     resp.StatusCode,
+			Msg:        msg,
+			Code:       code,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 
 	var out chatResponse
@@ -205,7 +237,7 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, error) {
 	}
 	// 有些服务把错误塞进 200 响应体里。
 	if out.Error != nil && out.Error.Message != "" {
-		return "", &APIError{Status: resp.StatusCode, Msg: out.Error.Message}
+		return "", &APIError{Status: resp.StatusCode, Msg: out.Error.Message, Code: out.Error.code()}
 	}
 	if len(out.Choices) == 0 {
 		return "", errors.New("AI 没有返回任何内容")
@@ -216,24 +248,34 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, error) {
 	return out.Choices[0].Message.Content, nil
 }
 
-// errMessage 从错误响应体里挑出人能看懂的一句。
+// errMessage 从错误响应体里挑出人能看懂的一句，以及错误码（可能为空）。
 //
-// OpenAI 兼容服务的错误形状是 {"error":{"message":"..."}}，但网关、反向代理
+// OpenAI 兼容服务的错误形状是 {"error":{"message":"...","code":"..."}}，但网关、反向代理
 // 和本地服务各有各的写法，解析不出来就退回原始文本（已限长）。
-func errMessage(body []byte) string {
+func errMessage(body []byte) (msg, code string) {
 	var wrapped struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Message string `json:"message"`
+		Error   apiErrorBody    `json:"error"`
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"`
 	}
 	if json.Unmarshal(body, &wrapped) == nil {
 		if wrapped.Error.Message != "" {
-			return wrapped.Error.Message
+			return wrapped.Error.Message, wrapped.Error.code()
 		}
 		if wrapped.Message != "" {
-			return wrapped.Message
+			top := apiErrorBody{Code: wrapped.Code}
+			return wrapped.Message, top.code()
 		}
 	}
-	return strings.TrimSpace(string(body))
+	return strings.TrimSpace(string(body)), ""
+}
+
+// parseRetryAfter 解析 Retry-After 头。只认秒数形式——HTTP 日期形式在
+// AI 服务商里没见过，认错了反而会得到一个离谱的等待时间。
+func parseRetryAfter(v string) time.Duration {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
 }

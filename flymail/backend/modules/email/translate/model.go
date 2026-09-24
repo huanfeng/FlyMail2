@@ -38,6 +38,9 @@ type Translation struct {
 
 	// Model 是产出这份译文的模型名，换模型重译时用来解释"这份是旧模型翻的"。
 	Model string `json:"model"`
+	// Provider 是产出这份译文的 AI 配置名。配了多条、自动切换过时，
+	// 用户得知道这份是哪条线路翻的，才能判断要不要换一条重译。
+	Provider string `json:"provider"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -53,12 +53,6 @@ const (
 	KeyBodySyncRecentDays     = "body_sync_recent_days"
 	DefaultBodySyncRecentDays = "30"
 
-	// KeyOAuthGoogleClientID / KeyOAuthGoogleClientSecret 是 Google OAuth 应用的客户端凭据，
-	// 由管理员在设置页填写（也可用 FLYMAIL_OAUTH_GOOGLE_* 环境变量，见 internal/config）。
-	//
-	// 放数据库而不是只认环境变量，是因为配 OAuth 应用要反复试：回调地址填错、
-	// 测试用户没加、secret 复制漏一位，每试一次重启一次容器不可接受。
-	// 两处都有值时以数据库为准——那是管理员在界面上刚做的事，应当压过部署时的默认。
 	// KeyNotifyBodyRunes 外发通知里正文的字符上限；0 或留空用内置默认。
 	//
 	// 它只是「想放多少」的排版偏好，不是安全上限：无论配多大，最终都还要过一道
@@ -67,39 +61,42 @@ const (
 	KeyNotifyBodyRunes     = "notify_body_runes"
 	DefaultNotifyBodyRunes = "8000"
 
-	// KeyAIBaseURL / KeyAIAPIKey / KeyAIModel 是 AI 翻译所用的 OpenAI 兼容接口配置。
-	//
-	// 只存这三样，是因为 OpenAI 兼容接口本来就只要这三样就能调通——地址决定
-	// 连谁（云端服务、自建网关、本机 Ollama 都是同一种形状），模型决定用哪个，
-	// 密钥是可选的（本地模型通常不要）。多存一个参数，就多一处"换个服务商
-	// 就要重新试"的地方。
-	//
-	// 地址在 handler 里归一化后落库：用户填 https://api.openai.com 还是
-	// .../v1 还是完整的 .../v1/chat/completions 都认（见 ai.Endpoint）。
-	KeyAIBaseURL = "ai_base_url"
-	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
-	KeyAIAPIKey = "ai_api_key"
-	KeyAIModel  = "ai_model"
-
 	// KeyTranslateTargetLang 是翻译的默认目标语言，取值见 lang.Supported。
 	//
 	// 默认简体中文而不是"跟随界面语言"：界面语言是用户看得懂的语言之一，
-	// 但未必是他想把邮件翻成的那门——把界面切成英文练听力的中文用户，
+	// 但未必是用户想把邮件翻成的那门——把界面切成英文练听力的中文用户，
 	// 并不想让账单邮件也翻成英文。
 	KeyTranslateTargetLang     = "translate_target_lang"
 	DefaultTranslateTargetLang = lang.DefaultTarget
 
+	// KeyOAuthGoogleClientID / KeyOAuthGoogleClientSecret 是 Google OAuth 应用的客户端凭据，
+	// 由管理员在设置页填写（也可用 FLYMAIL_OAUTH_GOOGLE_* 环境变量，见 internal/config）。
+	//
+	// 放数据库而不是只认环境变量，是因为配 OAuth 应用要反复试：回调地址填错、
+	// 测试用户没加、secret 复制漏一位，每试一次重启一次容器不可接受。
+	// 两处都有值时以数据库为准——那是管理员在界面上刚做的事，应当压过部署时的默认。
 	KeyOAuthGoogleClientID = "oauth_google_client_id"
 	// ⚠ 值是密文（见 SetEncryptor），永远不出网：GET /settings 只回报「配没配」。
 	KeyOAuthGoogleClientSecret = "oauth_google_client_secret"
 )
+
+// retiredKeys 是已经迁出 settings 表的键，PUT /settings 收到就拒绝。
+//
+// ai_* 三个键迁到了 ai_providers 表（见 aiprovider.MigrateLegacy）。setAll 对键没有
+// 白名单，不拦的话，升级后还开着的旧版页面一点保存，ai_api_key 就会以**明文**写回
+// settings 表——它已经不在 secretKeys 里，下一次 GET /settings 会把明文原样回显。
+var retiredKeys = map[string]string{
+	"ai_base_url": "AI 接口配置已改为多条配置列表，请刷新页面后到「设置 → AI 翻译」里修改",
+	"ai_api_key":  "AI 接口配置已改为多条配置列表，请刷新页面后到「设置 → AI 翻译」里修改",
+	"ai_model":    "AI 接口配置已改为多条配置列表，请刷新页面后到「设置 → AI 翻译」里修改",
+}
 
 // secretKeys 是值以密文存储、且**任何情况下都不得回显**的设置键。
 //
 // 读取一侧（All）把它们整个摘掉，换成 <key>_set 的布尔标记；写入一侧（SetMany）
 // 收到明文时先加密。名单集中在这里，是为了让「新增一个密文设置」只需要动一行——
 // 而不是指望下一个人记得在读和写两处各补一段。
-var secretKeys = []string{KeyOAuthGoogleClientSecret, KeyAIAPIKey}
+var secretKeys = []string{KeyOAuthGoogleClientSecret}
 
 // SecretSetSuffix 是密文设置在对外响应里的标记后缀：<key>_set = "true"/"false"。
 const SecretSetSuffix = "_set"

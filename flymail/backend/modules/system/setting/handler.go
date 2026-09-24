@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"flymail/internal/ai"
 	"flymail/internal/lang"
 
 	"github.com/gin-gonic/gin"
@@ -49,6 +48,13 @@ func (h *handler) setAll(c *gin.Context) {
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
 		return
+	}
+
+	for k := range body.Settings {
+		if msg, retired := retiredKeys[k]; retired {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
 	}
 
 	// 校验 sync_depth
@@ -112,35 +118,6 @@ func (h *handler) setAll(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "body_sync_recent_days 必须是 1..3650 的整数"})
 			return
 		}
-	}
-
-	// 校验 ai_base_url：允许留空（= 关掉翻译功能），否则必须是能拼出
-	// chat/completions 的 http(s) 地址。这里就把它归一化后落库，
-	// 让"用户填了哪种形状"这件事只在进门这一处处理——服务那侧拿到的
-	// 永远是可以直接发请求的完整地址。
-	if v, ok := body.Settings[KeyAIBaseURL]; ok {
-		if trimmed := strings.TrimSpace(v); trimmed == "" {
-			body.Settings[KeyAIBaseURL] = ""
-		} else {
-			endpoint, err := ai.Endpoint(trimmed)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			body.Settings[KeyAIBaseURL] = endpoint
-		}
-	}
-
-	// 模型名只裁空白，不做格式校验：模型名是服务商定的，什么形状都有
-	// （gpt-4o-mini、deepseek-chat、qwen2.5:7b、accounts/fireworks/...），
-	// 拿正则卡住只会在人家出新模型那天变成假故障。裁空白则是必须的——
-	// 从文档里复制模型名极容易带上尾随空格，而带空格的模型名会让接口
-	// 报一个与"填错了"毫无关系的 404。
-	if v, ok := body.Settings[KeyAIModel]; ok {
-		body.Settings[KeyAIModel] = strings.TrimSpace(v)
-	}
-	if v, ok := body.Settings[KeyAIAPIKey]; ok {
-		body.Settings[KeyAIAPIKey] = strings.TrimSpace(v)
 	}
 
 	// 校验 translate_target_lang：必须在清单内。

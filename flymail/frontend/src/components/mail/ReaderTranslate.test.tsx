@@ -67,6 +67,7 @@ function translation(messageId = 7): Translation {
     html_body: '',
     partial: false,
     model: 'gpt-4o-mini',
+    provider: 'OpenAI',
     cached: false,
     remote_count: 0,
     remote_allowed: true,

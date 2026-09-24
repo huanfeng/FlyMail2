@@ -8,6 +8,7 @@ import (
 	"flymail/modules/email/message"
 	"flymail/modules/email/rule"
 	"flymail/modules/email/translate"
+	"flymail/modules/system/aiprovider"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/privacy"
 	"flymail/modules/system/setting"
@@ -37,6 +38,7 @@ func Migrate(db *gorm.DB) error {
 		&rule.BlockEntry{},
 		&rule.RuleRun{},
 		&setting.Setting{},
+		&aiprovider.Provider{},
 		&draft.Draft{},
 		&notify.Notification{},
 		&notify.Channel{},

@@ -51,24 +51,6 @@ export interface AppSettings {
    * 因此界面上无法回显它，只能显示「已保存」并允许覆盖或清除。
    */
   oauth_google_client_secret_set: boolean
-  /**
-   * AI 翻译所用的 OpenAI 兼容接口地址。
-   *
-   * 后端在保存时就归一成了可直接请求的完整地址（.../chat/completions），
-   * 所以这里显示出来的未必是用户当初填的那串——那是刻意的：让用户看见
-   * 系统实际会请求哪个地址，比让他猜"我填的根地址会被拼成什么"有用。
-   *
-   * 留空 = 未配置，翻译入口置灰。
-   */
-  ai_base_url: string
-  /** 模型名，例如 gpt-4o-mini / deepseek-chat / qwen2.5:7b */
-  ai_model: string
-  /**
-   * API 密钥是否已保存。
-   *
-   * ⚠ 同 oauth_google_client_secret_set：密文永不出网，界面只能覆盖或清除。
-   */
-  ai_api_key_set: boolean
   /** 默认翻译目标语言，取值见 GET /translate/languages */
   translate_target_lang: string
 }
@@ -86,8 +68,75 @@ export interface TranslateLanguage {
 export interface TranslateLanguages {
   languages: TranslateLanguage[]
   default_target: string
-  /** AI 接口是否已配置到可用程度 */
+  /** 是否至少有一条启用中的 AI 配置 */
   enabled: boolean
+}
+
+/** 一次 AI 调用失败的类别（后端 ai.Kind），决定冷却时长与界面文案 */
+export type AIFailKind =
+  | 'quota'
+  | 'auth'
+  | 'rate_limit'
+  | 'upstream'
+  | 'rejected'
+  | 'truncated'
+  | 'bad_output'
+  | 'not_configured'
+
+/** AI 配置的运行时健康状态（只在服务端内存里，重启清零） */
+export interface AIProviderStatus {
+  cooldown_until?: string
+  last_error?: string
+  last_kind?: AIFailKind
+  last_ok_at?: string
+  last_fail_at?: string
+  failures: number
+}
+
+/**
+ * 一条 AI 接口配置（OpenAI 兼容）。
+ *
+ * 多条按顺序组成「使用列表」：翻译时从第一条开始试，失败就整封换下一条重翻。
+ */
+export interface AIProvider {
+  id: number
+  name: string
+  /** 已归一成完整的 .../chat/completions 地址 */
+  base_url: string
+  model: string
+  /** 停用的配置保留但不参与切换 */
+  enabled: boolean
+  /** ⚠ 密钥永不出网，只报配没配 */
+  key_set: boolean
+  status: AIProviderStatus
+  /** 服务端按当前时刻算好的「是否冷却中」，不用前端时钟再算 */
+  cooling: boolean
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * 新建/修改 AI 配置的输入。
+ *
+ * api_key 空串或省略 = 不改动已存的密钥；清除只能走 clear_key。
+ * 两者混为一谈的话，只改个模型名就会把密钥连带抹掉。
+ */
+export interface AIProviderInput {
+  name?: string
+  base_url?: string
+  model?: string
+  api_key?: string
+  clear_key?: boolean
+  enabled?: boolean
+}
+
+/** POST /ai/providers/:id/test */
+export interface AIProviderTestResult {
+  ok: boolean
+  latency_ms: number
+  kind?: AIFailKind
+  error?: string
+  provider: AIProvider
 }
 
 /** 一封邮件在某目标语言下的译文 */
@@ -107,6 +156,8 @@ export interface Translation {
   partial: boolean
   /** 产出这份译文的模型名 */
   model: string
+  /** 产出这份译文的 AI 配置名（旧译文为空串） */
+  provider: string
   /** 这次没有调用 AI（命中缓存） */
   cached: boolean
   remote_count: number

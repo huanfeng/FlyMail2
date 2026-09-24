@@ -15,6 +15,7 @@ import (
 	"flymail/modules/email/send"
 	syncmod "flymail/modules/email/sync"
 	"flymail/modules/email/translate"
+	"flymail/modules/system/aiprovider"
 	"flymail/modules/system/monitoring"
 	"flymail/modules/system/notify"
 	"flymail/modules/system/privacy"
@@ -40,6 +41,7 @@ type Deps struct {
 	Rule       *rule.Service
 	Privacy    *privacy.Service
 	Translate  *translate.Service
+	AIProvider *aiprovider.Service
 	// LoginLimiter 登录限流（可为 nil）
 	LoginLimiter *auth.Limiter
 	// TrustedProxies 允许改写客户端 IP 的反向代理；空 = 不信任任何代理（gin 默认信任所有，必须显式收紧）
@@ -128,6 +130,9 @@ func New(deps Deps) http.Handler {
 		}
 		if deps.Translate != nil {
 			translate.RegisterRoutes(protected, deps.Translate)
+		}
+		if deps.AIProvider != nil {
+			aiprovider.RegisterRoutes(protected, deps.AIProvider)
 		}
 		if deps.Monitoring != nil {
 			monitoring.RegisterRoutes(protected, deps.Monitoring)

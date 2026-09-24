@@ -31,7 +31,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 const root = process.cwd()
 const css = readFileSync(resolve(root, 'src/index.css'), 'utf-8')
-const settingsSrc = readFileSync(resolve(root, 'src/components/settings/SettingsDialog.tsx'), 'utf-8')
+const settingsSrc = readFileSync(resolve(root, 'src/components/settings/sections/ProfileSection.tsx'), 'utf-8')
 
 /** 在 .sd-body 下渲染一段结构，返回算好样式的元素。 */
 function computed(html: string, sel: string): CSSStyleDeclaration {
@@ -59,7 +59,7 @@ describe('真实 CSS 在 jsdom 里确实加载了', () => {
 })
 
 describe('「我的资料」的头像', () => {
-  // 与 SettingsDialog.tsx 里 ProfileSection 的结构保持一致
+  // 与 settings/sections/ProfileSection.tsx 里 ProfileBlock 的结构保持一致
   const markup = `
     <div class="settings-identity">
       <div class="ac-avatar">F</div>

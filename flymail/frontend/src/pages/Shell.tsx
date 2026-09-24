@@ -67,6 +67,8 @@ import type { FilterKey, ListFilter } from '@/lib/list-filters'
 import { getLayoutMode, setLayoutMode } from '@/lib/layout-mode'
 import { createAutoReadGate } from '@/lib/list-guards'
 import type { LayoutMode } from '@/lib/layout-mode'
+import { onOpenSettingsRequest } from '@/lib/settings-nav'
+import type { SettingsPageId } from '@/lib/settings-nav'
 import api from '@/lib/api'
 import type {
   Account,
@@ -707,6 +709,14 @@ export function ShellPage() {
   const [notifOpen, setNotifOpen] = useState(false)
   // ── 设置浮层 state ────────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 打开设置时定位到哪一页；undefined = 默认页。只在打开的那一刻读（见 SettingsDialog）
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | undefined>(undefined)
+  // 组件树深处（阅读器里 AI 未配置的「翻译」按钮）可以请求打开设置的某一页，
+  // 见 lib/settings-nav 头注释。
+  useEffect(() => onOpenSettingsRequest((page) => {
+    setSettingsPage(page)
+    setSettingsOpen(true)
+  }), [])
   // ── 快捷键速查浮层 state（`?` 触发）────────────────────────────────────────────
   const [helpOpen, setHelpOpen] = useState(false)
   // ── 移动端侧栏抽屉 state ───────────────────────────────────────────────────────
@@ -1368,7 +1378,7 @@ export function ShellPage() {
       onSync={onSync}
       onAddAccount={() => { onAddAccount(); setDrawerOpen(false) }}
       onToggleNotif={() => { setNotifOpen((o) => !o); setDrawerOpen(false) }}
-      onToggleSettings={() => { setSettingsOpen((o) => !o); setDrawerOpen(false) }}
+      onToggleSettings={() => { setSettingsPage(undefined); setSettingsOpen((o) => !o); setDrawerOpen(false) }}
       onCompose={() => { onCompose(); setDrawerOpen(false) }}
       onOpenDrafts={(id) => { onOpenDrafts(id); setDrawerOpen(false) }}
       draftsAccountId={view === 'drafts' ? accountId : null}
@@ -1543,6 +1553,7 @@ export function ShellPage() {
       {/* 设置弹框（覆盖层 modal）*/}
       {settingsOpen && (
         <SettingsDialog
+          initialSection={settingsPage}
           listStyle={listStyle}
           onChangeListStyle={handleChangeListStyle}
           conversationView={conversationView}

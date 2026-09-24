@@ -3,7 +3,7 @@
 // 此模块是全应用快捷键目录的唯一定义处，被三个消费者复用：
 //   1. hooks/useKeyboardShortcuts.ts —— 实际按键绑定（用此处的 KEY 常量避免魔法字符串）
 //   2. components/mail/ShortcutsCheatsheet.tsx —— `?` 触发的速查浮层
-//   3. components/settings/SettingsDialog.tsx —— 设置内的键位表
+//   3. components/settings/sections/ShortcutsSection.tsx —— 设置内的键位表
 // 描述文案统一走 i18n `shortcuts.*` 键，避免多处漂移。
 //
 // 键位取自主流邮件客户端的通用集（Gmail / Outlook 网页版基本一致），

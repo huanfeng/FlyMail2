@@ -31,10 +31,7 @@ export interface ReaderToolbarProps {
   translateActive?: boolean
   /** 正在翻译（按钮置灰并显示进行中的文案） */
   translateBusy?: boolean
-  /** 不可用（AI 未配置 / 这封信没有可翻译的文字），按钮置灰但仍可见——
-      隐藏起来的话用户只会以为功能坏了，置灰配上 title 才说得清为什么 */
-  translateDisabled?: boolean
-  /** 按钮的悬浮说明，用来解释置灰的原因或已识别的源语言 */
+  /** 按钮的悬浮说明：AI 未配置时说明点了会去设置，或提示已识别的源语言 */
   translateTitle?: string
   /** 归档：null 表示该账户没有归档文件夹或已在归档里，按钮不出现 */
   onArchive?: (() => void) | null
@@ -54,7 +51,6 @@ export function ReaderToolbar({
   onTranslate,
   translateActive,
   translateBusy,
-  translateDisabled,
   translateTitle,
   onArchive,
   archiveBusy,
@@ -133,7 +129,7 @@ export function ReaderToolbar({
             type="button"
             className={'tb-btn' + (translateActive ? ' is-active' : '')}
             onClick={onTranslate}
-            disabled={translateDisabled || translateBusy}
+            disabled={translateBusy}
             title={translateTitle}
             aria-pressed={translateActive}
           >

@@ -155,7 +155,6 @@ export function Reader({
         onTranslate={translate.toggle}
         translateActive={translate.showing}
         translateBusy={translate.busy}
-        translateDisabled={!translate.available}
         translateTitle={translate.hint(detail.detect_lang)}
         onArchive={onArchive}
         onDelete={onDelete}

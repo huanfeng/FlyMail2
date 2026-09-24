@@ -130,3 +130,107 @@ describe('SettingsDialog 的 Esc 归属', () => {
     expect(onClose, '确认框关了之后 Esc 不管用了').toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * 导航由注册表生成：每一页都要进得去、渲染得出来，initialSection（含旧 ID）要定位准。
+ *
+ * 渲染每一页是这里最要紧的一条：拆分文件时漏搬一个 import、漏传一个 prop，
+ * tsc 不一定拦得住（可选 props），只有真的点进那一页才会炸。
+ */
+describe('SettingsDialog 的分组导航', () => {
+  let mock: MockAdapter
+  let container: HTMLDivElement
+  let root: Root
+
+  async function flush(times = 3) {
+    for (let i = 0; i < times; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+    }
+  }
+
+  async function mount(initialSection?: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ToastProvider>
+            <ConfirmProvider>
+              <SettingsDialog
+                initialSection={initialSection}
+                listStyle="compact"
+                onChangeListStyle={vi.fn()}
+                conversationView={false}
+                onChangeConversationView={vi.fn()}
+                alwaysShowSelect={false}
+                onChangeAlwaysShowSelect={vi.fn()}
+                layoutMode="three"
+                onChangeLayoutMode={vi.fn()}
+                onClose={vi.fn()}
+              />
+            </ConfirmProvider>
+          </ToastProvider>
+        </QueryClientProvider>,
+      )
+    })
+    await flush()
+  }
+
+  const title = () => container.querySelector('.sd-body-title')?.textContent
+  const navItems = () => [...container.querySelectorAll<HTMLButtonElement>('.sd-nav-item')]
+
+  beforeEach(() => {
+    mock = new MockAdapter(api)
+    mock.onGet('/settings').reply(200, { settings: {} })
+    mock.onGet('/ai/providers').reply(200, { providers: [] })
+    // 列表类接口要回数组：通配的 {} 会让组件在 .map/.find 上炸掉，那不是这里要测的
+    mock.onGet('/accounts/oauth/providers').reply(200, [])
+    mock.onGet('/accounts').reply(200, [])
+    mock.onGet(/.*/).reply(200, {})
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
+  })
+
+  it('按组列出 14 个页面，组名可见', async () => {
+    await mount()
+    expect(navItems()).toHaveLength(14)
+    const groups = [...container.querySelectorAll('.sd-nav-group-label')].map((g) => g.textContent)
+    expect(groups).toEqual([
+      'settings.group.personal',
+      'settings.group.mailbox',
+      'settings.group.integrations',
+      'settings.group.system',
+    ])
+    expect(title()).toBe('settings.navAppearance')
+  })
+
+  it('每一页都能打开并渲染出内容', async () => {
+    await mount()
+    for (const item of navItems()) {
+      await act(async () => item.click())
+      await flush(2)
+      const label = item.textContent
+      expect(title(), `点了「${label}」标题没跟着换`).toBe(label)
+      expect(item.getAttribute('aria-current')).toBe('page')
+      const body = container.querySelector('.sd-body-scroll')
+      expect(body?.children.length, `「${label}」是空白页`).toBeGreaterThan(0)
+    }
+  })
+
+  it('initialSection 定位到指定页，旧 ID 也认', async () => {
+    await mount('ai')
+    expect(title()).toBe('settings.navAI')
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await mount('blocklist')
+    expect(title()).toBe('settings.navFilters')
+  })
+})

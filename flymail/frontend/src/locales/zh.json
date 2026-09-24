@@ -269,7 +269,7 @@
     "translateFailed": "翻译失败",
     "translateRetry": "重试",
     "translateRedo": "重新翻译",
-    "translateNotConfigured": "尚未配置 AI 接口，请先到设置 → AI 翻译里填写",
+    "translateNotConfigured": "尚未配置 AI 接口，点击前往设置",
     "translateSameLang": "这封邮件已经是{{lang}}"
   },
   "account": {
@@ -455,18 +455,10 @@
     "title": "设置",
     "navProfile": "资料",
     "navAccounts": "账户",
-    "navGeneral": "通用",
-    "navSecurity": "安全",
-    "navMail": "邮件",
     "navNotify": "通知",
-    "navRules": "规则",
-    "navBlocklist": "黑名单",
-    "navPrivacy": "隐私",
     "navMonitoring": "监控",
     "navShortcuts": "快捷键",
     "navAbout": "关于",
-    "navSignature": "签名",
-    "navAliases": "发件别名",
     "signature": {
       "title": "邮件签名",
       "help": "每个账户一份签名，可分别决定新建邮件和回复时是否自动附加。签名里的图片会随邮件内嵌发出。",
@@ -753,7 +745,6 @@
     },
     "page": {
       "sub": "管理外观、账户与邮件同步偏好",
-      "sectAppearance": "外观",
       "theme": "主题色调",
       "themeHelp": "选择一套配色，点击即时预览效果",
       "mode": "亮 / 暗模式与布局",
@@ -1023,6 +1014,26 @@
       "kind_truncated": "输出被截断",
       "kind_bad_output": "返回内容不可用",
       "kind_not_configured": "配置不完整"
+    },
+    "group": {
+      "personal": "个人",
+      "mailbox": "邮箱",
+      "integrations": "集成",
+      "system": "系统"
+    },
+    "navProfileSecurity": "资料与安全",
+    "navAppearance": "外观与语言",
+    "navReading": "阅读",
+    "navCompose": "撰写",
+    "navFilters": "过滤",
+    "navSync": "同步",
+    "navServer": "服务器",
+    "reading": {
+      "viewTitle": "阅读方式"
+    },
+    "server": {
+      "maintenance": "维护",
+      "maintenanceHelp": "搜索结果或会话分组不对时再用；邮件多时需要跑一会儿，期间可以照常使用。"
     }
   },
   "dateGroup": {

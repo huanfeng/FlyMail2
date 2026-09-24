@@ -16,6 +16,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { apiErrorMessage } from '@/lib/api'
 import { useMessageTranslation, useTranslateLanguages, useTranslateMessage } from '@/lib/queries'
+import { requestOpenSettings } from '@/lib/settings-nav'
 import type { Translation } from '@/lib/types'
 
 export interface MessageTranslator {
@@ -83,6 +84,12 @@ export function useMessageTranslator(messageId: number | null): MessageTranslato
   )
 
   const toggle = React.useCallback(() => {
+    // 没配置时按钮不置灰，点一下直接带用户去配：置灰的按钮只能靠悬停提示
+    // 说「去设置里填」，而用户还得自己找到设置里的那一页。
+    if (!available) {
+      requestOpenSettings('ai')
+      return
+    }
     if (showing) {
       setShowing(false)
       return
@@ -93,7 +100,7 @@ export function useMessageTranslator(messageId: number | null): MessageTranslato
     // 更不该让用户看着转圈等一份手里已经有的东西。
     if (query.data) return
     run(false)
-  }, [showing, query.data, run])
+  }, [available, showing, query.data, run])
 
   const hint = React.useCallback(
     (detectLang?: string) => {

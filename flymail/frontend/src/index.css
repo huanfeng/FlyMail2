@@ -1521,6 +1521,14 @@ mark.hl {
   letter-spacing: -0.01em;
   font-weight: 500;
 }
+/* 导航分组：组名是小号灰字，只起「这一簇是一类」的提示作用，不抢页面名的视线 */
+.sd-nav-group { display: flex; flex-direction: column; gap: 2px; }
+.sd-nav-group + .sd-nav-group { margin-top: 12px; }
+.sd-nav-group-label {
+  padding: 0 10px 4px;
+  font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
 .sd-nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: 6px;
@@ -1655,11 +1663,13 @@ mark.hl {
 /* 窄屏设置弹窗响应式。
 
    ⚠ 分区导航在窄屏要**换行铺开**，不能横向滚动。
-   设置一共 15 个分区，横滚时屏幕上只放得下 4 个半，剩下 10 个既看不见、也没有
+   设置一共 14 个分区，横滚时屏幕上只放得下 4 个半，剩下的既看不见、也没有
    任何「右边还有」的提示——移动端的横向滚动条是隐藏的，那半个被切开的标签是
    唯一线索。实测下来的结果是：绝大部分设置项在手机上等于不存在。
    这不是排版不好看的问题，是功能找不到的问题。
-   换行后四行铺满全部 15 项，占约 150px，换来的是每一项都看得见。 */
+   换行后四行铺满全部 14 项，占约 150px，换来的是每一项都看得见。
+   分组在窄屏上拆掉（display: contents），组名隐藏：换行铺开时组名会各占一格，
+   把导航撑高一行，而分组的提示作用在一眼能看全的四行里本来就不需要。 */
 @media (max-width: 720px) {
   /* ⚠ 必须显式给出行高，否则导航会被撑满半个屏幕。
      窄屏下这是个单列 grid，行默认 stretch；导航改成 wrap 之后，内容少的分区
@@ -1679,6 +1689,8 @@ mark.hl {
     flex: 0 0 auto; max-height: 40vh;
   }
   .sd-nav-head { display: none; }
+  .sd-nav-group { display: contents; }
+  .sd-nav-group-label { display: none; }
   .sd-nav-item {
     white-space: nowrap;
     padding: 6px 9px; gap: 6px; font-size: 12.5px;

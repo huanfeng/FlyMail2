@@ -14,6 +14,7 @@ import api from '@/lib/api'
 import { Reader } from '@/components/mail/Reader'
 import { ConfirmProvider } from '@/components/ui/Confirm'
 import { ToastProvider } from '@/components/ui/Toast'
+import { onOpenSettingsRequest } from '@/lib/settings-nav'
 import type { MessageDetail, Translation } from '@/lib/types'
 
 vi.mock('react-i18next', () => ({
@@ -224,13 +225,21 @@ describe('阅读区的翻译开关', () => {
     expect(posts, '重试要真的再发一次').toBe(2)
   })
 
-  it('AI 没配置时按钮置灰，并说明去哪儿配', async () => {
+  it('AI 没配置时按钮仍可点，点了直接打开设置的 AI 页，不发翻译请求', async () => {
     stub({ enabled: false })
     await mount()
+    const opened: string[] = []
+    const off = onOpenSettingsRequest((page) => opened.push(page))
 
     const btn = translateBtn()
-    expect(btn!.disabled).toBe(true)
+    expect(btn!.disabled).toBe(false)
     expect(btn!.title).toContain('reader.translateNotConfigured')
+    await act(async () => btn!.click())
+    await flush()
+    off()
+
+    expect(opened).toEqual(['ai'])
+    expect(posts, '没配置时不该去请求翻译').toBe(0)
   })
 
   it('这封信已经是目标语言时给出提示，但按钮照样能点', async () => {

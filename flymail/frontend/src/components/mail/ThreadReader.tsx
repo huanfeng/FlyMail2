@@ -584,7 +584,6 @@ export function ThreadReader({
         onTranslate={activeId != null ? translate.toggle : undefined}
         translateActive={translate.showing}
         translateBusy={translate.busy}
-        translateDisabled={!translate.available}
         translateTitle={translate.hint(activeDetail?.detect_lang)}
         onArchive={onArchive}
         onDelete={onDelete}

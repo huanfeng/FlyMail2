@@ -269,7 +269,7 @@
     "translateFailed": "Translation failed",
     "translateRetry": "Retry",
     "translateRedo": "Translate again",
-    "translateNotConfigured": "No AI endpoint configured yet — set one up in Settings → AI translation",
+    "translateNotConfigured": "No AI endpoint configured yet — click to open Settings",
     "translateSameLang": "This message is already in {{lang}}"
   },
   "account": {
@@ -455,18 +455,10 @@
     "title": "Settings",
     "navProfile": "Profile",
     "navAccounts": "Accounts",
-    "navGeneral": "General",
-    "navSecurity": "Security",
-    "navMail": "Mail",
     "navNotify": "Notifications",
-    "navRules": "Rules",
-    "navBlocklist": "Blocklist",
-    "navPrivacy": "Privacy",
     "navMonitoring": "Monitoring",
     "navShortcuts": "Shortcuts",
     "navAbout": "About",
-    "navSignature": "Signature",
-    "navAliases": "Aliases",
     "signature": {
       "title": "Email signature",
       "help": "One signature per account; choose whether it is appended to new messages and to replies. Images in the signature are embedded in the outgoing mail.",
@@ -753,7 +745,6 @@
     },
     "page": {
       "sub": "Manage appearance, accounts and mail sync preferences",
-      "sectAppearance": "Appearance",
       "theme": "Color Tone",
       "themeHelp": "Pick a color scheme — changes take effect immediately",
       "mode": "Light / Dark & Layout",
@@ -1023,6 +1014,26 @@
       "kind_truncated": "Output truncated",
       "kind_bad_output": "Unusable response",
       "kind_not_configured": "Incomplete configuration"
+    },
+    "group": {
+      "personal": "Personal",
+      "mailbox": "Mailbox",
+      "integrations": "Integrations",
+      "system": "System"
+    },
+    "navProfileSecurity": "Profile & security",
+    "navAppearance": "Appearance & language",
+    "navReading": "Reading",
+    "navCompose": "Compose",
+    "navFilters": "Filters",
+    "navSync": "Sync",
+    "navServer": "Server",
+    "reading": {
+      "viewTitle": "Reading view"
+    },
+    "server": {
+      "maintenance": "Maintenance",
+      "maintenanceHelp": "Only needed when search results or conversation grouping look wrong. Large mailboxes take a while; you can keep working meanwhile."
     }
   },
   "dateGroup": {

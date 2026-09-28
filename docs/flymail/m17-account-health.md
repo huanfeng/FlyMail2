@@ -53,10 +53,12 @@
 **站内落库口径**（notify.Emit 加 WithInApp(false) 选项）：
 
 - 熔断故障沿：落库 + 外发
-- needs_reauth 故障沿：只外发+SSE（markNeedsReauth 已落库一次，不重复）
+- needs_reauth 故障沿：不另发通知（markNeedsReauth 已即时推送并落库；watcher
+  只负责该账户的 24h 重复与恢复通知）
 - 每日 24h 重复：只外发，不落库（防通知中心刷屏）
 - 恢复通知：落库 + 外发
-- 重启后第一个 tick 补推：落库（相当于新翻转沿）
+- 重启补推：第一个 tick 把存量熔断故障按新翻转沿补推（落库+外发）；needs_reauth
+  存量不重复推送（通知中心已有 markNeedsReauth 的落库记录）
 
 **needs_reauth 停止无效重试**：
 

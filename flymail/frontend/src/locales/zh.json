@@ -542,7 +542,8 @@
         "inbox_sync": "收件箱同步",
         "task": "执行任务",
         "backoff": "退避重连",
-        "breaker_open": "熔断"
+        "breaker_open": "熔断",
+        "needs_reauth": "需重新授权"
       },
       "event": {
         "dial_ok": "已连接",

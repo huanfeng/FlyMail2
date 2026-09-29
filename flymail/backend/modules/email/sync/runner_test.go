@@ -3,11 +3,14 @@ package sync
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"flymail-core/types"
+
+	"flymail/modules/email/account"
 )
 
 // rnFake 复用 mgrFakeSession 满足 Session 接口，附带 Close 回调用于断言连接关闭。
@@ -376,5 +379,65 @@ func TestRunner_ProbeSkippedWhenUnsupported(t *testing.T) {
 	// 不支持探活就不该把好端端的连接丢掉重建
 	if got := atomic.LoadInt32(dials); got != 1 {
 		t.Errorf("dial 次数 = %d，期望复用单连接(1)", got)
+	}
+}
+
+func TestRunnerNeedsReauthThrottle(t *testing.T) {
+	dials := 0
+	now := time.Unix(1700000000, 0)
+	// 拨号一律以 ErrNeedsReauth 失败（模拟 OAuth 刷新失败暴露在 r.cfg()→dialConn）。
+	r := newRunner(1,
+		func() (types.IMAPConfig, error) { return types.IMAPConfig{}, nil },
+		func(types.IMAPConfig) (Session, error) {
+			dials++
+			return nil, fmt.Errorf("refresh: %w", account.ErrNeedsReauth)
+		},
+	)
+	r.now = func() time.Time { return now }
+	sess := Session(nil)
+	mk := func() task {
+		return task{run: func(Session) error { return nil }, reply: make(chan error, 1)}
+	}
+
+	// 1) 首个后台任务：拨号失败原因为 ErrNeedsReauth → 进入节流 + 退避
+	r.exec(&sess, mk(), false)
+	if r.needsReauthUntil.IsZero() {
+		t.Fatal("ErrNeedsReauth 后应进入节流")
+	}
+	if dials != 1 {
+		t.Fatalf("dials=%d", dials)
+	}
+
+	// 2) 拨号退避（1s）已过、节流（30min）未过：后台任务仍被拒绝——
+	//    证明节流独立于既有 dial backoff 生效，30 分钟内不再拨号。
+	now = now.Add(2 * time.Second)
+	tk := mk()
+	r.exec(&sess, tk, false)
+	if err := <-tk.reply; !errors.Is(err, errNeedsReauthThrottled) {
+		t.Fatalf("节流窗口内的后台任务应回 errNeedsReauthThrottled，got %v", err)
+	}
+	if dials != 1 {
+		t.Fatalf("节流期间不得再拨号，dials=%d", dials)
+	}
+
+	// 3) 前台任务穿透节流：仍然拨号（用户手动操作不受 30 分钟限制）
+	tkf := mk()
+	r.exec(&sess, tkf, true)
+	if dials != 2 {
+		t.Fatalf("前台应穿透节流，dials=%d", dials)
+	}
+
+	// 4) 拨号成功清除节流（重新授权后自动恢复的闭环）
+	r.dial = func(types.IMAPConfig) (Session, error) {
+		dials++
+		return &mgrFakeSession{}, nil
+	}
+	tks := mk()
+	r.exec(&sess, tks, true)
+	if err := <-tks.reply; err != nil {
+		t.Fatalf("成功路径不应报错，got %v", err)
+	}
+	if !r.needsReauthUntil.IsZero() {
+		t.Fatal("拨号成功后应清除节流")
 	}
 }

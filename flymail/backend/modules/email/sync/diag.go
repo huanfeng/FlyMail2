@@ -15,6 +15,8 @@ const (
 	modeTask         = "task"         // 正在执行前台/后台任务
 	modeBackoff      = "backoff"      // 连接失败退避中
 	modeBreakerOpen  = "breaker_open" // 熔断打开、后台暂停
+	modeNeedsReauth  = "needs_reauth" // 授权失效、后台拨号节流中
+
 )
 
 // diagRingSize 每账户保留的最近事件条数（内存环形缓冲，重启丢失）。

@@ -7,6 +7,7 @@ import (
 
 	coreimap "flymail-core/imap"
 	"flymail-core/types"
+	"flymail/modules/email/account"
 )
 
 // runnerHost 提供 runner 所需的同步动作（Task 5 由 Manager 实现，内部据 accountID
@@ -44,6 +45,12 @@ const (
 	// 又比一串连续任务之间的间隔大得多，不会给正常操作加开销。
 	staleAfter = 30 * time.Second
 )
+
+// needsReauthBackoff 授权失效后后台拨号的节流时长：30 分钟内不再无意义地重试。
+const needsReauthBackoff = 30 * time.Minute
+
+// errNeedsReauthThrottled 回给被节流拒绝的后台任务（回写任务留在持久化队列，到期重试）。
+var errNeedsReauthThrottled = errors.New("needs reauth: background throttled 30min")
 
 // errBreakerOpen 表示账户熔断打开、后台任务此刻被拒（前台任务不会收到此错误）。
 var errBreakerOpen = errors.New("account circuit breaker open")
@@ -86,6 +93,10 @@ type runner struct {
 	lastUsedAt time.Time
 	// staleAfter 可注入以便测试。
 	staleAfter time.Duration
+	// needsReauthUntil 授权失效后的后台拨号节流截止时刻（仅 runner goroutine 访问，同 dialBackoff）。
+	// 拨号失败且 errors.Is(err, account.ErrNeedsReauth) 时置 now+30min；
+	// onDialSuccess（连接成功⇒授权已恢复）清除。零值表示未节流。
+	needsReauthUntil time.Time
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -327,7 +338,15 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		r.diag.setMode(modeBreakerOpen)
 		return interval
 	}
-	// ⚠ 这条路径比 exec 更需要探活：轮询间隔（默认 180 秒）远大于 staleAfter，
+	if !r.needsReauthUntil.IsZero() && r.now().Before(r.needsReauthUntil) {
+		r.diag.setMode(modeNeedsReauth)
+		return interval
+	}
+	if !r.needsReauthUntil.IsZero() && r.now().Before(r.needsReauthUntil) {
+		r.diag.setMode(modeNeedsReauth)
+		return interval
+	}
+	// ⚠ 这条路径比 exec 探活：轮询间隔（默认 180 秒）远大于 staleAfter，
 	// 上一轮留下的连接**必然**闲置超过阈值。不探的话，每一轮定时同步都可能
 	// 以一次 use-of-closed-network-connection 开场，在侧栏留下一个错误状态。
 	r.ensureAlive(sess)
@@ -342,6 +361,7 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 			r.diag.markErr(err.Error())
 			r.diag.event("dial_fail", err.Error())
 			r.onDialFailure()
+			r.markNeedsReauthThrottle(err)
 			return interval
 		}
 		r.onDialSuccess()
@@ -421,6 +441,10 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 			reply(t, errDialBackoff)
 			return
 		}
+		if !r.needsReauthUntil.IsZero() && r.now().Before(r.needsReauthUntil) {
+			reply(t, errNeedsReauthThrottled)
+			return
+		}
 	}
 
 	// 复用一条闲置过久的连接前先探活。见 ensureAlive。
@@ -432,6 +456,7 @@ func (r *runner) exec(sess *Session, t task, foreground bool) {
 			r.diag.markErr(err.Error())
 			r.diag.event("dial_fail", err.Error())
 			r.onDialFailure()
+			r.markNeedsReauthThrottle(err)
 			reply(t, err)
 			return
 		}
@@ -537,6 +562,16 @@ func (r *runner) dialConn() (Session, error) {
 	return s, nil
 }
 
+// markNeedsReauthThrottle 拨号失败原因为授权失效时，把后台拨号节流 30 分钟，
+// 并记一条诊断事件（监控页时间线可见）。
+func (r *runner) markNeedsReauthThrottle(err error) {
+	if !errors.Is(err, account.ErrNeedsReauth) {
+		return
+	}
+	r.needsReauthUntil = r.now().Add(needsReauthBackoff)
+	r.diag.event("needs_reauth", "授权已失效，后台暂停拨号 30 分钟")
+}
+
 // onDialFailure 记熔断失败并推进重连退避（1s→60s 封顶）。
 func (r *runner) onDialFailure() {
 	r.breaker.RecordFailure()
@@ -555,6 +590,10 @@ func (r *runner) onDialFailure() {
 func (r *runner) onDialSuccess() {
 	r.dialBackoff = 0
 	r.nextDialAt = time.Time{}
+	if !r.needsReauthUntil.IsZero() {
+		r.needsReauthUntil = time.Time{}
+		r.diag.event("needs_reauth_cleared", "连接成功，解除授权节流")
+	}
 }
 
 // stats 返回熔断快照与后台队列深度（监控用；len(chan) 跨 goroutine 读取安全）。

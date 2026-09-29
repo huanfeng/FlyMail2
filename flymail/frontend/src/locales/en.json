@@ -542,7 +542,8 @@
         "inbox_sync": "Inbox sync",
         "task": "Task",
         "backoff": "Backoff",
-        "breaker_open": "Circuit open"
+        "breaker_open": "Circuit open",
+        "needs_reauth": "Re-auth needed"
       },
       "event": {
         "dial_ok": "Connected",

@@ -273,6 +273,12 @@
     "translateSameLang": "This message is already in {{lang}}"
   },
   "account": {
+    "health": {
+      "needsReauth": "Reauth needed",
+      "breaker": "Sync failing",
+      "needsReauthTip": "Authorization expired. Open the account in settings to re-auth",
+      "breakerTip": "Circuit breaker open: "
+    },
     "add": "Add Account",
     "edit": "Edit Account",
     "delete": "Delete Account",

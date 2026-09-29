@@ -3267,3 +3267,24 @@ mark.hl {
 /* 收件人行：标签与地址块混排，地址多时换行而不是把行撑出去 */
 .ti-to { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; }
 .ti-to-label { flex: 0 0 auto; color: var(--ink-3); }
+
+/* M17 账户健康标记：侧栏账户行的故障徽标（needs_reauth 橙 / 熔断红） */
+.acct-health {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 9999px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.acct-health.is-reauth {
+  color: #d97706;
+  border-color: #d97706;
+  background: color-mix(in srgb, #d97706 12%, transparent);
+}
+.acct-health.is-breaker {
+  color: var(--destructive);
+  border-color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}

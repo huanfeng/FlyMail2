@@ -15,6 +15,17 @@ export interface Account {
   status: string
   last_sync_at?: string
   enabled: boolean
+  /** 运行时健康快照；健康账户 API 缺省该字段（M17）。 */
+  health?: AccountRuntimeHealth
+}
+
+/** 账户行的运行时健康快照（/accounts 响应的 health 字段，M17）。
+ * 与监控页的 AccountHealth（/monitoring/accounts 响应）是不同形状，名字刻意区分。 */
+export interface AccountRuntimeHealth {
+  needs_reauth: boolean
+  breaker_open: boolean
+  failures: number
+  last_error?: string
 }
 
 /** 正文预取模式：仅新邮件 / 最近 N 天 / 全部历史 */

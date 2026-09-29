@@ -273,6 +273,12 @@
     "translateSameLang": "这封邮件已经是{{lang}}"
   },
   "account": {
+    "health": {
+      "needsReauth": "需重新授权",
+      "breaker": "同步异常",
+      "needsReauthTip": "授权已失效，点击账户进入设置页重新授权",
+      "breakerTip": "连续失败已熔断："
+    },
     "add": "添加账户",
     "edit": "编辑账户",
     "delete": "删除账户",

@@ -29,6 +29,7 @@ import { isSyncActive } from '@/lib/types'
 import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
 import { folderName } from '@/lib/mail-format'
+import { healthKind } from '@/lib/account-health'
 
 /** 实时连接的三态。'offline' = 连不上已持续 ≥ OFFLINE_AFTER_MS。 */
 export type ConnState = 'open' | 'connecting' | 'offline'
@@ -489,7 +490,7 @@ function AccountBlock({
           type="button"
           className={'account-row' + (active ? ' active' : '')}
           onClick={onToggleExpand}
-          style={{ flex: 1 }}
+          style={{ flex: 1, ...(acc.enabled ? undefined : { opacity: 0.55 }) }}
         >
           {/* 展开/收起 caret */}
           <span className={'caret' + (expanded ? ' open' : '')}>
@@ -502,6 +503,23 @@ function AccountBlock({
           />
           {/* 账户名（优先显示 name，回落到 email） */}
           <span className="acct-name">{acc.name || acc.email}</span>
+          {/* M17 账户健康故障标记：needs_reauth 橙 / 熔断红，title 带最近错误 */}
+          {(() => {
+            const hk = healthKind(acc)
+            if (!hk) return null
+            const tip =
+              hk === 'needs_reauth'
+                ? t('account.health.needsReauthTip')
+                : `${t('account.health.breakerTip')}${acc.health?.last_error ?? ''}`
+            return (
+              <span
+                className={'acct-health' + (hk === 'needs_reauth' ? ' is-reauth' : ' is-breaker')}
+                title={tip}
+              >
+                {hk === 'needs_reauth' ? t('account.health.needsReauth') : t('account.health.breaker')}
+              </span>
+            )
+          })()}
           {/* 未读总数（后端去重口径：收件箱+自定义文件夹，同一封跨标签只计一次） */}
           {unread > 0 && (
             <span className="acct-unread">{unread > 99 ? '99+' : unread}</span>

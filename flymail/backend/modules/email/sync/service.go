@@ -45,8 +45,9 @@ type EmitFunc func(eventType string, accountID uint, messageID uint, title, body
 
 // 事件类型字符串（与 notify 包常量保持一致；此处镜像以避免反向依赖 notify）。
 const (
-	notifyMailNew    = "mail_new"
-	notifySyncFailed = "sync_failed"
+	notifyMailNew       = "mail_new"
+	notifySyncFailed    = "sync_failed"
+	notifyAccountStatus = "account_status"
 )
 
 // AccountConfigProvider 由 account.Service 实现。

@@ -71,6 +71,11 @@ type Manager struct {
 
 	status *statusStore // 与 Service 共享；FullSync 借此上报进度（可能为 nil）
 	wb     *wbStore     // 持久化回写队列（EnableWriteback 装配，可能为 nil）
+	// emitExt 「只外发不落站内」的通知回调（24h 重复提醒走这条通道）。
+	emitExt EmitFunc
+
+	// health 账户健康 watcher（SetHealthRuntime 装配后才存在；nil 时 Start 跳过）。
+	health *healthWatcher
 }
 
 // setStatusStore 由 Service.SetManager 调用，共享同步进度存储，
@@ -244,6 +249,9 @@ func (m *Manager) Start(ctx context.Context) {
 	m.rootCtx = ctx
 	m.reconcile()
 	go m.reconcileLoop(ctx)
+	if m.health != nil {
+		go m.health.loop(ctx)
+	}
 }
 
 // Stop 取消所有 runner 并等待退出。
@@ -257,6 +265,21 @@ func (m *Manager) Stop() {
 	m.mu.Unlock()
 	for _, r := range runners {
 		r.stop()
+	}
+}
+
+// SetHealthRuntime 注入账户事实来源（app 层从 account.Service 组装，见 AccountBrief）。
+// 必须在 Start 之前调用。
+func (m *Manager) SetHealthRuntime(fn func() ([]AccountBrief, error)) {
+	m.health = newHealthWatcher(fn, m.RunnerStats, m.emit, m.emitExt, time.Now)
+}
+
+// SetEmitterExternal 注入「只外发不落站内」的通知回调（24h 重复提醒走这条通道）。
+// 须在 SetHealthRuntime 之后调用（先建 watcher 再挂回调）。
+func (m *Manager) SetEmitterExternal(fn EmitFunc) {
+	m.emitExt = fn
+	if m.health != nil {
+		m.health.emitExt = fn
 	}
 }
 

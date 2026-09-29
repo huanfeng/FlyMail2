@@ -276,6 +276,27 @@ func New(cfg *config.Config) (*App, error) {
 	// 后台同步管理器（IDLE + 轮询，新邮件经 Hub 推送）。
 	manager := syncmod.NewManager(accountSvc, folderSvc, messageSvc, hub)
 	manager.SetEmitter(emit)
+
+	// 账户健康 watcher（M17）：差分故障态并推送通知。
+	// 账户事实（名称/状态/启停）来自 account.Service；通知出口与其它事件源共享同一个 emit。
+	manager.SetHealthRuntime(func() ([]syncmod.AccountBrief, error) {
+		list, err := accountSvc.List()
+		if err != nil {
+			return nil, err
+		}
+		briefs := make([]syncmod.AccountBrief, 0, len(list))
+		for _, a := range list {
+			briefs = append(briefs, syncmod.AccountBrief{
+				ID:      a.ID,
+				Name:    a.Name,
+				Email:   a.Email,
+				Status:  a.Status,
+				Enabled: a.Enabled,
+			})
+		}
+		return briefs, nil
+	})
+	manager.SetEmitterExternal(notifySvc.EmitExternalFunc())
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
 	manager.SetMaxConcurrentProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxConcurrent, 8) })
 	manager.SetMaxIdleProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxIdleConns, 100) })

@@ -342,10 +342,6 @@ func (r *runner) doPoll(sess *Session) time.Duration {
 		r.diag.setMode(modeNeedsReauth)
 		return interval
 	}
-	if !r.needsReauthUntil.IsZero() && r.now().Before(r.needsReauthUntil) {
-		r.diag.setMode(modeNeedsReauth)
-		return interval
-	}
 	// ⚠ 这条路径比 exec 探活：轮询间隔（默认 180 秒）远大于 staleAfter，
 	// 上一轮留下的连接**必然**闲置超过阈值。不探的话，每一轮定时同步都可能
 	// 以一次 use-of-closed-network-connection 开场，在侧栏留下一个错误状态。

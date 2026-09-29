@@ -279,6 +279,12 @@
       "needsReauthTip": "Authorization expired. Open the account in settings to re-auth",
       "breakerTip": "Circuit breaker open: "
     },
+    "healthBanner": {
+      "title": "Account sync failing: ",
+      "more": " +{n} more",
+      "openSettings": "View",
+      "dismiss": "Dismiss"
+    },
     "add": "Add Account",
     "edit": "Edit Account",
     "delete": "Delete Account",

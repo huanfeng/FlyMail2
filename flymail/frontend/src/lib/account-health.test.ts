@@ -16,3 +16,32 @@ describe('healthKind', () => {
     expect(healthKind({ status: 'needs_reauth', health: undefined })).toBe('needs_reauth')
   })
 })
+
+import { beforeEach } from 'vitest'
+import { loadDismissed, saveDismissed, pruneDismissed } from '@/lib/account-health'
+
+describe('关闭记忆', () => {
+  beforeEach(() => sessionStorage.clear())
+
+  it('load 空存储返回空集合', () => {
+    expect(loadDismissed().size).toBe(0)
+  })
+
+  it('save 后 load 往返一致', () => {
+    const s = new Set([1, 3])
+    saveDismissed(s)
+    expect(loadDismissed()).toEqual(new Set([1, 3]))
+  })
+
+  it('损坏的存储内容不抛错，回退空集合', () => {
+    sessionStorage.setItem('flymail-health-dismissed', '{bad json')
+    expect(loadDismissed().size).toBe(0)
+  })
+
+  it('恢复后从记忆清除：同会话再故障可重现横幅', () => {
+    const dismissed = new Set([1, 2])
+    const next = pruneDismissed(dismissed, new Set([2]))
+    expect(next.has(1)).toBe(false)
+    expect(next.has(2)).toBe(true)
+  })
+})

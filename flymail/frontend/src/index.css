@@ -2906,6 +2906,33 @@ mark.hl {
   animation: toastIn 0.2s;
   max-width: calc(100vw - 32px);
 }
+
+/* M17 账户健康横幅：固定在断线横幅上方 44px，两者同时出现时上下堆叠不重叠。
+   固定定位不占布局——同 conn-banner 的取舍：故障可能持续数天，挤走内容更烦。 */
+.health-banner {
+  position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%);
+  z-index: 89;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px; border-radius: 8px;
+  background: var(--warning-wash); color: var(--warning-ink);
+  border: 1px solid var(--destructive);
+  border-color: color-mix(in srgb, var(--destructive) 45%, transparent);
+  font-size: 12.5px;
+  box-shadow: var(--shadow-sm);
+  animation: toastIn 0.2s;
+  max-width: calc(100vw - 32px);
+}
+.health-banner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.health-banner-btn {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: inherit;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
 .conn-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: currentColor; flex: 0 0 auto;

@@ -279,6 +279,12 @@
       "needsReauthTip": "授权已失效，点击账户进入设置页重新授权",
       "breakerTip": "连续失败已熔断："
     },
+    "healthBanner": {
+      "title": "账户同步异常：",
+      "more": " 等 {n} 个",
+      "openSettings": "查看",
+      "dismiss": "知道了"
+    },
     "add": "添加账户",
     "edit": "编辑账户",
     "delete": "删除账户",

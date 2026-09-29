@@ -7,6 +7,7 @@ import { rememberAccount, resolveContextAccount } from '@/lib/last-account'
 import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
+import { HealthBanner } from '@/components/mail/HealthBanner'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { NotificationsPage } from '@/components/notifications/NotificationsPage'
@@ -1393,6 +1394,11 @@ export function ShellPage() {
       <div className="sr-only" role="status" aria-live="polite">
         {announce.text ? announce.text + '\u200b'.repeat(announce.seq % 2) : ''}
       </div>
+
+      {/* M17 账户健康横幅：账户同步故障的全局出口。数据复用 ['accounts']
+          查询缓存（SSE 事件经 Task 9 invalidate 它），无新轮询。
+          固定定位不占布局，位于断线横幅上方，两者可同时出现。 */}
+      <HealthBanner />
 
       {/* 实时连接断了。这条必须说出来：断开期间新邮件既不会让列表刷新也不会弹通知，
           而「安静地不再收信」与「确实没有新邮件」在用户眼里完全一样。

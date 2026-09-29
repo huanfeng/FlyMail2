@@ -15,6 +15,7 @@ import {
   useReorderAccounts,
   useSetAccountEnabled,
 } from '@/lib/queries'
+import { healthKind, formatLastSyncRel } from '@/lib/account-health'
 import { moveItem } from '@/lib/reorder'
 import type { Account } from '@/lib/types'
 import { Toggle } from '../controls'
@@ -33,7 +34,8 @@ interface AccountCardRowProps {
 }
 
 function AccountCardRow({ account, onEdit, onDelete, onMoveUp, onMoveDown }: AccountCardRowProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language
   const setEnabled = useSetAccountEnabled()
   const statsQuery = useAccountStats(account.id)
   // 与侧栏那个同步按钮共用同一套触发/轮询/收手逻辑，见 useAccountSync 的头注释。
@@ -82,6 +84,12 @@ function AccountCardRow({ account, onEdit, onDelete, onMoveUp, onMoveDown }: Acc
             {t('settings.account.messages')}: {stats.message_count}
             &nbsp;·&nbsp;
             {t('settings.account.folders')}: {stats.folder_count}
+            {account.last_sync_at && (
+              <>
+                {' · '}
+                {t('settings.account.lastSync')}: {formatLastSyncRel(account.last_sync_at, Date.now(), locale)}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -120,6 +128,27 @@ function AccountCardRow({ account, onEdit, onDelete, onMoveUp, onMoveDown }: Acc
         >
           {account.enabled ? t('settings.account.enabled') : t('settings.account.disabled')}
         </span>
+
+        {/* M17 健康徽标：needs_reauth 橙 / 熔断红，title 带最近错误 */}
+        {(() => {
+          const hk = healthKind(account)
+          if (!hk) return null
+          const isReauth = hk === 'needs_reauth'
+          return (
+            <span
+              className="chip"
+              style={{
+                fontSize: 11,
+                padding: '1px 8px',
+                color: isReauth ? '#d97706' : 'var(--destructive)',
+                borderColor: isReauth ? '#d97706' : 'var(--destructive)',
+              }}
+              title={account.health?.last_error}
+            >
+              {isReauth ? t('settings.account.needsReauth') : t('settings.account.syncError')}
+            </span>
+          )
+        })()}
 
         {/* 启/停 toggle */}
         <Toggle

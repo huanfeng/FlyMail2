@@ -38,3 +38,25 @@ export function pruneDismissed(dismissed: Set<number>, faultyIds: Set<number>): 
   })
   return out
 }
+
+/** 「上次同步」相对时间：纯展示。iso 缺省或非法返回空串。
+ * 分桶：1 分钟内「刚刚」，60 分钟内分钟桶，24 小时内小时桶，
+ * 30 天内天桶，更久回退本地日期。 */
+export function formatLastSyncRel(
+  iso: string | undefined,
+  now: number,
+  locale: string,
+): string {
+  if (!iso) return ''
+  const ms = new Date(iso).getTime()
+  if (Number.isNaN(ms)) return ''
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+  const minutes = Math.floor((now - ms) / 60000)
+  if (minutes < 1) return rtf.format(0, 'minute')
+  if (minutes < 60) return rtf.format(-minutes, 'minute')
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return rtf.format(-hours, 'hour')
+  const days = Math.floor(hours / 24)
+  if (days < 30) return rtf.format(-days, 'day')
+  return new Date(iso).toLocaleDateString(locale)
+}

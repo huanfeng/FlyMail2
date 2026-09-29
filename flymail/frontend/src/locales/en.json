@@ -861,6 +861,7 @@
       "sync": "Sync Now",
       "enabled": "Enabled",
       "disabled": "Disabled",
+      "needsReauth": "Reauth needed",
       "enable": "Enable",
       "disable": "Disable",
       "moveUp": "Move up",

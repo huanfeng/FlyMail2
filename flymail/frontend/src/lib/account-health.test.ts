@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { healthKind } from '@/lib/account-health'
+import { healthKind, formatLastSyncRel } from '@/lib/account-health'
 
 describe('healthKind', () => {
   it('needs_reauth 优先于 breaker（与后端口径一致）', () => {
@@ -43,5 +43,30 @@ describe('关闭记忆', () => {
     const next = pruneDismissed(dismissed, new Set([2]))
     expect(next.has(1)).toBe(false)
     expect(next.has(2)).toBe(true)
+  })
+})
+
+describe('formatLastSyncRel', () => {
+  const NOW = Date.UTC(2026, 8, 28, 12, 0, 0)
+
+  it('缺省/非法 iso 返回空串', () => {
+    expect(formatLastSyncRel(undefined, NOW, 'zh-CN')).toBe('')
+    expect(formatLastSyncRel('not-a-date', NOW, 'zh-CN')).toBe('')
+  })
+  it('1 分钟内归为「刚刚」', () => {
+    const iso = new Date(NOW - 30_000).toISOString()
+    expect(formatLastSyncRel(iso, NOW, 'zh-CN')).toBe('此刻')
+  })
+  it('分钟桶', () => {
+    const iso = new Date(NOW - 5 * 60_000).toISOString()
+    expect(formatLastSyncRel(iso, NOW, 'zh-CN')).toBe('5分钟前')
+  })
+  it('小时桶', () => {
+    const iso = new Date(NOW - 3 * 3_600_000).toISOString()
+    expect(formatLastSyncRel(iso, NOW, 'zh-CN')).toBe('3小时前')
+  })
+  it('天桶', () => {
+    const iso = new Date(NOW - 2 * 86_400_000).toISOString()
+    expect(formatLastSyncRel(iso, NOW, 'zh-CN')).toBe('前天')
   })
 })

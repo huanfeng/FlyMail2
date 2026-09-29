@@ -861,6 +861,7 @@
       "sync": "立即同步",
       "enabled": "已启用",
       "disabled": "已停用",
+      "needsReauth": "需重新授权",
       "enable": "启用",
       "disable": "停用",
       "moveUp": "上移",

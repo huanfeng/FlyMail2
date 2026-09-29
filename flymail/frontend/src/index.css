@@ -3295,7 +3295,8 @@ mark.hl {
 .ti-to { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; }
 .ti-to-label { flex: 0 0 auto; color: var(--ink-3); }
 
-/* M17 账户健康标记：侧栏账户行的故障徽标（needs_reauth 橙 / 熔断红） */
+/* M17 账户健康标记：侧栏账户行的故障徽标（needs_reauth 橙 / 熔断红）。
+   可点击——直达账户管理（重新授权入口在那边），cursor 指示可点。 */
 .acct-health {
   font-size: 10px;
   line-height: 1;
@@ -3304,6 +3305,7 @@ mark.hl {
   border: 1px solid;
   white-space: nowrap;
   flex-shrink: 0;
+  cursor: pointer;
 }
 .acct-health.is-reauth {
   color: #d97706;

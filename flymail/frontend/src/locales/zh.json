@@ -276,7 +276,7 @@
     "health": {
       "needsReauth": "需重新授权",
       "breaker": "同步异常",
-      "needsReauthTip": "授权已失效，点击账户进入设置页重新授权",
+      "needsReauthTip": "授权已失效，点击此标记前往账户管理重新授权",
       "breakerTip": "连续失败已熔断："
     },
     "healthBanner": {

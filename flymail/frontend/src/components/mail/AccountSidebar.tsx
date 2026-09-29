@@ -30,6 +30,7 @@ import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
 import { folderName } from '@/lib/mail-format'
 import { healthKind } from '@/lib/account-health'
+import { requestOpenSettings } from '@/lib/settings-nav'
 
 /** 实时连接的三态。'offline' = 连不上已持续 ≥ OFFLINE_AFTER_MS。 */
 export type ConnState = 'open' | 'connecting' | 'offline'
@@ -515,6 +516,12 @@ function AccountBlock({
               <span
                 className={'acct-health' + (hk === 'needs_reauth' ? ' is-reauth' : ' is-breaker')}
                 title={tip}
+                onClick={(e) => {
+                  // 点徽标直达账户管理（重新授权入口在那边），不触发账户展开；
+                  // 与 HealthBanner 的「查看」同一个通道。
+                  e.stopPropagation()
+                  requestOpenSettings('accounts')
+                }}
               >
                 {hk === 'needs_reauth' ? t('account.health.needsReauth') : t('account.health.breaker')}
               </span>

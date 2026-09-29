@@ -276,7 +276,7 @@
     "health": {
       "needsReauth": "Reauth needed",
       "breaker": "Sync failing",
-      "needsReauthTip": "Authorization expired. Open the account in settings to re-auth",
+      "needsReauthTip": "Authorization expired. Click this badge to open account settings and re-auth",
       "breakerTip": "Circuit breaker open: "
     },
     "healthBanner": {

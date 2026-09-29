@@ -830,6 +830,9 @@ type RunnerStat struct {
 	BreakerOpen     bool   `json:"breaker_open"`
 	BreakerFailures int    `json:"breaker_failures"`
 	QueueDepth      int    `json:"queue_depth"` // 后台任务队列深度
+	// LastError 供健康推送文案与账户页展示最近失败原因；
+	// 只反映本进程内的最近一次失败（重启清零），成功后不回填旧错误。
+	LastError string `json:"last_error,omitempty"`
 }
 
 // RunnerStats 返回各账户 runner 的模式、熔断状态与队列深度。
@@ -839,12 +842,14 @@ func (m *Manager) RunnerStats() []RunnerStat {
 	out := make([]RunnerStat, 0, len(m.runners))
 	for id, r := range m.runners {
 		st, depth := r.stats()
+		lastErr, _ := r.diag.lastErrorOnly()
 		out = append(out, RunnerStat{
 			AccountID:       id,
 			Mode:            r.diag.modeOnly(),
 			BreakerOpen:     st.Open,
 			BreakerFailures: st.Failures,
 			QueueDepth:      depth,
+			LastError:       lastErr,
 		})
 	}
 	return out

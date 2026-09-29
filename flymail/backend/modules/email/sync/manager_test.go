@@ -347,3 +347,39 @@ func TestManagerPollAllNoNewMail(t *testing.T) {
 		t.Errorf("publisher count = %d, want 0", pub.count())
 	}
 }
+
+func TestRunnerStatsIncludesLastError(t *testing.T) {
+	m := &Manager{runners: map[uint]*runner{
+		7: newRunner(7,
+			func() (types.IMAPConfig, error) { return types.IMAPConfig{}, nil },
+			nil,
+		),
+	}}
+	m.runners[7].diag.markErr("dial tcp: connection refused")
+
+	sts := m.RunnerStats()
+	if len(sts) != 1 {
+		t.Fatalf("应有 1 条 runner 快照，got %d", len(sts))
+	}
+	if sts[0].LastError != "dial tcp: connection refused" {
+		t.Fatalf("LastError = %q, want %q", sts[0].LastError, "dial tcp: connection refused")
+	}
+}
+
+func TestRunnerStatsLastErrorEmptyWhenHealthy(t *testing.T) {
+	// 健康的 runner：markErr 从未调用，LastError 必须为空——
+	// watcher 的推送文案若拿到旧错误会误导用户（Review Focus 第 2 条）。
+	m := &Manager{runners: map[uint]*runner{
+		9: newRunner(9,
+			func() (types.IMAPConfig, error) { return types.IMAPConfig{}, nil },
+			nil,
+		),
+	}}
+	sts := m.RunnerStats()
+	if len(sts) != 1 {
+		t.Fatalf("应有 1 条 runner 快照，got %d", len(sts))
+	}
+	if sts[0].LastError != "" {
+		t.Fatalf("健康 runner 的 LastError 应为空，got %q", sts[0].LastError)
+	}
+}

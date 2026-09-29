@@ -111,6 +111,13 @@ func (d *runnerDiag) markErr(msg string) {
 	d.lastErrAt = d.now()
 }
 
+// lastErrorOnly 轻量读取最近一次错误文本与时间（watcher/健康快照用，不复制事件）。
+func (d *runnerDiag) lastErrorOnly() (string, time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lastErr, d.lastErrAt
+}
+
 // event 追加一条事件，超出环形容量时丢弃最旧。
 func (d *runnerDiag) event(typ, detail string) {
 	d.mu.Lock()

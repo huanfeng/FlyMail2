@@ -6,6 +6,7 @@ import { connectRealtime, type RealtimeState } from '@/lib/sse'
 import { writeSyncStatus } from '@/lib/sync-cache'
 import type { SyncStatus } from '@/lib/types'
 import { getNotifyPrefs } from '@/lib/notify-prefs'
+import { showAccountNotice, shouldAccountNotice } from '@/lib/browser-notify'
 import { claimChime, pageHidden, playChime, showMailNotice } from '@/lib/browser-notify'
 
 /** 新邮件通知里「点开那封信」的回调。由 Shell 传入。 */
@@ -159,6 +160,18 @@ export function useRealtimeSync(opts: RealtimeOptions = {}): RealtimeStatus {
         // 铃铛角标与通知列表跟着这条走（它才是「产生了一条通知」的准确时刻）
         void qc.invalidateQueries({ queryKey: ['notifications-unread'] })
         void qc.invalidateQueries({ queryKey: ['notifications'] })
+
+        // M17 账户健康事件：账户列表缓存必须失效，侧栏标记/横幅/账户页才跟得上；
+        // 桌面通知走独立函数（tag 按账户分 tag、10s 去重防双弹，无提示音）。
+        if (ev.event === 'sync_failed' || ev.event === 'account_status') {
+          void qc.invalidateQueries({ queryKey: ['accounts'] })
+          if (!pageHidden()) return
+          const prefs = getNotifyPrefs()
+          if (prefs.desktop && shouldAccountNotice(ev.account_id, ev.event)) {
+            showAccountNotice({ title: ev.title, body: ev.body, accountId: ev.account_id })
+          }
+          return
+        }
 
         if (ev.event !== 'mail_new') return
 

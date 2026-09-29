@@ -144,3 +144,41 @@ export function playChime(): void {
     /* 音频不是关键路径，失败就静音 */
   }
 }
+
+export interface AccountNotice {
+  title: string
+  body: string
+  accountId: number
+}
+
+/** 同账户同事件的 10 秒去重：watcher 60s tick 与手动「立即同步」失败
+ * 可能在短时间内重复触发同一事实，弹两条一样的通知只是噪音。
+ * 内存态即可——重启浏览器后置位自然丢失，代价可忽略。 */
+const lastAcctNotice = new Map<string, number>()
+
+export function shouldAccountNotice(accountId: number, event: string, now = Date.now()): boolean {
+  const key = `${event}-${accountId}`
+  const last = lastAcctNotice.get(key) ?? 0
+  if (now - last < 10_000) return false
+  lastAcctNotice.set(key, now)
+  return true
+}
+
+/** 弹一条账户健康通知。tag 按账户：同账户连续事件替换而非堆叠；
+ * 无提示音（与 mail_new 不同，账户故障不需要唤起用户立即处理）。 */
+export function showAccountNotice(n: AccountNotice): Notification | null {
+  if (notifyPermission() !== 'granted') return null
+  try {
+    const notice = new Notification(n.title, {
+      body: n.body,
+      tag: `flymail-acct-${n.accountId}`,
+    })
+    notice.onclick = () => {
+      window.focus()
+      notice.close()
+    }
+    return notice
+  } catch {
+    return null
+  }
+}

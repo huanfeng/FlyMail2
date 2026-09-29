@@ -23,6 +23,7 @@ vi.mock('@/lib/sse', () => ({
 }))
 
 const showMailNotice = vi.fn()
+const showAccountNotice = vi.fn()
 const playChime = vi.fn()
 let hidden = true
 let chimeClaimed = true
@@ -31,6 +32,8 @@ vi.mock('@/lib/browser-notify', () => ({
   playChime: () => playChime(),
   claimChime: () => chimeClaimed,
   pageHidden: () => hidden,
+  showAccountNotice: (...a: unknown[]) => showAccountNotice(...a),
+  shouldAccountNotice: () => true,
   notifyPermission: () => 'granted',
 }))
 
@@ -71,12 +74,52 @@ describe('useRealtimeSync', () => {
     await act(async () => emit?.(ev))
   }
 
+  const ACCT_EVENT: RealtimeEvent = {
+    type: 'notify',
+    event: 'sync_failed',
+    account_id: 9,
+    message_id: 0,
+    title: '同步异常：a',
+    body: '连续 5 次失败——dial tcp',
+  }
+
+  const RECOVER_EVENT: RealtimeEvent = {
+    type: 'notify',
+    event: 'account_status',
+    account_id: 9,
+    message_id: 0,
+    title: '同步已恢复：a',
+    body: '账户 a 恢复正常同步。',
+  }
+
+  it('sync_failed/account_status：失效 accounts 缓存并弹桌面通知', async () => {
+    setNotifyPrefs({ desktop: true, sound: false })
+    const qc = await mount()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    await fire(ACCT_EVENT)
+    expect(inv).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(showAccountNotice).toHaveBeenCalledTimes(1)
+    expect(showAccountNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 9, title: '同步异常：a' }),
+    )
+  })
+
+  it('恢复事件同样失效缓存并通知（恢复推送也是推送）', async () => {
+    setNotifyPrefs({ desktop: true, sound: false })
+    const qc = await mount()
+    const inv = vi.spyOn(qc, 'invalidateQueries')
+    await fire(RECOVER_EVENT)
+    expect(inv).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(showAccountNotice).toHaveBeenCalledTimes(1)
+  })
+
   beforeEach(() => {
     emit = null
     emitState = null
     hidden = true
     chimeClaimed = true
     showMailNotice.mockClear()
+    showAccountNotice.mockClear()
     playChime.mockClear()
     localStorage.clear()
     resetNotifyPrefsCache()

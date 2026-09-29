@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { healthKind, formatLastSyncRel } from '@/lib/account-health'
+import { shouldAccountNotice } from '@/lib/browser-notify'
 
 describe('healthKind', () => {
   it('needs_reauth 优先于 breaker（与后端口径一致）', () => {
@@ -68,5 +69,24 @@ describe('formatLastSyncRel', () => {
   it('天桶', () => {
     const iso = new Date(NOW - 2 * 86_400_000).toISOString()
     expect(formatLastSyncRel(iso, NOW, 'zh-CN')).toBe('前天')
+  })
+})
+
+describe('shouldAccountNotice 10 秒去重', () => {
+  it('同账户同事件 10s 内折叠', () => {
+    const t0 = 1_000_000
+    expect(shouldAccountNotice(7, 'sync_failed', t0)).toBe(true)
+    expect(shouldAccountNotice(7, 'sync_failed', t0 + 9_999)).toBe(false)
+    expect(shouldAccountNotice(7, 'sync_failed', t0 + 10_001)).toBe(true)
+  })
+  it('不同账户互不折叠', () => {
+    const t0 = 2_000_000
+    expect(shouldAccountNotice(7, 'sync_failed', t0)).toBe(true)
+    expect(shouldAccountNotice(8, 'sync_failed', t0)).toBe(true)
+  })
+  it('同账户不同事件互不折叠', () => {
+    const t0 = 3_000_000
+    expect(shouldAccountNotice(7, 'sync_failed', t0)).toBe(true)
+    expect(shouldAccountNotice(7, 'account_status', t0)).toBe(true)
   })
 })

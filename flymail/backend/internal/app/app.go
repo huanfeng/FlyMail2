@@ -57,6 +57,34 @@ type App struct {
 	emitHook   func(eventType string, accountID uint, messageID uint, title, body string)
 }
 
+// broadcastToStreams 把一次通知事件推到实时通道：桌面 toast（emitHook）+ 浏览器 SSE。
+// 与 emit 的区别是不含落库——落库口径（SkipInApp）归 notify 侧管；EmitExternal
+// （SkipInApp，24h 重复提醒）复用它补实时通道，dto 承诺的「只走外发渠道与 SSE」
+// 的 SSE 就在这里。hub 是装配局部变量，由调用处传入。
+func (a *App) broadcastToStreams(hub *sse.Hub, eventType string, accountID uint, messageID uint, title, body string) {
+	a.emitHookMu.RLock()
+	hook := a.emitHook
+	a.emitHookMu.RUnlock()
+	if hook != nil {
+		hook(eventType, accountID, messageID, title, body)
+	}
+	// 推给浏览器。这里而不是跟着 new_mail 走，是因为**闸门都在这一侧**：
+	// new_mail 对基线导入、archive / junk 一样会发，拿它弹桌面通知，
+	// 用户首次添加账户导入几千封历史邮件时就会被通知淹没。
+	// 能走到这里的已经过了「文件夹类型 + 非基线未读 + 跨文件夹去重」三道闸门。
+	payload, err := json.Marshal(notifyStreamEvent{
+		Type:      "notify",
+		Event:     eventType,
+		AccountID: accountID,
+		MessageID: messageID,
+		Title:     title,
+		Body:      body,
+	})
+	if err == nil {
+		hub.Publish(payload)
+	}
+}
+
 // notifyStreamEvent 是推给浏览器的通知事件。
 //
 // 与同步事件（type=new_mail）分开：那个的语义是「有变化，去重新拉」，
@@ -245,27 +273,7 @@ func New(cfg *config.Config) (*App, error) {
 	baseEmit := notifySvc.EmitFunc()
 	emit := func(eventType string, accountID uint, messageID uint, title, body string) {
 		baseEmit(eventType, accountID, messageID, title, body)
-		a.emitHookMu.RLock()
-		hook := a.emitHook
-		a.emitHookMu.RUnlock()
-		if hook != nil {
-			hook(eventType, accountID, messageID, title, body)
-		}
-		// 推给浏览器。这里而不是跟着 new_mail 走，是因为**闸门都在这一侧**：
-		// new_mail 对基线导入、archive / junk 一样会发，拿它弹桌面通知，
-		// 用户首次添加账户导入几千封历史邮件时就会被通知淹没。
-		// 能走到这里的已经过了「文件夹类型 + 非基线未读 + 跨文件夹去重」三道闸门。
-		payload, err := json.Marshal(notifyStreamEvent{
-			Type:      "notify",
-			Event:     eventType,
-			AccountID: accountID,
-			MessageID: messageID,
-			Title:     title,
-			Body:      body,
-		})
-		if err == nil {
-			hub.Publish(payload)
-		}
+		a.broadcastToStreams(hub, eventType, accountID, messageID, title, body)
 	}
 	syncSvc.SetEmitter(emit)
 	accountSvc.SetEmitter(emit)
@@ -296,7 +304,14 @@ func New(cfg *config.Config) (*App, error) {
 		}
 		return briefs, nil
 	})
-	manager.SetEmitterExternal(notifySvc.EmitExternalFunc())
+	// EmitExternal（SkipInApp）的语义是「不落站内库」，不是「不走实时通道」——
+	// 直绑 EmitExternalFunc 会把桌面 toast 与 SSE 一起丢掉，24h 重复提醒就只剩
+	// 飞书/webhook 能看到。包一层补上实时通道，与普通 emit 的实时行为对齐。
+	extBase := notifySvc.EmitExternalFunc()
+	manager.SetEmitterExternal(func(eventType string, accountID uint, messageID uint, title, body string) {
+		extBase(eventType, accountID, messageID, title, body)
+		a.broadcastToStreams(hub, eventType, accountID, messageID, title, body)
+	})
 	// 账户健康快照注入账户 API（M17）：熔断/错误来自同步引擎内存态，
 	// needs_reauth 来自账户表状态列。健康账户返回 nil（响应缺省 health）。
 	accountSvc.SetHealthProvider(func(a *account.Account) *account.AccountHealthInfo {

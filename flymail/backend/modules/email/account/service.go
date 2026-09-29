@@ -25,10 +25,24 @@ type Service struct {
 	providerLookup func(id, tenant string) (oauth.Provider, bool)
 	// emit 通知回调（解耦：account 包不依赖 notify 包，由 app 装配）。
 	emit func(eventType string, accountID uint, messageID uint, title, body string)
+	// health 运行时健康快照来源（app 层从同步引擎组装注入；nil 时响应不带 health）。
+	health func(a *Account) *AccountHealthInfo
 }
 
 func NewService(repo *Repository, enc *crypto.Encryptor) *Service {
 	return &Service{repo: repo, enc: enc}
+}
+
+// SetHealthProvider 注入健康快照来源。fn 收到 *Account（可读 Status，便于
+// app 层把 needs_reauth 一并装进快照），返回 nil 表示健康。
+func (s *Service) SetHealthProvider(fn func(a *Account) *AccountHealthInfo) { s.health = fn }
+
+// withHealth 给响应补健康快照；provider 未注入时原样返回（单测/无 Manager 场景）。
+func (s *Service) withHealth(a *Account, resp AccountResponse) AccountResponse {
+	if s.health != nil {
+		resp.Health = s.health(a)
+	}
+	return resp
 }
 
 // SetEmitter 注入通知回调（账户状态变化等事件）。
@@ -55,7 +69,7 @@ func (s *Service) Create(req CreateAccountRequest) (*AccountResponse, error) {
 	if err := s.repo.Create(a); err != nil {
 		return nil, err
 	}
-	resp := toResponse(a)
+	resp := s.withHealth(a, toResponse(a))
 	return &resp, nil
 }
 
@@ -64,7 +78,7 @@ func (s *Service) Get(id uint) (*AccountResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp := toResponse(a)
+	resp := s.withHealth(a, toResponse(a))
 	return &resp, nil
 }
 
@@ -75,7 +89,7 @@ func (s *Service) List() ([]AccountResponse, error) {
 	}
 	out := make([]AccountResponse, 0, len(list))
 	for i := range list {
-		out = append(out, toResponse(&list[i]))
+		out = append(out, s.withHealth(&list[i], toResponse(&list[i])))
 	}
 	return out, nil
 }
@@ -107,7 +121,7 @@ func (s *Service) Update(id uint, req UpdateAccountRequest) (*AccountResponse, e
 	if err := s.repo.Update(a); err != nil {
 		return nil, err
 	}
-	resp := toResponse(a)
+	resp := s.withHealth(a, toResponse(a))
 	return &resp, nil
 }
 

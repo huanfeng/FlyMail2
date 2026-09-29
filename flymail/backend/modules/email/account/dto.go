@@ -57,6 +57,8 @@ type AccountResponse struct {
 	Enabled       bool       `json:"enabled"`
 	Status        string     `json:"status"`
 	LastSyncAt    *time.Time `json:"last_sync_at,omitempty"`
+	// Health 运行时健康快照；健康账户为 nil（json 缺省）。
+	Health *AccountHealthInfo `json:"health,omitempty"`
 }
 
 func toResponse(a *Account) AccountResponse {
@@ -73,4 +75,13 @@ func toResponse(a *Account) AccountResponse {
 		resp.Proxy = &ProxyDTO{Type: a.ProxyType, Host: a.ProxyHost, Port: a.ProxyPort, Username: a.ProxyUsername}
 	}
 	return resp
+}
+
+// AccountHealthInfo 是账户运行时健康快照。
+// nil/缺省表示健康，非 nil 即有故障或需授权（前端据此渲染标记）。
+type AccountHealthInfo struct {
+	NeedsReauth bool   `json:"needs_reauth"`
+	BreakerOpen bool   `json:"breaker_open"`
+	Failures    int    `json:"failures"`
+	LastError   string `json:"last_error,omitempty"`
 }

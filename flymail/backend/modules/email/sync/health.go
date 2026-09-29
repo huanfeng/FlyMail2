@@ -173,3 +173,27 @@ func (w *healthWatcher) reason(kind string, st RunnerStat) string {
 	}
 	return "连接邮箱服务器持续失败"
 }
+
+// RunnerHealth 是账户运行时健康快照（账户 API 的 health 字段来源）。
+type RunnerHealth struct {
+	BreakerOpen bool
+	Failures    int
+	LastError   string
+}
+
+// HealthFor 返回某账户的运行时健康快照；无 runner 时返回 false（app 层组合 DB 状态后注入 account 层）。
+func (m *Manager) HealthFor(accountID uint) (RunnerHealth, bool) {
+	m.mu.Lock()
+	r, ok := m.runners[accountID]
+	m.mu.Unlock()
+	if !ok {
+		return RunnerHealth{}, false
+	}
+	st, _ := r.stats()
+	lastErr, _ := r.diag.lastErrorOnly()
+	return RunnerHealth{
+		BreakerOpen: st.Open,
+		Failures:    st.Failures,
+		LastError:   lastErr,
+	}, true
+}

@@ -297,6 +297,27 @@ func New(cfg *config.Config) (*App, error) {
 		return briefs, nil
 	})
 	manager.SetEmitterExternal(notifySvc.EmitExternalFunc())
+	// 账户健康快照注入账户 API（M17）：熔断/错误来自同步引擎内存态，
+	// needs_reauth 来自账户表状态列。健康账户返回 nil（响应缺省 health）。
+	accountSvc.SetHealthProvider(func(a *account.Account) *account.AccountHealthInfo {
+		rh, ok := manager.HealthFor(a.ID)
+		if !ok && a.Status != account.StatusNeedsReauth {
+			return nil
+		}
+		h := &account.AccountHealthInfo{}
+		if a.Status == account.StatusNeedsReauth {
+			h.NeedsReauth = true
+		}
+		if ok {
+			h.BreakerOpen = rh.BreakerOpen
+			h.Failures = rh.Failures
+			h.LastError = rh.LastError
+		}
+		if !h.NeedsReauth && !h.BreakerOpen {
+			return nil
+		}
+		return h
+	})
 	manager.SetPollIntervalProvider(func() int { return settingSvc.GetInt(setting.KeySyncPollInterval, 180) })
 	manager.SetMaxConcurrentProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxConcurrent, 8) })
 	manager.SetMaxIdleProvider(func() int { return settingSvc.GetInt(setting.KeySyncMaxIdleConns, 100) })

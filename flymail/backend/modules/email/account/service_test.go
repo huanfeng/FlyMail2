@@ -62,3 +62,56 @@ func TestServiceGetNotFound(t *testing.T) {
 		t.Errorf("want ErrAccountNotFound, got %v", err)
 	}
 }
+
+func TestServiceHealthProviderInjection(t *testing.T) {
+	svc, _, _ := newSvc(t)
+	created, err := svc.Create(account.CreateAccountRequest{
+		Name: "T", Email: "t@x.com", Username: "t", Password: "pw",
+		IMAPHost: "127.0.0.1", IMAPPort: 993, IMAPSecurity: "tls",
+		SMTPHost: "127.0.0.1", SMTPPort: 587, SMTPSecurity: "starttls",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Health != nil {
+		t.Fatal("未注入 provider 时 Health 应缺省")
+	}
+
+	svc.SetHealthProvider(func(a *account.Account) *account.AccountHealthInfo {
+		if a.ID == created.ID {
+			return &account.AccountHealthInfo{
+				NeedsReauth: false, BreakerOpen: true, Failures: 5, LastError: "dial tcp: timeout",
+			}
+		}
+		return nil
+	})
+
+	got, err := svc.Get(created.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Health == nil || !got.Health.BreakerOpen || got.Health.Failures != 5 {
+		t.Fatalf("Get 未带出健康快照: %+v", got.Health)
+	}
+
+	list, err := svc.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var found *account.AccountHealthInfo
+	for i := range list {
+		if list[i].ID == created.ID {
+			found = list[i].Health
+		}
+	}
+	if found == nil {
+		t.Fatal("List 未带出健康快照")
+	}
+
+	// provider 返回 nil（健康）→ health 字段缺省
+	svc.SetHealthProvider(func(a *account.Account) *account.AccountHealthInfo { return nil })
+	got2, _ := svc.Get(created.ID)
+	if got2.Health != nil {
+		t.Fatalf("健康账户 health 应缺省，got %+v", got2.Health)
+	}
+}

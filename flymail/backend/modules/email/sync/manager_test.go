@@ -383,3 +383,29 @@ func TestRunnerStatsLastErrorEmptyWhenHealthy(t *testing.T) {
 		t.Fatalf("健康 runner 的 LastError 应为空，got %q", sts[0].LastError)
 	}
 }
+
+func TestHealthForMirrorsRunnerState(t *testing.T) {
+	m := &Manager{runners: map[uint]*runner{
+		7: newRunner(7,
+			func() (types.IMAPConfig, error) { return types.IMAPConfig{}, nil },
+			nil,
+		),
+	}}
+	m.runners[7].diag.markErr("dial tcp: refused")
+
+	rh, ok := m.HealthFor(7)
+	if !ok {
+		t.Fatalf("7 号 runner 存在，HealthFor 不应返回 false")
+	}
+	if rh.BreakerOpen || rh.Failures != 0 {
+		t.Fatalf("裸 runner 未熔断: %+v", rh)
+	}
+	if rh.LastError != "dial tcp: refused" {
+		t.Fatalf("LastError = %q", rh.LastError)
+	}
+
+	// 无 runner：ok=false（app 层据此在健康时返回 nil）
+	if _, ok := m.HealthFor(99); ok {
+		t.Fatal("无 runner 应返回 false")
+	}
+}

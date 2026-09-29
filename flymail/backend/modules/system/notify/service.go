@@ -98,15 +98,17 @@ func (s *Service) Emit(evt Event) {
 	if evt.URL == "" {
 		evt.URL = s.buildLink(evt.AccountID, evt.MessageID)
 	}
-	// 站内通知落库（best-effort）
-	if err := s.repo.InsertNotification(&Notification{
-		Type:      string(evt.Type),
-		AccountID: evt.AccountID,
-		MessageID: evt.MessageID,
-		Title:     evt.Title,
-		Body:      evt.Body,
-	}); err != nil {
-		logger.Error("notify: 写入站内通知失败", zap.Error(err))
+	// 站内通知落库（best-effort）。SkipInApp 的事件只走外发：见 Event.SkipInApp 注释。
+	if !evt.SkipInApp {
+		if err := s.repo.InsertNotification(&Notification{
+			Type:      string(evt.Type),
+			AccountID: evt.AccountID,
+			MessageID: evt.MessageID,
+			Title:     evt.Title,
+			Body:      evt.Body,
+		}); err != nil {
+			logger.Error("notify: 写入站内通知失败", zap.Error(err))
+		}
 	}
 	// 外发投递入队（非阻塞）
 	select {
@@ -121,6 +123,14 @@ func (s *Service) Emit(evt Event) {
 func (s *Service) EmitFunc() func(eventType string, accountID uint, messageID uint, title, body string) {
 	return func(eventType string, accountID uint, messageID uint, title, body string) {
 		s.Emit(Event{Type: EventType(eventType), AccountID: accountID, MessageID: messageID, Title: title, Body: body})
+	}
+}
+
+// EmitExternalFunc 与 EmitFunc 同形，但事件只走外发渠道与 SSE，不落站内通知。
+// 用于「站内已有权威记录、重复推送只会刷屏」的场景（账户持续故障的每日重复提醒）。
+func (s *Service) EmitExternalFunc() func(eventType string, accountID uint, messageID uint, title, body string) {
+	return func(eventType string, accountID uint, messageID uint, title, body string) {
+		s.Emit(Event{Type: EventType(eventType), AccountID: accountID, MessageID: messageID, Title: title, Body: body, SkipInApp: true})
 	}
 }
 

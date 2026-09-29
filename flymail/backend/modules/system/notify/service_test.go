@@ -97,6 +97,49 @@ func TestEmitSkipsUnsubscribedChannel(t *testing.T) {
 	}
 }
 
+func TestEmitSkipInApp(t *testing.T) {
+	svc, _ := newSvc(t)
+
+	// 渠道订阅 sync_failed：SkipInApp 只影响站内落库，外发照常。
+	var mu sync.Mutex
+	var dispatched []notify.Event
+	svc.SetDispatcher(func(c *notify.Channel, evt notify.Event) error {
+		mu.Lock()
+		defer mu.Unlock()
+		dispatched = append(dispatched, evt)
+		return nil
+	})
+	enabled := true
+	if _, err := svc.CreateChannel(notify.ChannelInput{
+		Name: "wh", Kind: "webhook", URL: "http://x", Events: []string{"sync_failed"}, Enabled: &enabled,
+	}); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+
+	// 普通 Emit：站内落库 + 外发
+	svc.Emit(notify.Event{Type: notify.EventSyncFailed, AccountID: 1, Title: "t", Body: "b"})
+	// SkipInApp：只外发，不落库
+	svc.Emit(notify.Event{Type: notify.EventSyncFailed, AccountID: 1, Title: "t2", Body: "b", SkipInApp: true})
+
+	// 异步投递是 goroutine，轮询等待 worker 消费（沿用本文件既有测试的 deadline 轮询写法）
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(dispatched)
+		mu.Unlock()
+		if n == 2 {
+			// 站内通知只应有第 1 条（SkipInApp 不落库）
+			items, _ := svc.List(0, 50)
+			if len(items) != 1 || items[0].Title != "t" {
+				t.Fatalf("站内通知应为 1 条且为普通 Emit 那条，got %+v", items)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("超时未见 2 次外发投递")
+}
+
 func TestMarkAllRead(t *testing.T) {
 	svc, _ := newSvc(t)
 	svc.Emit(notify.Event{Type: notify.EventSyncFailed, Title: "失败"})

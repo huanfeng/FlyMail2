@@ -72,7 +72,8 @@ func TestRules_InboundChain(t *testing.T) {
 		return err == nil && sel.NumMessages == 1
 	})
 
-	// 通知：只有普通那封触发「新邮件」，标题带发件人
+	// 通知：只有普通那封触发「新邮件」。body 是 MailBody 的「主题\n摘要」格式，
+	// 摘要来自该邮件正文（e40e9a9 起通知带正文摘要）。
 	var notes struct {
 		Notifications []struct {
 			Type  string `json:"type"`
@@ -85,7 +86,7 @@ func TestRules_InboundChain(t *testing.T) {
 	for _, n := range notes.Notifications {
 		if n.Type == "mail_new" {
 			mailNew++
-			if n.Body != "plain" {
+			if n.Body != "plain\nstays in inbox" {
 				t.Errorf("mail_new should be about the plain message only: %+v", n)
 			}
 		}

@@ -3,10 +3,12 @@ import type { CtxMenuItem } from '@/components/ui/ContextMenu'
 import { MessageBody } from '@/components/mail/MessageBody'
 import { ReaderToolbar } from '@/components/mail/ReaderToolbar'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
+import { avatarHue, avatarKey } from '@/lib/avatar-color'
 import {
   folderLabel,
   formatAddresses,
   formatDate,
+  formatShortDate,
   senderInitial,
   useDelayedFlag,
 } from '@/lib/mail-format'
@@ -54,7 +56,7 @@ export function Reader({
   onMove,
   onMailto,
 }: ReaderProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const { data: detail, isLoading, isError, error } = useMessageDetail(messageId)
   const toggleFlag = useToggleFlag()
@@ -116,7 +118,7 @@ export function Reader({
 
       children: moveTargets.map((f) => ({
         key: `mv-${f.id}`,
-        label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+        label: folderLabel(accountFolders, f.id, t) ?? f.display_name,
         icon: 'folder',
         onSelect: () => onMove(f.id),
       })),
@@ -202,7 +204,7 @@ export function Reader({
               {/* 方形首字母头像 */}
               <div
                 className="avatar-sq"
-                style={{ background: 'var(--accent-color)', color: 'white' }}
+                data-hue={avatarHue(avatarKey(detail.from_name, detail.from_addr))}
               >
                 {initial}
               </div>
@@ -236,7 +238,7 @@ export function Reader({
               </div>
 
               {/* 时间戳 */}
-              <div className="th-time">{formatDate(detail.date)}</div>
+              <div className="th-time" title={formatDate(detail.date)}>{formatShortDate(detail.date, undefined, i18n.language)}</div>
             </div>
 
             {/* 消息正文（远程图拦截 / iframe / 引用折叠 / 附件都在这里）*/}

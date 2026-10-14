@@ -28,7 +28,8 @@ import type { AggregateView } from '@/lib/queries'
 import { isSyncActive } from '@/lib/types'
 import type { Account, Folder, SyncStatus } from '@/lib/types'
 import { auth } from '@/lib/auth'
-import { folderName } from '@/lib/mail-format'
+import { folderLabels, folderName } from '@/lib/mail-format'
+import { loadMoreExpanded, saveMoreExpanded, splitFolders } from '@/lib/sidebar-folders'
 import { healthKind } from '@/lib/account-health'
 import { requestOpenSettings } from '@/lib/settings-nav'
 
@@ -305,6 +306,9 @@ interface AccountBlockProps {
   onEdit: () => void
   onToggleEnabled: () => void
   onDelete: () => void
+  /** 「更多文件夹」是否展开（custom 文件夹 ≥ 3 个时才有这个开关） */
+  showMore: boolean
+  onToggleMore: () => void
 }
 
 function AccountBlock({
@@ -321,6 +325,8 @@ function AccountBlock({
   onEdit,
   onToggleEnabled,
   onDelete,
+  showMore,
+  onToggleMore,
 }: AccountBlockProps) {
   const { t } = useTranslation()
 
@@ -345,6 +351,20 @@ function AccountBlock({
   // ['folders', accountId] 这份缓存，当前账户不会因此多发一次。
   const foldersQuery = useFolders(acc.id, expanded)
   const folders = foldersQuery.data ?? []
+  // 显示名统一从这张表取：同类型多个文件夹时只有第一个拿 i18n 名（见 folderLabels）
+  const labels = folderLabels(folders, t)
+  // 同步进度行里的文件夹：SSE 只给服务器原名与类型，按原名回查到 Folder 再取统一显示名；
+  // 查不到（文件夹列表还没到）时退回按类型判
+  function syncFolderLabel(serverName: string, type: string): string {
+    const f = folders.find((x) => x.display_name === serverName || x.path === serverName)
+    return (f && labels.get(f.id)) || folderName(type, serverName, t)
+  }
+  // 系统文件夹常显，自定义文件夹多了折进「更多」；激活的那个即使折叠也常显（见 splitFolders）
+  const split = splitFolders(
+    folders.filter((f) => f.selectable),
+    activeFolderId,
+    showMore,
+  )
   // 只认「没有数据可显示」的失败：有缓存时后台刷新失败不该把列表换成错误条
   const foldersError =
     foldersQuery.isLoadingError && !foldersQuery.isFetching ? foldersQuery.error : null
@@ -418,7 +438,7 @@ function AccountBlock({
           total: syncFolderTotal,
         })}${
           syncStatus?.current_folder
-            ? ` · ${folderName(syncStatus.current_folder_type ?? '', syncStatus.current_folder, t)}`
+            ? ` · ${syncFolderLabel(syncStatus.current_folder, syncStatus.current_folder_type ?? '')}`
             : ''
         }`
       : t(syncStatus?.phase === 'queued' ? 'sync.queued' : 'sync.messages')
@@ -469,7 +489,7 @@ function AccountBlock({
     if (n > READ_ALL_CONFIRM_AT) {
       const ok = await confirm({
         title: t('ctx.markFolderReadConfirmTitle'),
-        body: t('ctx.markFolderReadConfirmBody', { count: n, folder: folderName(f.type, f.display_name, t) }),
+        body: t('ctx.markFolderReadConfirmBody', { count: n, folder: labels.get(f.id) ?? f.display_name }),
         confirmLabel: t('ctx.markFolderRead'),
       })
       if (!ok) return
@@ -617,12 +637,10 @@ function AccountBlock({
           {foldersError != null && (
             <SideError text={t('sidebar.foldersError')} onRetry={() => void foldersQuery.refetch()} />
           )}
-          {folders
-            .filter((f) => f.selectable)
+          {split.visible
             .map((f) => {
               const iconName: IconName = FOLDER_ICON[f.type] ?? 'folder'
-              // 自定义文件夹用 display_name，系统文件夹走 i18n
-              const label = f.type === 'custom' ? f.display_name : t(`folder.${f.type}`)
+              const label = labels.get(f.id) ?? f.display_name
               return (
                 <FolderRow
                   key={f.id}
@@ -641,6 +659,26 @@ function AccountBlock({
                 />
               )
             })}
+
+          {split.foldable && (
+            <button
+              type="button"
+              className="folder-row folder-more"
+              onClick={onToggleMore}
+              aria-expanded={showMore}
+            >
+              <span className="f-icon">
+                <Icon name={showMore ? 'chevron-up' : 'chevron-down'} size={12} />
+              </span>
+              <span style={{ flex: 1, textAlign: 'left' }}>
+                {showMore ? t('sidebar.lessFolders') : t('sidebar.moreFolders', { count: split.hiddenCount })}
+              </span>
+              {/* 折叠不能让未读消失：把折起来那部分的未读合计挂在开关上 */}
+              {!showMore && split.hiddenUnread > 0 && (
+                <span className="f-count">{split.hiddenUnread > 99 ? '99+' : split.hiddenUnread}</span>
+              )}
+            </button>
+          )}
 
           {/* 草稿箱（本地）入口 — 独立于 IMAP 文件夹 */}
           <FolderRow
@@ -701,6 +739,15 @@ export function AccountSidebar({
   // 存的是**用户显式改过的**那些，默认值在渲染期派生——不用 effect 去追账户列表，
   // 也就没有「effect 里 setState」那一类连锁渲染。
   const [overrides, setOverrides] = useState<ExpandMap>(loadExpanded)
+  // 各账户「更多文件夹」的展开状态，按设备记忆（与账户展开状态同一套路）
+  const [moreMap, setMoreMap] = useState<Record<number, boolean>>(loadMoreExpanded)
+  function toggleMore(accountId: number) {
+    setMoreMap((prev) => {
+      const next = { ...prev, [accountId]: !prev[accountId] }
+      saveMoreExpanded(next)
+      return next
+    })
+  }
   const expanded = useMemo(
     () => initialExpanded(accounts.map((a) => a.id), overrides),
     [accounts, overrides],
@@ -851,6 +898,8 @@ export function AccountSidebar({
             onEdit={() => setEditAcc(acc)}
             onToggleEnabled={() => setEnabled.mutate({ id: acc.id, enabled: !acc.enabled })}
             onDelete={() => handleDeleteAccount(acc)}
+            showMore={!!moreMap[acc.id]}
+            onToggleMore={() => toggleMore(acc.id)}
           />
         ))}
 

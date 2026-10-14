@@ -148,11 +148,8 @@ export function NotificationsPage({ onClose, onOpen }: NotificationsPageProps) {
       <div className="fp-tabs">
         <div className="nd-head">
           <span className="nd-title">{t('notif.title')}</span>
-          <span className="nd-sub">
-            {isZh
-              ? `${unreadCount} 条未读 · 共 ${all.length} 条`
-              : `${unreadCount} unread · ${all.length} total`}
-          </span>
+          {/* 只报未读数：all.length 是已加载的条数而不是总数，写成「共 N 条」会与未读数自相矛盾 */}
+          <span className="nd-sub">{t('notif.unreadSummary', { count: unreadCount })}</span>
         </div>
         <div className="spacer" style={{ flex: 1 }} />
         <button

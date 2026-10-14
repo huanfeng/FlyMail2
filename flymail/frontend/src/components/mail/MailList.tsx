@@ -35,6 +35,8 @@ import { useAddBlock } from '@/lib/queries'
 import { isValidBlockPattern, normalizeBlockPattern } from '@/lib/rules'
 import { FOCUS_SEARCH_EVENT } from '@/hooks/useKeyboardShortcuts'
 import { searchShortcutHint } from '@/lib/platform'
+import { avatarHue, avatarKey } from '@/lib/avatar-color'
+import { folderLabel } from '@/lib/mail-format'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -369,7 +371,7 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
       <span className="mi-avatar-wrap">
         <div
           className="avatar-sq"
-          style={{ background: 'var(--accent)' }}
+          data-hue={avatarHue(avatarKey(msg.from_name, msg.from_addr))}
         >
           {initials(msg.from_name, msg.from_addr)}
           {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
@@ -486,7 +488,7 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
       <span className="mi-avatar-wrap">
         <div
           className="avatar-sq"
-          style={{ background: 'var(--accent)' }}
+          data-hue={avatarHue(avatarKey(msg.from_name, msg.from_addr))}
         >
           {initials(msg.from_name, msg.from_addr)}
           {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
@@ -639,7 +641,7 @@ function ThreadRow({
       />
 
       <span className="mi-avatar-wrap">
-        <div className="avatar-sq" style={{ background: 'var(--accent)' }}>
+        <div className="avatar-sq" data-hue={avatarHue(avatarKey(avatarOf?.name ?? '', avatarOf?.email ?? ''))}>
           {initials(avatarOf?.name ?? '', avatarOf?.email ?? '')}
         </div>
       </span>
@@ -929,11 +931,8 @@ export function MailList({
 
   // ── 标题 ─────────────────────────────────────────────────────────────────
   // 聚合视图无 folder，使用 titleOverride
-  const title = titleOverride ?? (folder
-    ? folder.type === 'custom'
-      ? folder.display_name
-      : t(`folder.${folder.type}`)
-    : '')
+  // 与侧栏同一口径（folderLabel）：同类型多个文件夹时显示服务器原名，否则列表头与侧栏叫法不同
+  const title = titleOverride ?? (folder ? (folderLabel(folders, folder.id, t) ?? folder.display_name) : '')
 
   // ── 副标题：N封 / N未读 ───────────────────────────────────────────────────
   const totalCount = folder?.total_count ?? messages.length
@@ -1507,7 +1506,7 @@ export function MailList({
                 items={moveTargets
                   .map((f) => ({
                     key: String(f.id),
-                    label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                    label: folderLabel(folders, f.id, t) ?? f.display_name,
                     icon: 'folder' as const,
                     onSelect: () => onBatchMove(f.id),
                   }))}
@@ -1721,7 +1720,7 @@ export function MailList({
                         icon: 'folder',
                         children: targets.map((f) => ({
                           key: `mv-${f.id}`,
-                          label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                          label: folderLabel(folders, f.id, t) ?? f.display_name,
                           onSelect: () => onMoveThread(th, f.id),
                         })),
                       })
@@ -1777,7 +1776,7 @@ export function MailList({
                         icon: 'folder',
                         children: targets.map((f) => ({
                           key: `mv-${f.id}`,
-                          label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+                          label: folderLabel(folders, f.id, t) ?? f.display_name,
                           onSelect: () => onMoveMessage(msg.id, f.id),
                         })),
                       })

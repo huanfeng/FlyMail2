@@ -60,6 +60,8 @@ export function ReaderToolbar({
 }: ReaderToolbarProps) {
   const { t } = useTranslation()
   return (
+    // 带文字的按钮都写 aria-label：阅读容器 560px 以下 CSS 会把 <span> 文字收起（图标模式），
+    // 那时可访问名只剩 aria-label；title 只是鼠标悬浮提示，读屏不一定播。
     <div className="reader-toolbar" style={disabled ? { pointerEvents: 'none' } : undefined}>
       {/* 上一封 / 下一封：纯图标（这两个是导航不是操作，不占文字宽度），
           置于最左并与操作组以分隔线隔开。键盘用户走 j/k，这里是给鼠标用户的入口。 */}
@@ -98,6 +100,7 @@ export function ReaderToolbar({
           className="tb-btn"
           onClick={onReply}
           title={withShortcut(t('reader.reply'), KEY.reply)}
+          aria-label={t('reader.reply')}
           aria-keyshortcuts={KEY.reply}
         >
           <Icon name="reply" size={14} />
@@ -111,6 +114,7 @@ export function ReaderToolbar({
           className="tb-btn"
           onClick={onForward}
           title={withShortcut(t('reader.forward'), KEY.forward)}
+          aria-label={t('reader.forward')}
           aria-keyshortcuts={KEY.forward}
         >
           <Icon name="forward" size={14} />
@@ -132,6 +136,13 @@ export function ReaderToolbar({
             disabled={translateBusy}
             title={translateTitle}
             aria-pressed={translateActive}
+            aria-label={
+              translateBusy
+                ? t('reader.translating')
+                : translateActive
+                  ? t('reader.showOriginal')
+                  : t('reader.translate')
+            }
           >
             <Icon name="languages" size={14} />
             <span>
@@ -153,6 +164,7 @@ export function ReaderToolbar({
           className="tb-btn"
           onClick={onArchive}
           title={withShortcut(t('reader.archive'), KEY.archive)}
+          aria-label={t('reader.archive')}
           aria-keyshortcuts={KEY.archive}
           disabled={archiveBusy}
         >
@@ -167,6 +179,7 @@ export function ReaderToolbar({
         className="tb-btn"
         onClick={onDelete}
         title={withShortcut(t('reader.delete'), KEY.delete)}
+        aria-label={t('reader.delete')}
         aria-keyshortcuts={KEY.delete}
         disabled={deleteBusy}
         style={{ color: 'var(--destructive)' }}

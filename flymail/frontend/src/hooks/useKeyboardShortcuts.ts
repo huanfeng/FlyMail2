@@ -143,6 +143,10 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutsOptions): void {
       // 这里若继续往下走会把背后正在看的那封邮件也一并关掉——同一次按键被消费两回。
       if (e.key === KEY.escape) {
         goAt.current = 0
+        // 已被别人消费的 Esc 不再处理：radix 的下拉/右键菜单在 document 捕获阶段关自己并
+        // preventDefault，但不阻止冒泡——撰写器里的发件人下拉按一下 Esc 只想收起菜单，
+        // 不能连撰写器（手写浮层，modalLayerOpen 拦不住）一起关掉。
+        if (e.defaultPrevented) return
         if (o.helpOpen) {
           o.onCloseHelp()
         } else if (o.composeOpen) {

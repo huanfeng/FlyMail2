@@ -347,3 +347,98 @@ describe('ComposeDialog 的附件体积错误', () => {
     expect(msg(), '附件删了但「附件过大」还挂着').toBe('')
   })
 })
+
+/**
+ * 发件人选择：多账户时用项目统一的 DropMenu，而不是原生 <select>。
+ * 原生 select 的灰底与全站其它下拉不是一套外观；触发按钮用 aria-labelledby
+ * 指向「发件人」标签，读屏仍能报出它是什么。
+ */
+describe('ComposeDialog 的发件人下拉', () => {
+  it('多账户时发件人是下拉按钮而非原生 select', async () => {
+    const mock = new MockAdapter(api)
+    const acc = (id: number, email: string) => ({
+      id, name: email, email, auth_type: 'password',
+      imap_host: 'imap.example.com', imap_port: 993, imap_security: 'ssl',
+      smtp_host: 'smtp.example.com', smtp_port: 465, smtp_security: 'ssl',
+      status: 'ok', enabled: true,
+    })
+    mock.onGet('/accounts').reply(200, [acc(1, 'a@example.com'), acc(2, 'b@example.com')])
+    mock.onGet(/.*/).reply(200, [])
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ComposeDialog open accountId={1} onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      )
+    })
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+    }
+    expect(container.querySelector('select.compose-select')).toBeNull()
+    const trigger = container.querySelector<HTMLButtonElement>('.compose-select-trigger')
+    expect(trigger, '没有下拉触发按钮：账户接口可能没返回两个账户').not.toBeNull()
+    expect(trigger!.getAttribute('aria-labelledby')).toBeTruthy()
+    expect(trigger!.textContent).toContain('a@example.com')
+    // 可访问名要带上当前值：原生 select 会读出所选地址，换成按钮后不能退化成只剩「发件人」
+    const ids = trigger!.getAttribute('aria-labelledby')!.split(/\s+/)
+    const named = ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ')
+    expect(named).toContain('a@example.com')
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
+  })
+
+  it('选菜单项能换发件人', async () => {
+    const mock = new MockAdapter(api)
+    const acc = (id: number, email: string) => ({
+      id, name: email, email, auth_type: 'password',
+      imap_host: 'imap.example.com', imap_port: 993, imap_security: 'ssl',
+      smtp_host: 'smtp.example.com', smtp_port: 465, smtp_security: 'ssl',
+      status: 'ok', enabled: true,
+    })
+    mock.onGet('/accounts').reply(200, [acc(1, 'a@example.com'), acc(2, 'b@example.com')])
+    mock.onGet(/.*/).reply(200, [])
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const flush = async () => {
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 0))
+        })
+      }
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ComposeDialog open accountId={1} onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      )
+    })
+    await flush()
+    const trigger = container.querySelector<HTMLButtonElement>('.compose-select-trigger')!
+    await act(async () => {
+      trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, ctrlKey: false, pointerType: 'mouse' }))
+    })
+    await flush()
+    const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((el) =>
+      el.textContent?.includes('b@example.com'),
+    )
+    expect(item, '菜单没打开或没有第二个账户的项').toBeTruthy()
+    await act(async () => {
+      item!.click()
+    })
+    await flush()
+    expect(container.querySelector('.compose-select-trigger')!.textContent).toContain('b@example.com')
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
+  })
+})

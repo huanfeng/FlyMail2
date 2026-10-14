@@ -19,9 +19,11 @@ import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { addressActions } from '@/lib/address-actions'
 import { ReaderEmpty, ReaderError, ReaderSkeleton } from '@/components/mail/ReaderStates'
+import { avatarHue, avatarKey } from '@/lib/avatar-color'
 import {
   folderLabel,
   formatDate,
+  formatShortDate,
   senderInitial,
   useDelayedFlag,
 } from '@/lib/mail-format'
@@ -96,7 +98,7 @@ function ThreadItem({
   onRetranslate,
   onShowOriginal,
 }: ThreadItemProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const confirm = useConfirm()
   // 展开时才请求正文：一条 20 封的会话若一次性全拉，本地库也要扫 20 遍附件表
   const { data: detail } = useMessageDetail(expanded ? msg.id : null)
@@ -164,7 +166,7 @@ function ThreadItem({
       disabled: moveMessage.isPending,
       children: moveTargets.map((f) => ({
         key: `mv-${f.id}`,
-        label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+        label: folderLabel(accountFolders, f.id, t) ?? f.display_name,
         icon: 'folder',
         onSelect: () => moveMessage.mutate({ id: msg.id, folderId: f.id }),
       })),
@@ -216,7 +218,7 @@ function ThreadItem({
           <Icon name="chevron-right" size={12} stroke={2} />
         </span>
 
-        <div className="avatar-sq" style={{ background: 'var(--accent-color)', color: 'white' }}>
+        <div className="avatar-sq" data-hue={avatarHue(avatarKey(msg.from_name, msg.from_addr))}>
           {initial}
         </div>
 
@@ -282,7 +284,7 @@ function ThreadItem({
           {msg.flagged && <Icon name="star-fill" size={12} />}
           {msg.has_attachment && <Icon name="attach" size={12} />}
           {folderName && <span className="ti-folder">{folderName}</span>}
-          <span className="ti-time">{formatDate(msg.date)}</span>
+          <span className="ti-time" title={formatDate(msg.date)}>{formatShortDate(msg.date, undefined, i18n.language)}</span>
         </div>
       </div>
 
@@ -523,7 +525,7 @@ export function ThreadReader({
       icon: 'folder',
       children: moveTargets.map((f) => ({
         key: `mv-${f.id}`,
-        label: f.type === 'custom' ? f.display_name : t(`folder.${f.type}`),
+        label: folderLabel(accountFolders, f.id, t) ?? f.display_name,
         icon: 'folder',
         onSelect: () => onMove(f.id),
       })),

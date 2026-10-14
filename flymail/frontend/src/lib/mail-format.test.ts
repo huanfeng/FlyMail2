@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { folderLabel, folderName, formatAddresses, formatDate, senderInitial } from '@/lib/mail-format'
+import { folderLabel, folderLabels, folderName, formatAddresses, formatDate, formatShortDate, senderInitial } from '@/lib/mail-format'
 import type { Address, Folder } from '@/lib/types'
 
 function addr(name: string, email: string): Address {
@@ -136,5 +136,58 @@ describe('folderLabel', () => {
     // 在会话折叠行里就是一块无缘无故的间距。
     expect(folderLabel(folders, 999, t)).toBeNull()
     expect(folderLabel([], 1, t)).toBeNull()
+  })
+})
+
+describe('formatShortDate', () => {
+  const now = new Date(2026, 9, 14, 15, 0, 0) // 2026-10-14 15:00 本地时间
+  it('今天只显示时分', () => {
+    expect(formatShortDate(new Date(2026, 9, 14, 9, 5).toISOString(), now)).toBe('09:05')
+  })
+  it('本年显示月日，格式跟随传入的界面语言', () => {
+    const iso = new Date(2026, 8, 17, 19, 38).toISOString()
+    expect(formatShortDate(iso, now, 'zh-CN')).toBe('9月17日')
+    expect(formatShortDate(iso, now, 'en-US')).toBe('Sep 17')
+  })
+  it('跨年显示年份（去年 12 月 31 日）', () => {
+    expect(formatShortDate(new Date(2025, 11, 31, 23, 0).toISOString(), now)).toBe('2025/12/31')
+  })
+  it('无效日期原样返回', () => {
+    expect(formatShortDate('not-a-date', now)).toBe('not-a-date')
+  })
+})
+
+describe('folderLabels', () => {
+  const t = (k: string) => `T(${k})`
+  it('同类型出现多个时全部用服务器原名，单个的才用 i18n', () => {
+    // 真实数据：Gmail 的第二个 trash 服务器原名就叫「已删除」，若只让第二个用原名、
+    // 第一个仍用 i18n「已删除」，两个还是同名——所以同类型多个时一律用原名
+    const m = folderLabels(
+      [
+        { id: 1, type: 'trash', display_name: '[Gmail]/已删除邮件' },
+        { id: 2, type: 'trash', display_name: '已删除' },
+        { id: 3, type: 'inbox', display_name: 'INBOX' },
+      ],
+      t,
+    )
+    expect(m.get(1)).toBe('[Gmail]/已删除邮件')
+    expect(m.get(2)).toBe('已删除')
+    expect(m.get(3)).toBe('T(folder.inbox)')
+  })
+  it('custom 一律用 display_name', () => {
+    const m = folderLabels([{ id: 9, type: 'custom', display_name: 'Google/G+' }], t)
+    expect(m.get(9)).toBe('Google/G+')
+  })
+})
+
+describe('folderLabel 与 folderLabels 同口径', () => {
+  it('同类型多个文件夹时 folderLabel 也用服务器原名', () => {
+    const t = (k: string) => `T(${k})`
+    const folders = [
+      { id: 1, account_id: 1, path: 'a', display_name: '[Gmail]/已删除邮件', type: 'trash', selectable: true, total_count: 0, unread_count: 0, sort_order: 1 },
+      { id: 2, account_id: 1, path: 'b', display_name: '已删除', type: 'trash', selectable: true, total_count: 0, unread_count: 0, sort_order: 2 },
+    ]
+    expect(folderLabel(folders, 1, t)).toBe('[Gmail]/已删除邮件')
+    expect(folderLabel(folders, 2, t)).toBe('已删除')
   })
 })

@@ -109,9 +109,13 @@ describe('AppLayout 的宽度持久化', () => {
 describe('AppLayout 手柄报给读屏的上限', () => {
   let container: HTMLDivElement
   let root: Root
+  const origWidth = window.innerWidth
 
   beforeEach(() => {
     localStorage.clear()
+    // jsdom 默认 innerWidth 恰好是 1024，会落进紧凑档封顶（另有专门的用例）。
+    // 这里要验证的是「按窗口宽收紧」：1060 − 380 − 300 = 380 < 420，收紧仍然生效。
+    Object.defineProperty(window, 'innerWidth', { value: 1060, configurable: true })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -120,6 +124,7 @@ describe('AppLayout 手柄报给读屏的上限', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
+    Object.defineProperty(window, 'innerWidth', { value: origWidth, configurable: true })
   })
 
   it('三栏形态下报的是按窗口宽度收紧后的上限，不是静态常量', async () => {
@@ -149,6 +154,48 @@ describe('AppLayout 手柄报给读屏的上限', () => {
     expect(handle.getAttribute('aria-valuemax')).toBe(String(expected))
     // 方向键怎么用，得有地方说
     expect(handle.getAttribute('aria-describedby')).toBeTruthy()
+  })
+})
+
+describe('AppLayout 在 1024 紧凑档的上限', () => {
+  let container: HTMLDivElement
+  let root: Root
+  const origWidth = window.innerWidth
+
+  beforeEach(() => {
+    localStorage.clear()
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    Object.defineProperty(window, 'innerWidth', { value: origWidth, configurable: true })
+  })
+
+  it('上限与 CSS 的 min() 封顶一致：侧栏 200、列表 340', async () => {
+    // index.css 在 ≤1024 用 min(var(--sidebar-w), 200px) 封顶。拖拽状态若仍按
+    // 窗口宽算上限，状态会一路涨到 500 而列宽不动，往回拖先要走完一段死区。
+    await act(async () => {
+      root.render(
+        <AppLayout
+          sidebar={<div />}
+          list={<div />}
+          reader={<div />}
+          mobilePane="list"
+          drawerOpen={false}
+          onDrawerOpenChange={() => {}}
+          onMobileBack={() => {}}
+          layoutMode="three"
+        />,
+      )
+    })
+    const handles = container.querySelectorAll('[role="separator"]')
+    expect(Number(handles[0].getAttribute('aria-valuemax'))).toBeLessThanOrEqual(200)
+    expect(Number(handles[1].getAttribute('aria-valuemax'))).toBeLessThanOrEqual(340)
   })
 })
 

@@ -25,6 +25,11 @@ export interface DropMenuProps {
    */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /**
+   * 禁用触发。必须经这里透传到 radix 的 Trigger：radix 的 onPointerDown 只认
+   * Trigger 自己的 disabled，子按钮上的 disabled 它不看。
+   */
+  disabled?: boolean
 }
 
 function renderItems(items: CtxMenuItem[]) {
@@ -62,11 +67,11 @@ function renderItems(items: CtxMenuItem[]) {
   })
 }
 
-export function DropMenu({ trigger, items, align = 'end', open, onOpenChange }: DropMenuProps) {
+export function DropMenu({ trigger, items, align = 'end', open, onOpenChange, disabled }: DropMenuProps) {
   return (
     // open 为 undefined 时 radix 退回非受控，与原行为逐字相同
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
-      <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
+      <DropdownMenu.Trigger asChild disabled={disabled}>{trigger}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="ctx-menu" align={align} sideOffset={4}>
           {renderItems(items)}

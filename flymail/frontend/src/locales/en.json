@@ -59,6 +59,8 @@
     "rateLimitOver": "You can try signing in again now."
   },
   "sidebar": {
+    "moreFolders": "More folders ({{count}})",
+    "lessFolders": "Fewer folders",
     "compose": "Compose",
     "accounts": "Accounts",
     "settings": "Settings",
@@ -412,6 +414,7 @@
     "attachRemoveNamed": "Remove attachment {{name}}"
   },
   "notif": {
+    "unreadSummary": "{{count}} unread",
     "title": "Notifications",
     "sub": "No new notifications",
     "backToInbox": "Back to Inbox",

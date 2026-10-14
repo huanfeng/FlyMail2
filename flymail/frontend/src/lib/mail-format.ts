@@ -16,6 +16,30 @@ export function formatDate(dateStr: string): string {
 }
 
 /**
+ * 会话卡 / 阅读头用的短日期：今天 → HH:mm；本年 → 月日（跟随 locale）；更早 → YYYY/M/D。
+ *
+ * 完整时间放在元素的 title 里，这里只负责「一眼知道大概什么时候」。
+ * locale 由调用方传 i18n.language：界面语言与浏览器语言可以不一致，月日格式要跟界面走。
+ * 原来用 toLocaleString 的全量输出，等宽字体下占 150px，1024 宽的阅读区里
+ * 发件人只剩 5 个字符（截成 `chip3…`）。
+ */
+export function formatShortDate(dateStr: string, now: Date = new Date(), locale?: string): string {
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return dateStr
+  const sameDay =
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  if (sameDay) {
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}
+
+/**
  * 把 Address 数组渲染为 "name <email>" 逗号连接字符串。
  *
  * 命中当前账户自己的地址时显示为「我」：收信人里躺着一串自己的邮箱地址，
@@ -46,9 +70,9 @@ export function folderLabel(
   folderId: number,
   t: (k: string) => string,
 ): string | null {
-  const f = folders.find((x) => x.id === folderId)
-  if (!f) return null
-  return folderName(f.type, f.display_name, t)
+  if (!folders.some((x) => x.id === folderId)) return null
+  // 与侧栏同一口径（同类型多个时用原名），否则移动菜单里会并排出现两个「已删除」
+  return folderLabels(folders, t).get(folderId) ?? null
 }
 
 /**
@@ -69,6 +93,30 @@ export function folderName(
   // 空 type 只可能来自历史遗留行），但同步进度那个调用方拿到的是 SSE 来的裸字符串，
   // 不经过 Folder 对象——多一个来源就多一种进来的可能。
   return KNOWN_FOLDER_TYPES.has(type) && type !== 'custom' ? t(`folder.${type}`) : displayName
+}
+
+/**
+ * 一个账户内全部文件夹的显示名。
+ *
+ * 同一类型只出现一次时用 i18n 名；出现多个（Gmail 的 `[Gmail]/已删除邮件` 与 `已删除`
+ * 都归 trash）时**全部**用服务器原名——否则侧栏里出现两个一模一样的「已删除」。
+ * 不能只让第二个起用原名：真实数据里第二个的原名恰好就叫「已删除」，与第一个的
+ * i18n 名还是撞上。
+ */
+export function folderLabels(
+  folders: (Pick<Folder, 'id' | 'type' | 'display_name'> & Partial<Pick<Folder, 'account_id'>>)[],
+  t: (k: string) => string,
+): Map<number, string> {
+  // 按「账户 + 类型」计数：MailList 手上的列表跨账户，两个账户各一个 trash 不算重复
+  const key = (f: { type: string; account_id?: number }) => `${f.account_id ?? ''}|${f.type}`
+  const count = new Map<string, number>()
+  for (const f of folders) count.set(key(f), (count.get(key(f)) ?? 0) + 1)
+  const out = new Map<number, string>()
+  for (const f of folders) {
+    const dup = (count.get(key(f)) ?? 0) > 1
+    out.set(f.id, dup ? f.display_name : folderName(f.type, f.display_name, t))
+  }
+  return out
 }
 
 /** 有 i18n 文案的文件夹类型。不在这里面的一律显示服务器给的名字。 */

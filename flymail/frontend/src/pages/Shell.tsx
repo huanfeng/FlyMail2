@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { AppLayout } from '@/components/mail/AppLayout'
 import { AccountSidebar } from '@/components/mail/AccountSidebar'
 import { HealthBanner } from '@/components/mail/HealthBanner'
+import { ComposeFab } from '@/components/mail/ComposeFab'
 import { AccountDialog } from '@/components/mail/AccountDialog'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { NotificationsPage } from '@/components/notifications/NotificationsPage'
@@ -1395,11 +1396,6 @@ export function ShellPage() {
         {announce.text ? announce.text + '\u200b'.repeat(announce.seq % 2) : ''}
       </div>
 
-      {/* M17 账户健康横幅：账户同步故障的全局出口。数据复用 ['accounts']
-          查询缓存（SSE 事件经 Task 9 invalidate 它），无新轮询。
-          固定定位不占布局，位于断线横幅上方，两者可同时出现。 */}
-      <HealthBanner />
-
       {/* 实时连接断了。这条必须说出来：断开期间新邮件既不会让列表刷新也不会弹通知，
           而「安静地不再收信」与「确实没有新邮件」在用户眼里完全一样。
           重连是自动的（指数退避，最长 30 秒一次），所以这里只报状态、不给按钮——
@@ -1420,87 +1416,96 @@ export function ShellPage() {
         onMobileBack={onMobileBack}
         layoutMode={layoutMode}
         list={
-          view === 'drafts' && accountId != null ? (
-            <DraftsList accountId={accountId} onOpenDraft={openDraft} />
-          ) : (
-            <MailList
-              // 用 sourceKey（而非 React key）驱动内部滚动重置：避免重挂载打断搜索框输入焦点。
-              // 搜索态固定为 'search'（不随关键词变），切文件夹/聚合/样式时重置滚动。
-              sourceKey={sourceKey}
-              folder={searching || agg ? null : activeFolder}
-              titleOverride={listTitle}
-              subtitleOverride={listSubtitle}
-              messages={messages}
-              threads={threads}
-              activeThreadId={threadId}
-              onSelectThread={(item) => selectThread(item.thread_id)}
-              onToggleFlagThread={onToggleFlagThread}
-              onDeleteThread={onDeleteThread}
-              onMarkReadThread={onMarkReadThread}
-              onMoveThread={onMoveThread}
-              selectedThreadIds={selectedThreadIds}
-              onToggleSelectThread={toggleSelectThread}
-              selfAddrs={selfAddrs}
-              loading={messagesLoading}
-              // 账户取不到时邮件列表无从谈起：此时消息链路多半是禁用状态
-              // （没有 folderId），既不 loading 也没有 error，itemCount 为 0——
-              // 不把账户的错误接进来，中间栏就会用空态谎报一次账户请求失败。
-              error={messagesError ?? accountsError}
-              refreshing={refreshing}
-              // 只有确实取到了一个空账户列表才说「还没有邮箱账户」。
-              // 判据问的是「收到过一份列表吗」而不是 status：后台重取失败时
-              // status 变 error（isSuccess 转假）而缓存里的 [] 还在，
-              // 用 isSuccess 会让 noAccounts 与 error 两头落空，
-              // 主栏落进通用空态「暂无邮件」——新手刚添加完账户碰上重取失败，
-              // 看到的就是既没有错误也没有添加入口的一片空白。
-              // 这里的 data != null 与 isLoadingError 内部的 hasData 是同一个概念。
-              noAccounts={accountsQuery.data != null && accounts.length === 0}
-              acctColorOf={
-                // 单文件夹视图里所有邮件同属一个账户，点色点只是噪声
-                (agg != null || searching) && accounts.length > 1
-                  ? (id) => acctColors.get(id) ?? null
-                  : undefined
-              }
-              onAddAccount={() => { setEditingAccount(null); setDialogOpen(true) }}
-              onRetry={() => {
-                if (accountsError != null) void accountsQuery.refetch()
-                void refetchMessages()
-              }}
-              activeMessageId={messageId}
-              onSelectMessage={selectMessage}
-              onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
-              listStyle={listStyle}
-              hasNextPage={hasNextPage}
-              isFetchingNextPage={isFetchingNextPage}
-              nextPageError={nextPageError}
-              onLoadMore={loadMore}
-              onRetryNextPage={loadMore}
-              searchValue={searchQuery}
-              onSearchChange={setSearchQuery}
-              searching={searching}
-              filter={filter}
-              onToggleFilter={onToggleFilter}
-              onClearFilter={() => setFilter(EMPTY_FILTER)}
-              selectedIds={selectedIds}
-              onSelectRange={(ids) => setSelectedIds((prev) => new Set([...prev, ...ids]))}
-              onSelectRangeThread={(ids) =>
-                setSelectedThreadIds((prev) => new Set([...prev, ...ids]))
-              }
-              onToggleSelect={toggleSelect}
-              onSelectAllVisible={selectAllVisible}
-              onClearSelection={clearSelection}
-              onBatchRead={onBatchRead}
-              onBatchFlag={onBatchFlag}
-              onBatchDelete={onBatchDelete}
-              onBatchMove={onBatchMove}
-              moveTargets={moveTargets}
-              alwaysShowSelect={alwaysShowSelect}
-              onDeleteMessage={onDeleteOne}
-              folders={folders}
-              onMarkRead={(id, read) => markRead.mutate({ id, read })}
-              onMoveMessage={(id, fid) => moveOne.mutate({ id, folderId: fid })}
-            />
-          )
+          <div className="list-stack">
+            {/* M17 账户健康横幅：账户同步故障的全局出口。数据复用 ['accounts']
+                查询缓存（SSE 事件 invalidate 它），无新轮询。
+                R8 起内联在列表栏顶部：它可能持续数天，浮层会一直压在内容上。 */}
+            <HealthBanner />
+            <div className="list-stack-main">
+              {view === 'drafts' && accountId != null ? (
+                <DraftsList accountId={accountId} onOpenDraft={openDraft} />
+              ) : (
+                <MailList
+                  // 用 sourceKey（而非 React key）驱动内部滚动重置：避免重挂载打断搜索框输入焦点。
+                  // 搜索态固定为 'search'（不随关键词变），切文件夹/聚合/样式时重置滚动。
+                  sourceKey={sourceKey}
+                  folder={searching || agg ? null : activeFolder}
+                  titleOverride={listTitle}
+                  subtitleOverride={listSubtitle}
+                  messages={messages}
+                  threads={threads}
+                  activeThreadId={threadId}
+                  onSelectThread={(item) => selectThread(item.thread_id)}
+                  onToggleFlagThread={onToggleFlagThread}
+                  onDeleteThread={onDeleteThread}
+                  onMarkReadThread={onMarkReadThread}
+                  onMoveThread={onMoveThread}
+                  selectedThreadIds={selectedThreadIds}
+                  onToggleSelectThread={toggleSelectThread}
+                  selfAddrs={selfAddrs}
+                  loading={messagesLoading}
+                  // 账户取不到时邮件列表无从谈起：此时消息链路多半是禁用状态
+                  // （没有 folderId），既不 loading 也没有 error，itemCount 为 0——
+                  // 不把账户的错误接进来，中间栏就会用空态谎报一次账户请求失败。
+                  error={messagesError ?? accountsError}
+                  refreshing={refreshing}
+                  // 只有确实取到了一个空账户列表才说「还没有邮箱账户」。
+                  // 判据问的是「收到过一份列表吗」而不是 status：后台重取失败时
+                  // status 变 error（isSuccess 转假）而缓存里的 [] 还在，
+                  // 用 isSuccess 会让 noAccounts 与 error 两头落空，
+                  // 主栏落进通用空态「暂无邮件」——新手刚添加完账户碰上重取失败，
+                  // 看到的就是既没有错误也没有添加入口的一片空白。
+                  // 这里的 data != null 与 isLoadingError 内部的 hasData 是同一个概念。
+                  noAccounts={accountsQuery.data != null && accounts.length === 0}
+                  acctColorOf={
+                    // 单文件夹视图里所有邮件同属一个账户，点色点只是噪声
+                    (agg != null || searching) && accounts.length > 1
+                      ? (id) => acctColors.get(id) ?? null
+                      : undefined
+                  }
+                  onAddAccount={() => { setEditingAccount(null); setDialogOpen(true) }}
+                  onRetry={() => {
+                    if (accountsError != null) void accountsQuery.refetch()
+                    void refetchMessages()
+                  }}
+                  activeMessageId={messageId}
+                  onSelectMessage={selectMessage}
+                  onToggleFlag={(id, flagged) => toggleFlag.mutate({ id, flagged })}
+                  listStyle={listStyle}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                  nextPageError={nextPageError}
+                  onLoadMore={loadMore}
+                  onRetryNextPage={loadMore}
+                  searchValue={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  searching={searching}
+                  filter={filter}
+                  onToggleFilter={onToggleFilter}
+                  onClearFilter={() => setFilter(EMPTY_FILTER)}
+                  selectedIds={selectedIds}
+                  onSelectRange={(ids) => setSelectedIds((prev) => new Set([...prev, ...ids]))}
+                  onSelectRangeThread={(ids) =>
+                    setSelectedThreadIds((prev) => new Set([...prev, ...ids]))
+                  }
+                  onToggleSelect={toggleSelect}
+                  onSelectAllVisible={selectAllVisible}
+                  onClearSelection={clearSelection}
+                  onBatchRead={onBatchRead}
+                  onBatchFlag={onBatchFlag}
+                  onBatchDelete={onBatchDelete}
+                  onBatchMove={onBatchMove}
+                  moveTargets={moveTargets}
+                  alwaysShowSelect={alwaysShowSelect}
+                  onDeleteMessage={onDeleteOne}
+                  folders={folders}
+                  onMarkRead={(id, read) => markRead.mutate({ id, read })}
+                  onMoveMessage={(id, fid) => moveOne.mutate({ id, folderId: fid })}
+                />
+              )}
+            </div>
+            <ComposeFab onCompose={onCompose} />
+          </div>
         }
         reader={
           // 第三栏专属于阅读区。通知已改为浮层，不再与之争抢——

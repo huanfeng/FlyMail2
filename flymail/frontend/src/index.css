@@ -149,6 +149,18 @@
   --warning-wash: #fdf3e3;
   --warning-ink: #8a5a10;
 
+  /* 发件人头像 8 色相（lib/avatar-color.ts 按地址哈希选一个）。
+     L 0.52 / C 0.11：白字对比 ≥ 4.5，亮暗共用——判据是「字对底」不是「底对页」。
+     守卫见 lib/ui-polish-r8.test.ts。 */
+  --avatar-1: oklch(0.52 0.11 25);
+  --avatar-2: oklch(0.52 0.11 60);
+  --avatar-3: oklch(0.52 0.11 110);
+  --avatar-4: oklch(0.52 0.11 160);
+  --avatar-5: oklch(0.52 0.11 210);
+  --avatar-6: oklch(0.52 0.11 250);
+  --avatar-7: oklch(0.52 0.11 290);
+  --avatar-8: oklch(0.52 0.11 330);
+
   /* 字体栈：中文优先，回落到系统字体 */
   --font-display: "PingFang SC", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
   --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
@@ -458,7 +470,7 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
    阅读区保底 300px——否则固定宽的前两栏会把第三栏挤压到接近 0 宽而彻底错乱。
    下限合计 170+260+300=730 < 769（≤768 断点切单栏），三栏形态不会溢出。 */
 .col.sidebar { background: var(--bg-alt); width: var(--sidebar-w); flex: 0 1 var(--sidebar-w); min-width: 170px; }
-.col.list { background: var(--bg); width: var(--list-w); flex: 0 1 var(--list-w); min-width: 260px; border-left: 1px solid var(--rule); border-right: 1px solid var(--rule); }
+.col.list { background: var(--bg); width: var(--list-w); flex: 0 1 var(--list-w); min-width: 260px; border-left: 1px solid var(--rule); border-right: 1px solid var(--rule); container: list / inline-size; }
 /* ⚠ flex-basis 必须是 0 而不是 auto：auto 会拿内容的 max-content 当基准，
    而阅读区的 max-content 随邮件而变——工具栏 flex-wrap 后其 max-content
    等于「所有按钮排成一行」的宽度，星标按钮文案在「星标 / 取消星标」间切换、
@@ -466,10 +478,21 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
    前两栏是 flex-shrink:1 可被压缩的，于是不同邮件会把它们挤成不同宽度，
    表现为「切换邮件时三栏宽度整体抖动」。basis 0 让宽度只由剩余空间决定，
    与内容彻底解耦。min-width 仍是布局下限，不参与 basis 计算。 */
-.col.reader { background: var(--bg); flex: 1 1 0; min-width: 300px; }
+/* container：阅读区与列表栏的窄宽规则按容器宽度判定（三栏桌面下阅读区也可能只有 400px，视口断点判不准）。 */
+.col.reader { background: var(--bg); flex: 1 1 0; min-width: 300px; container: reader / inline-size; }
+/* 1024 紧凑桌面：三栏仍并排，但侧栏与列表各让一点，阅读区从 ~400px 回到 ~480px。
+   min() 而不是覆盖变量：用户拖得更窄的偏好仍然生效。
+   视口断点只保留 1024 / 768 / 480 三档（守卫见 lib/ui-polish-r8.test.ts）。 */
+@media (max-width: 1024px) {
+  .col.sidebar { width: min(var(--sidebar-w), 200px); flex-basis: min(var(--sidebar-w), 200px); }
+  .col.list { width: min(var(--list-w), 340px); flex-basis: min(var(--list-w), 340px); }
+}
 
 /* 移动端顶栏与抽屉遮罩：桌面默认隐藏 */
 .mobile-bar { display: none; }
+/* 移动端写邮件入口。侧栏那颗按钮在手机上藏在抽屉里，列表页没有任何写信入口。
+   挂在 .list-stack 内：阅读面板激活时列表栏整体隐藏，FAB 跟着消失，不需要额外状态。 */
+.compose-fab { display: none; }
 .drawer-backdrop { display: none; }
 
 /* ── 响应式：窄屏单栏 + 侧栏抽屉 ─────────────────────────── */
@@ -494,6 +517,18 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
     z-index: 60; box-shadow: 2px 0 16px rgba(0, 0, 0, 0.18);
   }
   .app.drawer-open .col.sidebar { transform: none; }
+
+  .compose-fab {
+    display: grid; place-items: center;
+    position: absolute; right: 16px; bottom: 20px;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--primary); color: var(--primary-foreground);
+    box-shadow: var(--shadow-lg);
+    z-index: 5;
+  }
+  .compose-fab:active { transform: translateY(1px); }
+  /* 给 FAB 让位：不留白的话滚到底时最后一行的时间/星标与「加载更多」会被它盖住 */
+  .mail-list { padding-bottom: 88px; }
 
   .drawer-backdrop {
     display: block; position: fixed; inset: 0;
@@ -655,6 +690,8 @@ body.is-resizing * { cursor: col-resize !important; }
   .folder-row:hover { background: var(--bg-hover); }
 }
 .folder-row.active { background: var(--bg-active); color: var(--ink); }
+/* 「更多文件夹」开关：比普通文件夹行弱一档，它是导航辅助而不是目的地 */
+.folder-row.folder-more { color: var(--ink-3); font-size: 12.5px; }
 .folder-row .f-icon { color: var(--ink-3); width: 14px; display: grid; place-items: center; }
 .folder-row .f-count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
 
@@ -769,11 +806,23 @@ body.is-resizing * { cursor: col-resize !important; }
 .search-input input {
   flex: 1; border: 0; outline: 0; background: transparent;
   font-size: 13px; color: var(--ink);
+  /* <input> 的固有最小宽度（size=20 ≈ 150px）会把右侧的 kbd 挤出框外；允许它收缩 */
+  min-width: 0;
 }
 .search-input .kbd {
   font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
   padding: 1px 5px; border-radius: 3px;
   border: 1px solid var(--rule); background: var(--bg);
+  white-space: nowrap; flex: 0 0 auto;
+}
+/* 键盘提示只给键盘用户看：触摸设备上「Ctrl K」是噪音，而且 380px 列宽下它还会折行。
+   对应规则放在文件末尾的粗指针总块里——lib/touch-targets.test.ts 只读第一处粗指针媒体块，
+   且不剥注释，所以这里连那个媒体查询的字面量都不能写。 */
+/* 列表栏本身不够宽时也收起提示（容器查询：列表最窄可拖到 260px）。
+   阈值 340：默认 380px 列宽下 kbd 已能单行放下（nowrap + 不收缩），不该藏。
+   只收 kbd，不动有输入时的清除按钮——那是功能，不是提示。 */
+@container list (max-width: 340px) {
+  .search-input .kbd { display: none; }
 }
 
 /* 搜索命中高亮。
@@ -984,6 +1033,15 @@ mark.hl {
   font-family: var(--font-body); letter-spacing: 0.01em;
   position: relative;
 }
+/* 按 data-hue 取底色；没有 data-hue 的（骨架屏、账户头像）仍由各自的内联样式决定 */
+.avatar-sq[data-hue="1"] { background: var(--avatar-1); }
+.avatar-sq[data-hue="2"] { background: var(--avatar-2); }
+.avatar-sq[data-hue="3"] { background: var(--avatar-3); }
+.avatar-sq[data-hue="4"] { background: var(--avatar-4); }
+.avatar-sq[data-hue="5"] { background: var(--avatar-5); }
+.avatar-sq[data-hue="6"] { background: var(--avatar-6); }
+.avatar-sq[data-hue="7"] { background: var(--avatar-7); }
+.avatar-sq[data-hue="8"] { background: var(--avatar-8); }
 .avatar-sq .acct-pip {
   position: absolute; bottom: -2px; right: -2px;
   width: 10px; height: 10px; border-radius: 50%;
@@ -1178,6 +1236,17 @@ mark.hl {
 }
 
 .tb-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; flex: 0 0 auto; }
+/* 阅读区 560px 以下切图标模式：文字由 aria-label 承担（ReaderToolbar 每颗按钮都写了）。
+   1024 平板与把列表拖宽的桌面都会落到这个宽度，原来的整颗换行会把工具条叠成两行。 */
+@container reader (max-width: 560px) {
+  .tb-btn > span { display: none; }
+  .tb-btn { padding: 0 8px; }
+  .tb-sep { margin: 0 3px; }
+}
+/* 480px 以下的阅读容器：文件夹 chip 只在聚合/搜索视图有信息量，窄屏先保发件人 */
+@container reader (max-width: 480px) {
+  .thread-item .ti-folder { display: none; }
+}
 
 /* scrollbar-gutter: stable —— iframe 高度在图片加载后回弹，滚动条随之出现，
    不预留槽位就会让正文宽度突变一下 */
@@ -1608,6 +1677,7 @@ mark.hl {
   position: absolute;
   top: 0; right: 0; bottom: 0;
   width: min(var(--slide-w, 720px), 90vw);
+  container: reader / inline-size;
   background: var(--surface);
   border-left: 1px solid var(--rule);
   box-shadow: -20px 0 48px rgba(0,0,0,0.08);
@@ -1670,7 +1740,7 @@ mark.hl {
    换行后四行铺满全部 14 项，占约 150px，换来的是每一项都看得见。
    分组在窄屏上拆掉（display: contents），组名隐藏：换行铺开时组名会各占一格，
    把导航撑高一行，而分组的提示作用在一眼能看全的四行里本来就不需要。 */
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   /* ⚠ 必须显式给出行高，否则导航会被撑满半个屏幕。
      窄屏下这是个单列 grid，行默认 stretch；导航改成 wrap 之后，内容少的分区
      （比如「通用」只有一行设置）多余的空间会被**平均分给导航的每一行**，
@@ -2077,7 +2147,7 @@ mark.hl {
   border-bottom: 1px solid var(--rule);
   display: flex; align-items: flex-start; gap: 16px;
 }
-@media (max-width: 820px) {
+@media (max-width: 768px) {
   .fp-head { padding: 20px 24px 14px; }
   .fp-body { padding: 18px 24px 60px !important; }
   .fp-tabs { padding: 0 24px !important; }
@@ -2752,6 +2822,13 @@ mark.hl {
   font-size: 13px; font-family: var(--font-body);
   max-width: 100%;
 }
+/* 发件人下拉的触发按钮：沿用 .compose-select 的底色与圆角，右端一枚箭头 */
+.compose-select-trigger {
+  display: inline-flex; align-items: center; gap: 8px; justify-content: space-between;
+  width: 100%; text-align: left; cursor: pointer;
+}
+.compose-select-trigger .compose-select-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compose-select-trigger:disabled { opacity: 0.6; cursor: default; }
 
 .settings-check {
   display: flex; align-items: center; gap: 8px;
@@ -2782,7 +2859,10 @@ mark.hl {
   min-height: 100dvh;
   display: grid; place-items: center;
   padding: 24px 16px;
-  background: var(--bg);
+  /* 顶部一层极淡的品牌色晕染：纯平底色让登录页像后台管理系统，不像产品 */
+  background:
+    radial-gradient(60% 50% at 50% 0%, var(--accent-wash) 0%, transparent 70%),
+    var(--bg);
 }
 .login-card {
   width: 100%; max-width: 380px;
@@ -2798,7 +2878,8 @@ mark.hl {
 }
 .login-logo {
   width: 48px; height: 48px; border-radius: 12px;
-  background: var(--accent-wash); color: var(--accent-ink);
+  /* 与 .compose-btn 同一对令牌：亮色深调配白字、暗色亮调配深字，18 组主题对比已验证 */
+  background: var(--primary); color: var(--primary-foreground);
   display: grid; place-items: center;
   margin-bottom: 4px;
 }
@@ -2907,22 +2988,20 @@ mark.hl {
   max-width: calc(100vw - 32px);
 }
 
-/* M17 账户健康横幅：固定在断线横幅上方 44px，两者同时出现时上下堆叠不重叠。
-   固定定位不占布局——同 conn-banner 的取舍：故障可能持续数天，挤走内容更烦。 */
+/* M17 账户健康横幅。R8 起不再浮在底部中央——它可能持续数天，浮层会一直压在
+   列表/阅读区分界上，连设置弹窗都盖。改为列表栏顶部的内联条：占布局、随列表栏
+   一起显示/隐藏、被弹窗遮罩自然盖住。断线横幅 .conn-banner 是秒级瞬态，保持浮层。 */
 .health-banner {
-  position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%);
-  z-index: 89;
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 14px; border-radius: 8px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px;
   background: var(--warning-wash); color: var(--warning-ink);
-  border: 1px solid var(--destructive);
-  border-color: color-mix(in srgb, var(--destructive) 45%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent);
   font-size: 12.5px;
-  box-shadow: var(--shadow-sm);
-  animation: toastIn 0.2s;
-  max-width: calc(100vw - 32px);
 }
-.health-banner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-banner-text { flex: 1 1 12rem; min-width: 0; }
+/* 列表栏内部的纵向栈：横幅 + 列表主体（+ 移动端 FAB 的定位锚） */
+.list-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; }
+.list-stack-main { flex: 1 1 0; min-height: 0; }
 .health-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .health-banner-btn {
   border: 1px solid var(--rule);
@@ -3028,6 +3107,10 @@ mark.hl {
 .icon-btn.mini { width: 20px; height: 20px; }
 
 @media (pointer: coarse) {
+  /* 键盘提示只给键盘用户看（搜索框与写邮件按钮） */
+  .search-input .kbd { display: none; }
+  .compose-btn .kbd { display: none; }
+
   .icon-btn { width: 36px; height: 36px; }
   .icon-btn.compact { width: 32px; height: 32px; }
   .icon-btn.mini { width: 32px; height: 32px; }

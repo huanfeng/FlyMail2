@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
+import { DropMenu } from '@/components/ui/DropMenu'
 import { AddressInput } from '@/components/mail/AddressInput'
 import { RichEditor } from '@/components/mail/composer/RichEditor'
 import type { RichEditorHandle } from '@/components/mail/composer/RichEditor'
@@ -623,19 +624,31 @@ export function ComposeDialog({
 
         {/* From 行：账户 × 别名的扁平列表 */}
         <div className="compose-row">
-          <label htmlFor={multiFrom ? `${fid}-from` : undefined}>{t('compose.from')}</label>
+          <label id={`${fid}-from-label`}>{t('compose.from')}</label>
           {multiFrom ? (
-            <select
-              id={`${fid}-from`}
-              className="compose-select"
-              value={fromOption?.key ?? ''}
-              onChange={(e) => set('fromOverride', e.target.value)}
+            /* 项目统一的 DropMenu，而不是原生 select：原生控件的灰底与全站其它下拉不是一套外观。
+               触发按钮用 aria-labelledby 指向左侧标签，读屏仍能报出「发件人」。 */
+            <DropMenu
+              align="start"
               disabled={isBusy}
-            >
-              {fromOptions.map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
-            </select>
+              items={fromOptions.map((o) => ({
+                key: o.key,
+                label: o.label,
+                onSelect: () => set('fromOverride', o.key),
+              }))}
+              trigger={
+                <button
+                  type="button"
+                  className="compose-select compose-select-trigger"
+                  // 标签 + 当前值：原生 select 会读出所选地址，换成按钮后不能退化成只剩「发件人」
+                  aria-labelledby={`${fid}-from-label ${fid}-from-value`}
+                  disabled={isBusy}
+                >
+                  <span id={`${fid}-from-value`} className="compose-select-text">{fromOption?.label ?? ''}</span>
+                  <Icon name="chevron-down" size={12} />
+                </button>
+              }
+            />
           ) : (
             // 单账户单地址：只读展示
             <span className="from-account">

@@ -37,6 +37,9 @@ type PaneKey = 'sidebar' | 'list'
 
 /** 阅读区（第三栏）拖拽保底宽度，与 index.css 中 .col.reader 的 min-width 保持一致。 */
 const READER_MIN = 300
+/** 紧凑桌面断点与各栏封顶，与 index.css 的 `@media (max-width: 1024px)` 块保持一致。 */
+const COMPACT_BREAKPOINT = 1024
+const COMPACT_CAPS: Record<PaneKey, number> = { sidebar: 200, list: 340 }
 
 /** 监听媒体查询是否匹配（用于桌面/移动布局切换）。 */
 function useMediaQuery(query: string): boolean {
@@ -168,7 +171,10 @@ export function AppLayout({
   function maxOf(key: PaneKey, prev: Widths): number {
     if (effLayout !== 'three') return LIMITS[key].max
     const other = key === 'list' ? prev.sidebar : prev.list
-    return Math.min(LIMITS[key].max, window.innerWidth - other - READER_MIN)
+    // ≤1024 紧凑档：index.css 用 min(var(--x-w), 封顶值) 压住列宽，这里的上限必须跟着封顶，
+    // 否则拖拽状态一路涨到 500 而列宽不动，往回拖要先走完一段「死区」才有反应。
+    const compactCap = window.innerWidth <= COMPACT_BREAKPOINT ? COMPACT_CAPS[key] : Infinity
+    return Math.min(LIMITS[key].max, compactCap, window.innerWidth - other - READER_MIN)
   }
 
   /** 水平位移 → 侧栏/列表宽度。两者都左锚定，向右拖即变宽。 */

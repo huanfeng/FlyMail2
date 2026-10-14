@@ -7,7 +7,11 @@ import api from '@/lib/api'
 import { NotificationsPage } from '@/components/notifications/NotificationsPage'
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh' } }),
+  useTranslation: () => ({
+    t: (k: string, o?: Record<string, unknown>) =>
+      o != null ? `${k}:${Object.values(o).join(',')}` : k,
+    i18n: { language: 'zh' },
+  }),
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -155,5 +159,38 @@ describe('NotificationsPage 的筛选器语义', () => {
     }
     const after = tabs().findIndex((b) => b.getAttribute('aria-selected') === 'true')
     expect(after).toBe(before)
+  })
+})
+
+/**
+ * 头部计数：原来写「547 条未读 · 共 30 条」，30 其实是已加载的条数——
+ * 把分页游标走到哪说成总数，两个数一对比就自相矛盾。只报未读数。
+ */
+describe('NotificationsPage 头部计数', () => {
+  it('只报未读数，不把已加载条数说成总数', async () => {
+    const mock = new MockAdapter(api)
+    mock.onGet(/.*/).reply(200, { notifications: [], unread_count: 547 })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <NotificationsPage onClose={vi.fn()} />
+        </QueryClientProvider>,
+      )
+    })
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+    }
+    const sub = container.querySelector('.nd-sub')!
+    expect(sub.textContent).toContain('notif.unreadSummary:547')
+    expect(sub.textContent).not.toMatch(/共|total/)
+    await act(async () => root.unmount())
+    container.remove()
+    mock.restore()
   })
 })

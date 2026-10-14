@@ -59,6 +59,8 @@
     "rateLimitOver": "现在可以重新尝试登录了"
   },
   "sidebar": {
+    "moreFolders": "更多文件夹 ({{count}})",
+    "lessFolders": "收起文件夹",
     "compose": "写邮件",
     "accounts": "账户",
     "settings": "设置",
@@ -412,6 +414,7 @@
     "attachRemoveNamed": "移除附件 {{name}}"
   },
   "notif": {
+    "unreadSummary": "{{count}} 条未读",
     "title": "通知",
     "sub": "暂无新通知",
     "backToInbox": "返回收件箱",

@@ -191,6 +191,19 @@ describe('useKeyboardShortcuts', () => {
     expect(h.onEscape).not.toHaveBeenCalled()
   })
 
+  it('Esc 已被浮层消费（defaultPrevented）时不再关撰写器', async () => {
+    // radix 的下拉/右键菜单在 document 捕获阶段处理 Esc 并 preventDefault，但不阻止冒泡；
+    // 撰写器里的发件人下拉按 Esc 只想收起菜单，不能连撰写器一起关掉。
+    await mount({ composeOpen: true })
+    await act(async () => {
+      const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      ev.preventDefault()
+      document.body.dispatchEvent(ev)
+    })
+    expect(h.onCloseCompose).not.toHaveBeenCalled()
+    expect(h.onEscape).not.toHaveBeenCalled()
+  })
+
   it('速查浮层打开时，Esc 优先关闭它', async () => {
     await mount({ helpOpen: true })
     await press('Escape')

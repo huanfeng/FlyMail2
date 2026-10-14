@@ -72,7 +72,8 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
       }}
     >
       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-display)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {/* 20px + 等宽数字 + anywhere 断行：「4 天 20 小时」「dev-preview」原来在 120px 卡里折成两行 */}
+      <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere', lineHeight: 1.25 }}>
         {value}
       </div>
     </div>
@@ -230,7 +231,7 @@ export function MonitoringSection() {
       <div className="settings-block">
         <h3>{t('settings.monitoring.title')}</h3>
         <p className="help">{t('settings.monitoring.help')}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, marginTop: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 8 }}>
           <StatCard label={t('settings.monitoring.accounts')} value={ov?.accounts ?? '—'} />
           <StatCard label={t('settings.monitoring.folders')} value={ov?.folders ?? '—'} />
           <StatCard label={t('settings.monitoring.messages')} value={ov?.messages ?? '—'} />

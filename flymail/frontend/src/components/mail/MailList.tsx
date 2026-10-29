@@ -20,8 +20,11 @@ import type { LayoutWidths } from '@/lib/layout-prefs'
 import type { ListStyle } from '@/lib/list-prefs'
 import { formatParticipants, pickAvatarParticipant } from '@/lib/thread-format'
 import type { Folder, MessageListItem, ThreadListItem } from '@/lib/types'
+import type { SelectCondition } from '@/lib/select-by'
+import { selectMessagesBy, selectThreadsBy, selectionState } from '@/lib/select-by'
 import { Icon } from '@/components/ui/Icon'
 import { DropMenu } from '@/components/ui/DropMenu'
+import { KEY, withShortcut } from '@/lib/shortcuts'
 import { highlightText } from '@/components/ui/Highlight'
 import { SearchSyntaxHelp } from '@/components/mail/SearchSyntaxHelp'
 import { RemoteSearchButton } from '@/components/mail/RemoteSearchButton'
@@ -191,6 +194,18 @@ interface Props {
   folders: Folder[]
   onMarkRead: (id: number, read: boolean) => void
   onMoveMessage: (id: number, folderId: number) => void
+  /** 把当前可见单封邮件按条件替换进选择集 */
+  onReplaceSelection: (ids: number[]) => void
+  /** 把当前可见会话按条件替换进选择集（会话模式专用，id 为字符串 thread_id） */
+  onReplaceSelectionThread: (ids: string[]) => void
+  /** 归档单封：由 Shell 按账户文件夹判定目标 */
+  onArchiveMessage: (id: number, folderId: number) => void
+  /** 归档整条会话：由 Shell 按账户文件夹判定目标 */
+  onArchiveThread: (item: ThreadListItem, folderId: number) => void
+  /** 单封行的归档目标文件夹 id；null = 本行不提供归档 */
+  archiveTargetOf: (msg: MessageListItem) => number | null
+  /** 会话行的归档目标文件夹 id；null = 本行不提供归档 */
+  archiveTargetOfThread: (item: ThreadListItem) => number | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +291,61 @@ function SelectBox({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 行悬停动作：归档 / 删除 / 已读切换 / 星标
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 悬停时占据时间位的动作组。三种行共用一份，按钮顺序与阅读区工具条一致。
+ *
+ * 按钮 tabIndex=-1：整份列表只有一个 Tab 停留点（roving），键盘用户有 e/#/Shift+U/s。
+ * 粗指针下整组 display:none（见 index.css）——看不见但可点的按钮是第一轮审查抓过的坑。
+ * 已标星时星标另有一枚常显的 .mi-star-pin，动作组里的星标照常存在（悬停时覆盖在同一位置）。
+ */
+function RowHoverActions({
+  onArchive,
+  onDelete,
+  unread,
+  onToggleRead,
+  flagged,
+  onToggleFlag,
+  labels,
+}: {
+  /** null = 不提供归档（账户没有归档文件夹、或已在归档里） */
+  onArchive: (() => void) | null
+  onDelete: () => void
+  unread: boolean
+  onToggleRead: () => void
+  flagged: boolean
+  onToggleFlag: (e: React.MouseEvent) => void
+  labels: { archive: string; delete: string; read: string; unread: string; star: string; unstar: string }
+}) {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
+  return (
+    <span className="mi-hover-actions">
+      {onArchive && (
+        <button type="button" tabIndex={-1} className="icon-btn" onClick={stop(onArchive)}
+          aria-label={labels.archive} title={withShortcut(labels.archive, KEY.archive)}>
+          <Icon name="archive" size={15} />
+        </button>
+      )}
+      <button type="button" tabIndex={-1} className="icon-btn mha-danger" onClick={stop(onDelete)}
+        aria-label={labels.delete} title={withShortcut(labels.delete, KEY.deleteHash)}>
+        <Icon name="trash" size={15} />
+      </button>
+      <button type="button" tabIndex={-1} className="icon-btn" onClick={stop(onToggleRead)}
+        aria-label={unread ? labels.read : labels.unread} title={unread ? labels.read : labels.unread}>
+        <Icon name={unread ? 'check' : 'mail'} size={15} />
+      </button>
+      <button type="button" tabIndex={-1} className={'icon-btn' + (flagged ? ' starred' : '')}
+        onClick={(e) => { e.stopPropagation(); onToggleFlag(e) }}
+        aria-label={flagged ? labels.unstar : labels.star} title={withShortcut(flagged ? labels.unstar : labels.star, KEY.star)}>
+        <Icon name={flagged ? 'star-fill' : 'star'} size={15} />
+      </button>
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 骨架屏：首屏加载占位
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -325,6 +395,10 @@ interface CardRowProps {
   onDelete: () => void
   /** 账户识别色；null = 单账户上下文，不必区分 */
   acctColor: string | null
+  /** 归档：null = 本行不提供归档 */
+  onArchive: (() => void) | null
+  /** 把这一封标已读/未读 */
+  onToggleRead: () => void
   /**
    * 这一行是否是 Tab 序列里的停留点（roving tabindex）。
    *
@@ -335,7 +409,7 @@ interface CardRowProps {
   rovingTab: boolean
 }
 
-function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab }: CardRowProps) {
+function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab, onArchive, onToggleRead }: CardRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -376,6 +450,16 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
           {initials(msg.from_name, msg.from_addr)}
           {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
         </div>
+        {/* 无选择态时，悬停行出现在头像上的复选框（选中态改用独立列）*/}
+        <label className="mi-select-hover" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            tabIndex={-1}
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-hidden="true"
+          />
+        </label>
       </span>
 
       <div style={{ minWidth: 0 }}>
@@ -405,27 +489,21 @@ function CardRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect,
         )}
       </div>
 
-      {/* hover 快捷删除（星标左侧）*/}
-      <button
-        type="button"
-        className="mi-del icon-btn"
-        onClick={(e) => { e.stopPropagation(); onDelete() }}
-        aria-label={t('reader.delete')}
-        title={t('reader.delete')}
-      >
-        <Icon name="trash" size={14} />
-      </button>
-
-      {/* 星标按钮（hover 显示 / 已标星常显）*/}
-      <button
-        type="button"
-        className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
-        onClick={onToggleFlag}
-        aria-label={msg.flagged ? t('ctx.unstar') : t('ctx.star')}
-        style={{ position: 'absolute', right: 14, top: 14, opacity: msg.flagged ? 1 : undefined }}
-      >
-        <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
-      </button>
+      {/* 已标星的常显星标（左侧，不随悬停变化）*/}
+      {msg.flagged && <span className="mi-star-pin" aria-hidden="true"><Icon name="star-fill" size={13} /></span>}
+      <RowHoverActions
+        onArchive={onArchive}
+        onDelete={onDelete}
+        unread={isUnread}
+        onToggleRead={onToggleRead}
+        flagged={msg.flagged}
+        onToggleFlag={onToggleFlag}
+        labels={{
+          archive: t('list.archive'), delete: t('reader.delete'),
+          read: t('ctx.markRead'), unread: t('ctx.markUnread'),
+          star: t('ctx.star'), unstar: t('ctx.unstar'),
+        }}
+      />
     </div>
   )
 }
@@ -451,9 +529,13 @@ interface CompactRowProps {
   onDelete: () => void
   /** 账户识别色；null = 单账户上下文，不必区分 */
   acctColor: string | null
+  /** 归档：null = 本行不提供归档 */
+  onArchive: (() => void) | null
+  /** 把这一封标已读/未读 */
+  onToggleRead: () => void
 }
 
-function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab }: CompactRowProps) {
+function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSelect, onToggleFlag, onDelete, acctColor, rovingTab, onArchive, onToggleRead }: CompactRowProps) {
   const { t } = useTranslation()
   const isUnread = !msg.seen
   return (
@@ -493,6 +575,9 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
           {initials(msg.from_name, msg.from_addr)}
           {acctColor && <span className="acct-pip" style={{ background: acctColor }} />}
         </div>
+        <label className="mi-select-hover" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" tabIndex={-1} checked={selected} onChange={onToggleSelect} aria-hidden="true" />
+        </label>
       </span>
 
       {/* 发件人列 */}
@@ -522,28 +607,21 @@ function CompactRow({ msg, active, lang, selected, terms, onSelect, onToggleSele
       {/* 时间列 */}
       <span className="mi-time-col">{relTime(msg.date, lang)}</span>
 
-      {/* 删除 + 星标（同占最后一列）*/}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-        <button
-          type="button"
-          className="mi-del icon-btn"
-          onClick={(e) => { e.stopPropagation(); onDelete() }}
-          aria-label={t('reader.delete')}
-          title={t('reader.delete')}
-          style={{ position: 'static' }}
-        >
-          <Icon name="trash" size={14} />
-        </button>
-        <button
-          type="button"
-          className={'mi-star icon-btn' + (msg.flagged ? ' starred' : '')}
-          onClick={onToggleFlag}
-          aria-label={msg.flagged ? t('ctx.unstar') : t('ctx.star')}
-          style={{ position: 'static', opacity: msg.flagged ? 1 : undefined }}
-        >
-          <Icon name={msg.flagged ? 'star-fill' : 'star'} size={14} />
-        </button>
-      </span>
+      {/* 末列占位：已标星的常显星标；RowHoverActions 绝对定位，不占网格列 */}
+      <span className="mi-pin-col">{msg.flagged && <span className="mi-star-pin" aria-hidden="true"><Icon name="star-fill" size={13} /></span>}</span>
+      <RowHoverActions
+        onArchive={onArchive}
+        onDelete={onDelete}
+        unread={isUnread}
+        onToggleRead={onToggleRead}
+        flagged={msg.flagged}
+        onToggleFlag={onToggleFlag}
+        labels={{
+          archive: t('list.archive'), delete: t('reader.delete'),
+          read: t('ctx.markRead'), unread: t('ctx.markUnread'),
+          star: t('ctx.star'), unstar: t('ctx.unstar'),
+        }}
+      />
     </div>
   )
 }
@@ -569,6 +647,10 @@ interface ThreadRowProps {
   onToggleSelect: () => void
   onToggleFlag: (e: React.MouseEvent) => void
   onDelete: () => void
+  /** 归档：null = 本行不提供归档 */
+  onArchive: (() => void) | null
+  /** 把整条会话标已读/未读 */
+  onToggleRead: () => void
 }
 
 /**
@@ -601,6 +683,8 @@ function ThreadRow({
   onToggleFlag,
   onDelete,
   rovingTab,
+  onArchive,
+  onToggleRead,
 }: ThreadRowProps) {
   const { t } = useTranslation()
   const isUnread = item.unread > 0
@@ -644,6 +728,9 @@ function ThreadRow({
         <div className="avatar-sq" data-hue={avatarHue(avatarKey(avatarOf?.name ?? '', avatarOf?.email ?? ''))}>
           {initials(avatarOf?.name ?? '', avatarOf?.email ?? '')}
         </div>
+        <label className="mi-select-hover" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" tabIndex={-1} checked={selected} onChange={onToggleSelect} aria-hidden="true" />
+        </label>
       </span>
 
       {compact ? (
@@ -669,27 +756,20 @@ function ThreadRow({
 
           <span className="mi-time-col">{relTime(item.date, lang)}</span>
 
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-            <button
-              type="button"
-              className="mi-del icon-btn"
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-              aria-label={t('list.thread.delete')}
-              title={t('list.thread.delete')}
-              style={{ position: 'static' }}
-            >
-              <Icon name="trash" size={14} />
-            </button>
-            <button
-              type="button"
-              className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
-              onClick={onToggleFlag}
-              aria-label={item.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll')}
-              style={{ position: 'static', opacity: item.flagged ? 1 : undefined }}
-            >
-              <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
-            </button>
-          </span>
+          <span className="mi-pin-col">{item.flagged && <span className="mi-star-pin" aria-hidden="true"><Icon name="star-fill" size={13} /></span>}</span>
+          <RowHoverActions
+            onArchive={onArchive}
+            onDelete={onDelete}
+            unread={isUnread}
+            onToggleRead={onToggleRead}
+            flagged={item.flagged}
+            onToggleFlag={onToggleFlag}
+            labels={{
+              archive: t('list.thread.archive'), delete: t('list.thread.delete'),
+              read: t('list.thread.readAll'), unread: t('list.thread.unreadAll'),
+              star: t('list.thread.starAll'), unstar: t('list.thread.unstarAll'),
+            }}
+          />
         </>
       ) : (
         <>
@@ -710,24 +790,20 @@ function ThreadRow({
             {item.snippet && <div className="mi-preview">{highlightText(item.snippet, terms)}</div>}
           </div>
 
-          <button
-            type="button"
-            className="mi-del icon-btn"
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            aria-label={t('list.thread.delete')}
-            title={t('list.thread.delete')}
-          >
-            <Icon name="trash" size={14} />
-          </button>
-          <button
-            type="button"
-            className={'mi-star icon-btn' + (item.flagged ? ' starred' : '')}
-            onClick={onToggleFlag}
-            aria-label={item.flagged ? t('list.thread.unstarAll') : t('list.thread.starAll')}
-            style={{ position: 'absolute', right: 14, top: 14, opacity: item.flagged ? 1 : undefined }}
-          >
-            <Icon name={item.flagged ? 'star-fill' : 'star'} size={14} />
-          </button>
+          <span className="mi-pin-col">{item.flagged && <span className="mi-star-pin" aria-hidden="true"><Icon name="star-fill" size={13} /></span>}</span>
+          <RowHoverActions
+            onArchive={onArchive}
+            onDelete={onDelete}
+            unread={isUnread}
+            onToggleRead={onToggleRead}
+            flagged={item.flagged}
+            onToggleFlag={onToggleFlag}
+            labels={{
+              archive: t('list.thread.archive'), delete: t('list.thread.delete'),
+              read: t('list.thread.readAll'), unread: t('list.thread.unreadAll'),
+              star: t('list.thread.starAll'), unstar: t('list.thread.unstarAll'),
+            }}
+          />
         </>
       )}
     </div>
@@ -792,6 +868,12 @@ export function MailList({
   folders,
   onMarkRead,
   onMoveMessage,
+  onReplaceSelection,
+  onReplaceSelectionThread,
+  onArchiveMessage,
+  onArchiveThread,
+  archiveTargetOf,
+  archiveTargetOfThread,
 }: Props) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
@@ -1311,11 +1393,36 @@ export function MailList({
 
   // ── 批量选择派生状态 ──────────────────────────────────────────────────────
   const selectedCount = threadMode ? selectedThreadIds.size : selectedIds.size
-  const allVisibleSelected = threadMode
-    ? threads.length > 0 && threads.every((th) => selectedThreadIds.has(th.thread_id))
-    : filtered.length > 0 && filtered.every((m) => selectedIds.has(m.id))
   // 选择态 = 偏好设为常显、手动开了选择模式，或已有选中项
   const selecting = alwaysShowSelect || selectMode || selectedCount > 0
+  const visibleCount = threadMode ? threads.length : filtered.length
+  const selState = selectionState(selectedCount, visibleCount)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+
+  // indeterminate 只能经 DOM 属性设置，没有对应的 HTML 特性
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = selState === 'some'
+  }, [selState])
+
+  /** 按条件选择的菜单项。label 写成字面量求值，供 keys.test.ts 扫到 t('…') */
+  const conditionLabel: Record<SelectCondition, string> = {
+    all: t('list.selectByAll'),
+    none: t('list.selectByNone'),
+    read: t('list.selectByRead'),
+    unread: t('list.selectByUnread'),
+    flagged: t('list.selectByFlagged'),
+    unflagged: t('list.selectByUnflagged'),
+  }
+
+  const SELECT_CONDITIONS: SelectCondition[] = [
+    'all', 'none', 'read', 'unread', 'flagged', 'unflagged',
+  ]
+
+  function applyCondition(c: SelectCondition) {
+    if (c === 'none') { exitSelectMode(); return }
+    if (threadMode) onReplaceSelectionThread(selectThreadsBy(threads, c))
+    else onReplaceSelection(selectMessagesBy(filtered, c))
+  }
 
   function exitSelectMode() {
     setSelectMode(false)
@@ -1386,79 +1493,83 @@ export function MailList({
         </div>
       </div>
 
-      {/* ── 统一工具栏：选择开关 + 筛选 + 批量操作同处一条 44px ──
-           筛选 chips 常驻，选择态只是在同一行追加操作组（两者并存而非互斥），
-           高度恒定，列表不会因为进入选择而跳动。 */}
+      {/* ── 统一工具栏：44px，高度恒定 ── */}
       <div className="list-toolbar">
-        {/* 选择模式开关（偏好设为「始终显示选择框」时无需此开关）*/}
+        {/* 全选框固定在最左，与行复选框同一竖列（--select-col-x）。
+            它本身就是「进入选择」的入口：细指针下不再需要单独的开关。 */}
+        <span className="lt-select">
+          <label className="lt-all" title={t('list.selectAll')}>
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={selState === 'all'}
+              onChange={() => (selState === 'all' ? exitSelectMode() : onSelectAllVisible())}
+              aria-label={t('list.selectAll')}
+            />
+          </label>
+          <DropMenu
+            align="start"
+            trigger={
+              <button type="button" className="lt-btn lt-select-by" aria-label={t('list.selectBy')} title={t('list.selectBy')}>
+                <Icon name="chevron-down" size={12} />
+              </button>
+            }
+            items={SELECT_CONDITIONS.map((c) => ({
+              key: c,
+              label: conditionLabel[c],
+              onSelect: () => applyCondition(c),
+            }))}
+          />
+        </span>
+
+        {/* 粗指针（触屏）没有悬停，保留一个显式的「选择」开关；细指针下 CSS 隐藏 */}
         {!alwaysShowSelect && (
           <button
             type="button"
-            className={'lt-btn' + (selecting ? ' active' : '')}
+            className={'lt-btn lt-select-touch' + (selecting ? ' active' : '')}
             onClick={toggleSelectMode}
-            title={selecting ? t('list.exitSelect') : t('list.selectMode')}
-            aria-label={selecting ? t('list.exitSelect') : t('list.selectMode')}
+            aria-label={selecting ? t('list.exitSelect') : t('list.selectModeTouch')}
             aria-pressed={selecting}
           >
             <Icon name="check" size={16} />
           </button>
         )}
 
-        {/* 筛选 chips：不随选择态消失。
-             每个 chip 是独立开关而非三选一——「未读 + 有附件」是一次真实的检索意图，
-             互斥单选表达不了。条件送到后端参与查询，不是对已加载分页做前端过滤。
-             「不筛选」由所有开关关闭表达，因此没有「全部」按钮。 */}
-        <div className="lt-chips">
-          {(
-            [
-              { id: 'unread',     label: t('list.filterUnread') },
-              { id: 'flagged',    label: t('list.filterFlagged') },
-              { id: 'attachment', label: t('list.filterAttachment') },
-            ] as { id: FilterKey; label: string }[]
-          ).map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={'chip' + (filter[c.id] ? ' active' : '')}
-              onClick={() => onToggleFilter(c.id)}
-              aria-pressed={filter[c.id]}
-            >
-              {c.label}
-            </button>
-          ))}
-          {/* 一键清空所有筛选：开关多了之后逐个点回去很烦，
-              且能明确告诉用户「列表为什么是空的」有个出口。 */}
-          {filterActive && (
-            <button
-              type="button"
-              className="chip chip-clear"
-              onClick={onClearFilter}
-              title={t('list.clearFilter')}
-              aria-label={t('list.clearFilter')}
-            >
-              <Icon name="close" size={11} />
-            </button>
-          )}
-        </div>
-
-        {/* 选择区：进入选择态后在同一行追加，紧跟筛选之后（不右对齐，位置稳定）*/}
-        {selecting && (
-          <>
-            <span className="lt-sep" />
-
-            {/* 全选/取消全选当前可见 */}
-            <label className="lt-all" title={t('list.selectAll')}>
-              <input
-                type="checkbox"
-                checked={allVisibleSelected}
-                onChange={() => (allVisibleSelected ? onClearSelection() : onSelectAllVisible())}
-                aria-label={t('list.selectAll')}
-              />
-            </label>
-            {selectedCount > 0 && (
-              <span className="lt-count">{t('list.selectedCount', { count: selectedCount })}</span>
+        {selectedCount === 0 ? (
+          <div className="lt-chips">
+            {(
+              [
+                { id: 'unread',     label: t('list.filterUnread') },
+                { id: 'flagged',    label: t('list.filterFlagged') },
+                { id: 'attachment', label: t('list.filterAttachment') },
+              ] as { id: FilterKey; label: string }[]
+            ).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={'chip' + (filter[c.id] ? ' active' : '')}
+                onClick={() => onToggleFilter(c.id)}
+                aria-pressed={filter[c.id]}
+              >
+                {c.label}
+              </button>
+            ))}
+            {filterActive && (
+              <button
+                type="button"
+                className="chip chip-clear"
+                onClick={onClearFilter}
+                title={t('list.clearFilter')}
+                aria-label={t('list.clearFilter')}
+              >
+                <Icon name="close" size={11} />
+              </button>
             )}
-
+          </div>
+        ) : (
+          <>
+            <span className="lt-count">{t('list.selectedCount', { count: selectedCount })}</span>
+            <span className="lt-sep" />
             <div className="lt-actions">
               <button
                 type="button" className="lt-btn" disabled={selectedCount === 0}
@@ -1481,13 +1592,6 @@ export function MailList({
               >
                 <Icon name="star" size={16} />
               </button>
-
-              {/* 移动下拉（跨账户/无目标时禁用）。
-                  原先是手搓的：自绘遮罩层接关闭、硬编码 boxShadow（不是
-                  var(--shadow-md)）、靠 onMouseEnter/Leave 手改 style.background
-                  模拟 hover，于是同一个应用里两种菜单外观、且这一种没有键盘操作、
-                  没有焦点管理、Esc 关不掉。DropMenu 与右键菜单共用
-                  .ctx-menu / .ctx-item 与 CtxMenuItem 模型，radix 负责其余。 */}
               <DropMenu
                 align="start"
                 open={batchMoveOpen}
@@ -1511,7 +1615,6 @@ export function MailList({
                     onSelect: () => onBatchMove(f.id),
                   }))}
               />
-
               <button
                 type="button" className="lt-btn danger" disabled={selectedCount === 0}
                 onClick={onBatchDelete}
@@ -1519,13 +1622,13 @@ export function MailList({
               >
                 <Icon name="trash" size={16} />
               </button>
-              {/* 始终显示选择框时没有「退出」可言，退化为清空选择 */}
+              {/* 清空选择。两种进入方式（偏好常显 / 勾选行）都走它退出 */}
+              <span className="spacer" />
               <button
                 type="button" className="lt-btn"
                 onClick={exitSelectMode}
-                disabled={alwaysShowSelect && selectedCount === 0}
-                title={alwaysShowSelect ? t('list.clearSelection') : t('list.exitSelect')}
-                aria-label={alwaysShowSelect ? t('list.clearSelection') : t('list.exitSelect')}
+                title={t('list.clearSelection')}
+                aria-label={t('list.clearSelection')}
               >
                 <Icon name="close" size={16} />
               </button>
@@ -1864,6 +1967,11 @@ export function MailList({
                         onToggleFlagThread(row.item, !row.item.flagged)
                       }}
                       onDelete={() => onDeleteThread(row.item)}
+                      onArchive={(() => {
+                        const fid = archiveTargetOfThread(row.item)
+                        return fid == null ? null : () => onArchiveThread(row.item, fid)
+                      })()}
+                      onToggleRead={() => onMarkReadThread(row.item, row.item.unread > 0)}
                     />
                   ) : listStyle === 'compact' ? (
                     <CompactRow
@@ -1880,6 +1988,11 @@ export function MailList({
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
                       onDelete={() => onDeleteMessage(row.msg.id)}
+                      onArchive={(() => {
+                        const fid = archiveTargetOf(row.msg)
+                        return fid == null ? null : () => onArchiveMessage(row.msg.id, fid)
+                      })()}
+                      onToggleRead={() => onMarkRead(row.msg.id, !row.msg.seen)}
                       acctColor={acctColorOf?.(row.msg.account_id) ?? null}
                     />
                   ) : (
@@ -1897,6 +2010,11 @@ export function MailList({
                         onToggleFlag(row.msg.id, !row.msg.flagged)
                       }}
                       onDelete={() => onDeleteMessage(row.msg.id)}
+                      onArchive={(() => {
+                        const fid = archiveTargetOf(row.msg)
+                        return fid == null ? null : () => onArchiveMessage(row.msg.id, fid)
+                      })()}
+                      onToggleRead={() => onMarkRead(row.msg.id, !row.msg.seen)}
                       acctColor={acctColorOf?.(row.msg.account_id) ?? null}
                     />
                   )}

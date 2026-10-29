@@ -22,6 +22,26 @@
  */
 export const MAIL_FRAME_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
 
+import type { Appearance } from './appearance-prefs'
+
+/** 正文排版偏好（设置 → 阅读 → 邮件正文）。null = 全默认，不注入 */
+export interface BodyStyle { fontSize: number; lineHeight: number; maxWidth: number | null; zoom: number }
+
+const READING_WIDTH_PX = { original: null, comfort: 720, wide: 960 } as const
+
+export function bodyStyleFrom(
+  a: Pick<Appearance, 'bodyFontSize' | 'bodyLineHeight' | 'readingWidth' | 'bodyZoom'>,
+): BodyStyle | null {
+  if (a.bodyFontSize === 14 && a.bodyLineHeight === 1.6 && a.readingWidth === 'original' && a.bodyZoom === 100) return null
+  return { fontSize: a.bodyFontSize, lineHeight: a.bodyLineHeight, maxWidth: READING_WIDTH_PX[a.readingWidth], zoom: a.bodyZoom / 100 }
+}
+
+function bodyStyleCss(s: BodyStyle): string {
+  const width = s.maxWidth == null ? '' : ` max-width: ${s.maxWidth}px; margin: 0 auto;`
+  const zoom = s.zoom === 1 ? '' : `html { zoom: ${s.zoom}; }`
+  return `body { font-size: ${s.fontSize}px; line-height: ${s.lineHeight};${width} }${zoom}`
+}
+
 /** iframe 兜底高度：测量失败时至少给出可读的一屏，而不是缩成一个小格子 */
 export const MIN_BODY_HEIGHT = 240
 
@@ -287,7 +307,7 @@ body {
      就会横向溢出正好 32px，正文凭空多出一条横向滚动条。 */
   box-sizing: border-box;
   background: #ffffff; color: #1f2328;
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px; line-height: 1.6;
   overflow-wrap: break-word; word-break: break-word;
 }
@@ -375,6 +395,8 @@ export interface FrameDocumentOptions {
   token: string | null
   /** 暗化正文（用户在隐私设置里打开，且当前是暗色模式）。见 MAIL_BODY_DARK_CSS */
   darkBody?: boolean
+  /** 正文排版偏好；null/缺省 = 不注入（输出与没有这个参数时逐字节相同） */
+  bodyStyle?: BodyStyle | null
 }
 
 /**
@@ -394,6 +416,7 @@ export function buildFrameDocument(o: FrameDocumentOptions): string {
     // 万一脚本没跑起来，也不至于让链接把 iframe 里的邮件内容顶掉。
     `<base target="_blank">` +
     `<style>${MAIL_BODY_CSS}${o.darkBody ? MAIL_BODY_DARK_CSS : ''}` +
+    `${o.bodyStyle ? bodyStyleCss(o.bodyStyle) : ''}` +
     `${o.foldQuote ? o.quoteHideCss : ''}</style>` +
     (useScript ? bootstrapScript(o.nonce as string, o.token as string) : '') +
     o.html

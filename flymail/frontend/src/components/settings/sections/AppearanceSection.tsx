@@ -4,6 +4,7 @@
 // 在导航里占的位置比它的内容还多。
 
 import * as React from 'react'
+import { useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/ui/Icon'
 import { getTheme, applyTheme, TONES } from '@/lib/theme'
@@ -14,6 +15,8 @@ import type { ThemeMode, ToneId } from '@/lib/theme'
 import type { ListStyle } from '@/lib/list-prefs'
 import type { LayoutMode } from '@/lib/layout-mode'
 import { Row, Toggle } from '../controls'
+import { AppearancePreview } from '../AppearancePreview'
+import { getAppearance, setAppearance, resetAppearance, subscribeAppearance, APPEARANCE_OPTIONS } from '@/lib/appearance-prefs'
 
 // ════════════════════════════════════════════════════════════
 // 子组件：主题预览卡片
@@ -88,6 +91,9 @@ export function AppearanceSection({
   // 栏宽（与三栏拖拽共用 layout-prefs）
   const [widths, setWidths] = React.useState<LayoutWidths>(() => loadLayoutWidths())
 
+  // 外观偏好（与主题一起订阅，首帧即生效，设置页拨动滑块立刻反映到预览条）
+  const appearance = useSyncExternalStore(subscribeAppearance, getAppearance, () => getAppearance())
+
   /** 切换色调（同时保留当前亮/暗） */
   function handleTone(tone: ToneId) {
     applyTheme({ mode: currentMode, tone })
@@ -114,6 +120,15 @@ export function AppearanceSection({
 
   return (
     <>
+      {/* 顶部迷你预览条：sticky 停在滚动区顶部；内容区只有 ~640px 宽，放不下左右两栏 */}
+      <AppearancePreview
+        tone={currentTone}
+        mode={currentMode}
+        listStyle={listStyle}
+        layoutMode={layoutMode}
+        appearance={appearance}
+      />
+
       {/* 主题卡片区 */}
       <div className="settings-block">
         <h3>{t('settings.page.theme')}</h3>
@@ -256,6 +271,36 @@ export function AppearanceSection({
         {/* 行内选择框常显（关闭时需先点工具栏的选择开关）*/}
         <Row label={t('settings.page.alwaysShowSelect')} help={t('settings.page.alwaysShowSelectHint')}>
           <Toggle on={alwaysShowSelect} onChange={onChangeAlwaysShowSelect} />
+        </Row>
+      </div>
+
+      {/* 文字与界面 */}
+      <div className="settings-block">
+        <div className="sb-head">
+          <h3>{t('settings.appearance.textTitle')}</h3>
+          <button type="button" className="link-btn" data-reset="text"
+            onClick={() => resetAppearance(['uiScale', 'textContrast', 'motion'])}>
+            {t('settings.appearance.reset')}
+          </button>
+        </div>
+        <Row label={t('settings.appearance.uiScale')} help={t('settings.appearance.uiScaleHint')}>
+          <div className="mode-toggle" data-pref="uiScale">
+            {APPEARANCE_OPTIONS.uiScale.map((v) => (
+              <button key={v} type="button" className={appearance.uiScale === v ? 'active' : ''}
+                onClick={() => setAppearance({ uiScale: v })}>{v}%</button>
+            ))}
+          </div>
+        </Row>
+        <Row label={t('settings.appearance.contrast')} help={t('settings.appearance.contrastHint')}>
+          <div className="mode-toggle" data-pref="textContrast">
+            <button type="button" className={appearance.textContrast === 'standard' ? 'active' : ''}
+              onClick={() => setAppearance({ textContrast: 'standard' })}>{t('settings.appearance.contrastStandard')}</button>
+            <button type="button" className={appearance.textContrast === 'high' ? 'active' : ''}
+              onClick={() => setAppearance({ textContrast: 'high' })}>{t('settings.appearance.contrastHigh')}</button>
+          </div>
+        </Row>
+        <Row label={t('settings.appearance.reduceMotion')} help={t('settings.appearance.reduceMotionHint')}>
+          <Toggle on={appearance.motion === 'reduce'} onChange={(on) => setAppearance({ motion: on ? 'reduce' : 'system' })} />
         </Row>
       </div>
 

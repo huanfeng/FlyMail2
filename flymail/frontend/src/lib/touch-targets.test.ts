@@ -17,7 +17,8 @@ import { describe, it, expect } from 'vitest'
  */
 const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf-8')
 
-/** 取出 `@media (pointer: coarse)` 块的内容（括号配对扫描，避免正则被内层 } 截断） */
+/** 取出 `@media (pointer: coarse)` 块的内容（括号配对扫描，避免正则被内层 } 截断；
+   返回前先剥块注释，免得注释里的选择器被当成真实规则） */
 function coarseBlock(): string {
   const start = css.indexOf('@media (pointer: coarse)')
   expect(start, '找不到 @media (pointer: coarse) 块').toBeGreaterThan(-1)
@@ -27,48 +28,21 @@ function coarseBlock(): string {
     if (css[i] === '{') depth++
     else if (css[i] === '}') {
       depth--
-      if (depth === 0) return css.slice(open + 1, i)
+      if (depth === 0) return css.slice(open + 1, i).replace(/\/\*[\s\S]*?\*\//g, '')
     }
   }
   throw new Error('@media (pointer: coarse) 块没有闭合')
 }
 
-/** 在一段 CSS 里找某个选择器规则的某个属性值（px） */
-function px(block: string, selector: string, prop: string): number | null {
-  const re = new RegExp(
-    `(^|[},])\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`,
-    'm',
-  )
-  const m = re.exec(block)
-  if (!m) return null
-  const p = new RegExp(`${prop}:\\s*(-?[\\d.]+)px`).exec(m[2])
-  return p ? Number(p[1]) : null
-}
-
 describe('触摸尺度', () => {
   const block = coarseBlock()
 
-  it('星标与删除在卡片模式下放大后不重叠', () => {
-    const size = px(block, '.mi-star, .mi-del', 'width')
-    const starRight = px(block, '.mail-item:not(.mail-item-row) .mi-star', 'right')
-    const delRight = px(block, '.mail-item:not(.mail-item-row) .mi-del', 'right')
-
-    expect(size, '粗指针下没有给 .mi-star/.mi-del 定尺寸——它们会继承 .icon-btn 的那条').not.toBeNull()
-    expect(starRight, '缺 .mi-star 的 right').not.toBeNull()
-    expect(delRight, '缺 .mi-del 的 right').not.toBeNull()
-
-    // 两者都从右边缘算起：星标占 [starRight, starRight + size]，删除占 [delRight, delRight + size]
-    expect(
-      delRight!,
-      `删除按钮 right=${delRight} 落在星标占据的 [${starRight}, ${starRight! + size!}] 里`,
-    ).toBeGreaterThanOrEqual(starRight! + size!)
+  it('粗指针下不再把老 .mi-star/.mi-del 一起放大（避免两者重叠）', () => {
+    expect(block).not.toMatch(/\.mi-star,\s*\.mi-del/)
+    expect(block).not.toMatch(/\.mi-del\s*\{/)
   })
 
-  it('放大后的尺寸确实比默认大', () => {
-    // 防的是「为了不重叠把它们改小」这种把问题掉个头的修法
-    const base = /\.icon-btn\s*\{[^}]*width:\s*(\d+)px/.exec(css)
-    expect(base, '找不到 .icon-btn 的默认宽度').not.toBeNull()
-    const size = px(block, '.mi-star, .mi-del', 'width')
-    expect(size!).toBeGreaterThanOrEqual(Number(base![1]))
+  it('粗指针下悬停动作组 display:none（看不见不能点）', () => {
+    expect(block).toMatch(/\.mi-hover-actions\s*\{[^}]*display:\s*none/)
   })
 })

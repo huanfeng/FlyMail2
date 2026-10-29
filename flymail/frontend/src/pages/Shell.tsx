@@ -45,7 +45,9 @@ import {
   useThreadBatchFlag,
   useThreadBatchDelete,
   useThreadBatchMove,
+  useFoldersOfAccounts,
 } from '@/lib/queries'
+import { archiveFolderOf, archiveTargetForMessage, archiveTargetForThread } from '@/lib/archive-target'
 import type { AggregateView } from '@/lib/queries'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useAccountSync } from '@/hooks/useAccountSync'
@@ -174,6 +176,35 @@ export function ShellPage() {
     () => new Set(accounts.map((a) => a.email.trim().toLowerCase()).filter(Boolean)),
     [accounts],
   )
+
+  // 归档目标：按账户把文件夹分组（只取启用账户，避免对所有账户发请求）。
+  // 复用 ['folders', id] 缓存；某账户文件夹尚未加载时，该账户行不显示归档按钮。
+  const accountIds = useMemo(() => accounts.filter((a) => a.enabled).map((a) => a.id), [accounts])
+  const { folders: allFolders } = useFoldersOfAccounts(accountIds)
+  const foldersByAccount = useMemo(() => {
+    const m = new Map<number, Folder[]>()
+    for (const f of allFolders) {
+      const arr = m.get(f.account_id)
+      if (arr) arr.push(f)
+      else m.set(f.account_id, [f])
+    }
+    return m
+  }, [allFolders])
+
+  function onArchiveOne(id: number, folderId: number) {
+    runUndoable({
+      message: t('reader.archivedToast'),
+      ids: [id],
+      commit: () => moveOne.mutate({ id, folderId }),
+    })
+  }
+  function onArchiveThread(item: ThreadListItem, folderId: number) {
+    runUndoable({
+      message: t('reader.archivedToast'),
+      threadIds: [item.thread_id],
+      commit: () => threadMove.mutate({ threadIds: [item.thread_id], folderId, inFolderId: threadScope }),
+    })
+  }
 
   // ── 搜索（跨账户，后端）：输入防抖 300ms 再发请求 ──────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
@@ -1120,7 +1151,7 @@ export function ShellPage() {
     ? (activeThread?.account_id ?? null)
     : (activeMessageDetail?.account_id ?? null)
   const { data: currentFolders = [] } = useFolders(currentAccountId)
-  const archiveFolder = currentFolders.find((f) => f.type === 'archive' && f.selectable) ?? null
+  const archiveFolder = archiveFolderOf(currentFolders)
   // 单封：已经在归档里就没有再归档一次的意义。
   // 会话跨文件夹，「整条已经在归档里」不成立，只要账户有归档文件夹就给入口。
   const canArchiveCurrent =
@@ -1501,6 +1532,12 @@ export function ShellPage() {
                   folders={folders}
                   onMarkRead={(id, read) => markRead.mutate({ id, read })}
                   onMoveMessage={(id, fid) => moveOne.mutate({ id, folderId: fid })}
+                  onArchiveMessage={onArchiveOne}
+                  onArchiveThread={onArchiveThread}
+                  archiveTargetOf={(m) => archiveTargetForMessage(foldersByAccount, m)}
+                  archiveTargetOfThread={(it) => archiveTargetForThread(foldersByAccount, it)}
+                  onReplaceSelection={(ids) => setSelectedIds(new Set(ids))}
+                  onReplaceSelectionThread={(ids) => setSelectedThreadIds(new Set(ids))}
                 />
               )}
             </div>

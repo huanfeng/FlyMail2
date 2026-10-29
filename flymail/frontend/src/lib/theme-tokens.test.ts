@@ -67,7 +67,6 @@ function contrast(a: string, b: string): number {
 
 describe('主题令牌', () => {
   const blocks = themeBlocks()
-
   it('读到了 index.css 本身', () => {
     // 读不到时上面的解析会得出 0 个块，下面每条断言照样失败，
     // 但失败信息会指向主题而不是指向「文件没读到」。这条让根因先说话。
@@ -183,5 +182,27 @@ describe('主题令牌', () => {
     // 这条钉的是「挂上这两个属性就得到一整套主题」这个承诺本身。
     expect(css).toMatch(/\[data-mode="light"\]\s*\{[^}]*color-scheme:\s*light/)
     expect(css).toMatch(/\[data-mode="dark"\]\s*\{[^}]*color-scheme:\s*dark/)
+  })
+
+  describe('文字对比增强', () => {
+    /** 与 CSS 里的 color-mix(in srgb, ink P%, bg) 同一算法 */
+    function mix(a: string, b: string, p: number): string {
+      const ch = (h: string, i: number) => parseInt(h.replace('#', '').slice(i, i + 2), 16)
+      return '#' + [0, 2, 4].map((i) => Math.round(ch(a, i) * p + ch(b, i) * (1 - p)).toString(16).padStart(2, '0')).join('')
+    }
+
+    it('规则存在，且选择器权重高于色调块', () => {
+      expect(css).toMatch(/\[data-contrast="high"\]\[data-theme\]\[data-mode\]\s*\{/)
+    })
+
+    it('所有色调亮暗下，增强后的 ink-2 ≥ 7:1、ink-3 ≥ 4.5:1', () => {
+      const p2 = Number(/--ink-2:\s*color-mix\(in srgb, var\(--ink\) (\d+)%/.exec(css)![1]) / 100
+      const p3 = Number(/--ink-3:\s*color-mix\(in srgb, var\(--ink\) (\d+)%/.exec(css)![1]) / 100
+      for (const [name, v] of blocks) {
+        if (!v.ink?.startsWith('#') || !v.bg?.startsWith('#')) continue
+        expect(contrast(mix(v.ink, v.bg, p2), v.bg), `${name} ink-2`).toBeGreaterThanOrEqual(7)
+        expect(contrast(mix(v.ink, v.bg, p3), v.bg), `${name} ink-3`).toBeGreaterThanOrEqual(4.5)
+      }
+    })
   })
 })

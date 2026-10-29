@@ -3,6 +3,7 @@ import {
   MAIL_FRAME_SANDBOX,
   MAX_FRAME_HEIGHT,
   buildFrameDocument,
+  bodyStyleFrom,
   cspMeta,
   isFrameEvent,
   parseFrameMessage,
@@ -195,6 +196,36 @@ describe('buildFrameDocument', () => {
       const html = doc({ darkBody: true, foldQuote: true })
       expect(html).toContain('invert(1)')
       expect(html).toContain('[data-fm-quote]{display:none}')
+    })
+  })
+
+  // ── 正文排版偏好 ──────────────────────────────────────────────────────────
+
+  describe('正文排版偏好', () => {
+    const opts = { html: '<p>x</p>', allowRemote: false, foldQuote: false, quoteHideCss: '', nonce: null, token: null }
+
+    it('缺省（bodyStyle 为空）与不传完全相同', () => {
+      expect(buildFrameDocument({ ...opts, bodyStyle: null })).toBe(buildFrameDocument(opts))
+    })
+
+    it('全部默认值时 bodyStyleFrom 返回 null（不注入任何东西）', () => {
+      expect(bodyStyleFrom({ bodyFontSize: 14, bodyLineHeight: 1.6, readingWidth: 'original', bodyZoom: 100 })).toBeNull()
+    })
+
+    it('注入字号、行高、阅读宽度与缩放', () => {
+      const s = bodyStyleFrom({ bodyFontSize: 16, bodyLineHeight: 1.8, readingWidth: 'comfort', bodyZoom: 125 })!
+      const doc = buildFrameDocument({ ...opts, bodyStyle: s })
+      expect(doc).toMatch(/body\s*\{\s*font-size:\s*16px;\s*line-height:\s*1\.8;\s*max-width:\s*720px;\s*margin:\s*0 auto;\s*\}/)
+      expect(doc).toMatch(/html\s*\{\s*zoom:\s*1\.25;\s*\}/)
+    })
+
+    it('不改写邮件内联样式：不出现 !important 与通配选择器', () => {
+      const s = bodyStyleFrom({ bodyFontSize: 18, bodyLineHeight: 1.4, readingWidth: 'wide', bodyZoom: 150 })!
+      const withStyle = buildFrameDocument({ ...opts, bodyStyle: s })
+      // 剥注释：注释里出现的 width:100% !important 不算真实规则
+      const clean = withStyle.replace(/\/\*[\s\S]*?\*\//g, '')
+      expect(clean).not.toMatch(/\*\s*\{[^}]*font-size/)
+      expect(clean).not.toMatch(/!important/)
     })
   })
 })

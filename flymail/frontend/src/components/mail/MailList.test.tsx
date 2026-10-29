@@ -117,6 +117,12 @@ const base: Props = {
   folders: [],
   onMarkRead: noop,
   onMoveMessage: noop,
+  archiveTargetOf: () => null,
+  archiveTargetOfThread: () => null,
+  onArchiveMessage: noop,
+  onArchiveThread: noop,
+  onReplaceSelection: noop,
+  onReplaceSelectionThread: noop,
 }
 
 describe('MailList 的数据状态出口', () => {
@@ -346,10 +352,10 @@ describe('MailList 的列表语义与键盘导航', () => {
     const onSelectMessage = vi.fn()
     await mount({ messages: many, activeMessageId: 3, onSelectMessage })
 
-    // 星标按钮上按方向键不应该移动列表
-    const star = container.querySelector<HTMLElement>('.mi-star')!
+    // 归档按钮上按方向键不应该移动列表
+    const del = container.querySelector<HTMLButtonElement>('.mi-hover-actions button')!
     await act(async () => {
-      star.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      del.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     })
     expect(onSelectMessage).not.toHaveBeenCalled()
   })
@@ -430,6 +436,168 @@ describe('列表序号只认渲染顺序', () => {
     }
   })
 })
+
+describe('列表行悬停动作', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  async function mount(props: Partial<Props> = {}) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ToastProvider>
+            <MailList {...base} {...props} />
+          </ToastProvider>
+        </QueryClientProvider>,
+      )
+    })
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  function actionsOf(row: Element) {
+    return [...row.querySelectorAll('.mi-hover-actions button')].map((b) => b.getAttribute('aria-label'))
+  }
+
+  it('有归档目标时四个动作齐全，顺序为 归档/删除/已读切换/星标', async () => {
+    const unread = { ...base.messages[0], seen: false }
+    await mount({ messages: [unread], archiveTargetOf: () => 99 })
+    const row = container.querySelector('.mail-item')!
+    expect(actionsOf(row)).toEqual(['list.archive', 'reader.delete', 'ctx.markRead', 'ctx.star'])
+  })
+
+  it('没有归档目标的行不出现归档按钮', async () => {
+    await mount({ archiveTargetOf: (m) => (m.id === 1 ? 99 : null) })
+    const rows = container.querySelectorAll('.mail-item')
+    expect(actionsOf(rows[0])).toContain('list.archive')
+    expect(actionsOf(rows[1])).not.toContain('list.archive')
+  })
+
+  it('未读行的切换按钮是「标为已读」，并把目标值传出去', async () => {
+    const calls: [number, boolean][] = []
+    const m = { ...base.messages[0], seen: false }
+    await mount({ messages: [m], onMarkRead: (id, read) => calls.push([id, read]) })
+    const btn = container.querySelector<HTMLButtonElement>('.mi-hover-actions button[aria-label="ctx.markRead"]')!
+    await act(async () => btn.click())
+    expect(calls).toEqual([[1, true]])
+  })
+
+  it('点归档传出目标文件夹，且不打开邮件', async () => {
+    const archived: [number, number][] = []
+    const opened: number[] = []
+    await mount({
+      archiveTargetOf: () => 99,
+      onArchiveMessage: (id, fid) => archived.push([id, fid]),
+      onSelectMessage: (id: number) => opened.push(id),
+    })
+    const btn = container.querySelector<HTMLButtonElement>('.mi-hover-actions button[aria-label="list.archive"]')!
+    await act(async () => btn.click())
+    expect(archived).toEqual([[1, 99]])
+    expect(opened).toEqual([])
+  })
+
+  it('紧凑行与会话行同样渲染动作组', async () => {
+    await mount({ listStyle: 'compact', archiveTargetOf: () => 99 })
+    expect(actionsOf(container.querySelector('.mail-item')!)).toHaveLength(4)
+  })
+
+  it('动作按钮不进 Tab 序列（键盘走快捷键）', async () => {
+    await mount({ archiveTargetOf: () => 99 })
+    const btns = container.querySelectorAll<HTMLButtonElement>('.mi-hover-actions button')
+    expect([...btns].every((b) => b.tabIndex === -1)).toBe(true)
+  })
+})
+
+describe('选择栏', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  async function mount(props: Partial<Props> = {}) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={qc}>
+          <ToastProvider>
+            <MailList {...base} {...props} />
+          </ToastProvider>
+        </QueryClientProvider>,
+      )
+    })
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  const toolbar = () => container.querySelector('.list-toolbar')!
+
+  it('未选中：最左是全选框，其后是筛选 chips；无操作组', async () => {
+    await mount()
+    const first = toolbar().firstElementChild!
+    expect(first.classList.contains('lt-select')).toBe(true)
+    expect(toolbar().querySelector('.lt-chips')).toBeTruthy()
+    expect(toolbar().querySelector('.lt-actions')).toBeNull()
+  })
+
+  it('选中后：chips 隐藏，出现计数与操作组；筛选状态不丢', async () => {
+    await mount({ selectedIds: new Set([1]), filter: { ...EMPTY_FILTER, unread: true } })
+    expect(toolbar().querySelector('.lt-chips')).toBeNull()
+    expect(toolbar().querySelector('.lt-count')?.textContent).toBe('list.selectedCount')
+    expect(toolbar().querySelector('.lt-actions')).toBeTruthy()
+  })
+
+  it('清空选择后 chips 原样回来，筛选 active 态不变', async () => {
+    // Review Focus 4 的后半句：选中时 chip 只是隐藏，筛选的真相源（filter prop）没被碰过
+    await mount({ selectedIds: new Set([1]), filter: { ...EMPTY_FILTER, unread: true } })
+    expect(toolbar().querySelector('.lt-chips')).toBeNull()
+    await mount({ selectedIds: new Set(), filter: { ...EMPTY_FILTER, unread: true } })
+    const chips = toolbar().querySelector('.lt-chips')!
+    expect(chips.querySelector('.chip.active')?.textContent).toBe('list.filterUnread')
+  })
+
+  it('部分选中时全选框是 indeterminate', async () => {
+    await mount({ selectedIds: new Set([1]) })
+    const cb = toolbar().querySelector<HTMLInputElement>('.lt-select input[type=checkbox]')!
+    expect(cb.indeterminate).toBe(true)
+    expect(cb.checked).toBe(false)
+  })
+
+  it('全选框：非全选时点击 = 全选可见；全选时点击 = 清空', async () => {
+    let all = 0, cleared = 0
+    await mount({ onSelectAllVisible: () => all++, onClearSelection: () => cleared++ })
+    const cb = () => toolbar().querySelector<HTMLInputElement>('.lt-select input')!
+    await act(async () => cb().click())
+    expect(all).toBe(1)
+    await mount({ selectedIds: new Set([1, 2]), onSelectAllVisible: () => all++, onClearSelection: () => cleared++ })
+    await act(async () => cb().click())
+    expect(cleared).toBe(1)
+  })
+
+  it('细指针下不再有单独的「进入选择模式」按钮；粗指针开关在 DOM 上', async () => {
+    await mount()
+    const labels = [...toolbar().querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))
+    expect(labels).not.toContain('list.selectMode')
+    expect(toolbar().querySelector('.lt-select-touch')).toBeTruthy()
+  })
+})
+
 
 describe('删除当前邮件后焦点不掉出列表', () => {
   let container: HTMLDivElement

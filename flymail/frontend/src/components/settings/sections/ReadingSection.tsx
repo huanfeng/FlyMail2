@@ -4,14 +4,17 @@
 // 放在一页里用户不必再猜哪个要点保存。
 
 import * as React from 'react'
+import { useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TrustedSendersSection } from '@/components/settings/TrustedSendersSection'
+import { BodyPreview } from '@/components/settings/BodyPreview'
 import {
   getDarkBody,
   getRemoteImageDefault,
   setDarkBody,
   setRemoteImageDefault,
 } from '@/lib/privacy-prefs'
+import { getAppearance, setAppearance, resetAppearance, subscribeAppearance, APPEARANCE_OPTIONS } from '@/lib/appearance-prefs'
 import { Row, Toggle } from '../controls'
 
 // ════════════════════════════════════════════════════════
@@ -35,6 +38,7 @@ export function ReadingSection({ conversationView, onChangeConversationView }: R
     getRemoteImageDefault(),
   )
   const [darkBody, setDarkBodyState] = React.useState<boolean>(() => getDarkBody())
+  const appearance = useSyncExternalStore(subscribeAppearance, getAppearance, () => getAppearance())
 
   function handleRemoteImages(next: boolean) {
     setLoadRemoteImages(next)
@@ -61,6 +65,49 @@ export function ReadingSection({ conversationView, onChangeConversationView }: R
           help={t('settings.mail.conversationViewHint')}
         >
           <Toggle on={conversationView} onChange={onChangeConversationView} />
+        </Row>
+      </div>
+
+      {/* 邮件正文：正文字号、行高、阅读宽度、正文缩放 */}
+      <div className="settings-block">
+        <div className="sb-head">
+          <h3>{t('settings.reading.bodyTitle')}</h3>
+          <button type="button" className="link-btn" data-reset="body"
+            onClick={() => resetAppearance(['bodyFontSize', 'bodyLineHeight', 'readingWidth', 'bodyZoom'])}>
+            {t('settings.appearance.reset')}
+          </button>
+        </div>
+        <p className="help">{t('settings.reading.bodyHelp')}</p>
+        <BodyPreview appearance={appearance} />
+        <Row label={t('settings.reading.fontSize')}>
+          <div className="mode-toggle" data-pref="bodyFontSize">
+            {APPEARANCE_OPTIONS.bodyFontSize.map((v) => (
+              <button key={v} type="button" className={appearance.bodyFontSize === v ? 'active' : ''}
+                onClick={() => setAppearance({ bodyFontSize: v })}>{v}</button>
+            ))}
+          </div>
+        </Row>
+        <Row label={t('settings.reading.lineHeight')}>
+          <div className="mode-toggle" data-pref="bodyLineHeight">
+            <button type="button" className={appearance.bodyLineHeight === 1.4 ? 'active' : ''} onClick={() => setAppearance({ bodyLineHeight: 1.4 })}>{t('settings.reading.lhCompact')}</button>
+            <button type="button" className={appearance.bodyLineHeight === 1.6 ? 'active' : ''} onClick={() => setAppearance({ bodyLineHeight: 1.6 })}>{t('settings.reading.lhStandard')}</button>
+            <button type="button" className={appearance.bodyLineHeight === 1.8 ? 'active' : ''} onClick={() => setAppearance({ bodyLineHeight: 1.8 })}>{t('settings.reading.lhLoose')}</button>
+          </div>
+        </Row>
+        <Row label={t('settings.reading.width')} help={t('settings.reading.widthHint')}>
+          <div className="mode-toggle" data-pref="readingWidth">
+            <button type="button" className={appearance.readingWidth === 'original' ? 'active' : ''} onClick={() => setAppearance({ readingWidth: 'original' })}>{t('settings.reading.widthOriginal')}</button>
+            <button type="button" className={appearance.readingWidth === 'comfort' ? 'active' : ''} onClick={() => setAppearance({ readingWidth: 'comfort' })}>{t('settings.reading.widthComfort')}</button>
+            <button type="button" className={appearance.readingWidth === 'wide' ? 'active' : ''} onClick={() => setAppearance({ readingWidth: 'wide' })}>{t('settings.reading.widthWide')}</button>
+          </div>
+        </Row>
+        <Row label={t('settings.reading.zoom')} help={t('settings.reading.zoomHint')}>
+          <div className="mode-toggle" data-pref="bodyZoom">
+            {APPEARANCE_OPTIONS.bodyZoom.map((v) => (
+              <button key={v} type="button" className={appearance.bodyZoom === v ? 'active' : ''}
+                onClick={() => setAppearance({ bodyZoom: v })}>{v}%</button>
+            ))}
+          </div>
         </Row>
       </div>
 

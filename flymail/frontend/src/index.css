@@ -162,13 +162,19 @@
   --avatar-8: oklch(0.52 0.11 330);
 
   /* 字体栈：中文优先，回落到系统字体 */
-  --font-display: "PingFang SC", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
-  --font-body: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --font-body: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+               "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+               "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font-display: var(--font-body);
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
 
   /* 布局令牌 */
   --sidebar-w: 248px;
   --list-w: 380px;
+  --select-col-x: 20px;
 
   /* 默认中性色（被主题选择器覆盖） */
   --bg: #fbfaf7;
@@ -448,7 +454,7 @@ body {
   input, button, textarea { font-family: inherit; color: inherit; }
   button { background: none; border: 0; cursor: pointer; padding: 0; }
 }
-h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.02em; margin: 0; }
+h1,h2,h3,h4 { font-family: var(--font-display); font-weight: var(--fw-semibold); letter-spacing: -0.02em; margin: 0; }
 
 /* ════════════════════════════════════════════════════════════════════════
    App 外壳布局
@@ -625,8 +631,7 @@ body.is-resizing * { cursor: col-resize !important; }
 }
 .side-btn.active { background: var(--bg-active); color: var(--ink); }
 .side-btn .count {
-  margin-left: auto; font-family: var(--font-mono);
-  font-size: 11px; color: var(--ink-3);
+  margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
 }
 .side-btn.active .count { color: var(--accent-ink); }
 
@@ -675,7 +680,7 @@ body.is-resizing * { cursor: col-resize !important; }
   width: 7px; height: 7px; border-radius: 50%;
 }
 .account-row .acct-unread {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
 }
 
 .folder-list { padding: 2px 0 4px 22px; }
@@ -693,7 +698,7 @@ body.is-resizing * { cursor: col-resize !important; }
 /* 「更多文件夹」开关：比普通文件夹行弱一档，它是导航辅助而不是目的地 */
 .folder-row.folder-more { color: var(--ink-3); font-size: 12.5px; }
 .folder-row .f-icon { color: var(--ink-3); width: 14px; display: grid; place-items: center; }
-.folder-row .f-count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.folder-row .f-count { margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .sidebar-foot {
   border-top: 1px solid var(--rule); padding: 8px;
@@ -707,7 +712,7 @@ body.is-resizing * { cursor: col-resize !important; }
   .sidebar-foot .me:hover { background: var(--bg-hover); }
 }
 .sidebar-foot .me-name { font-size: 13px; color: var(--ink); }
-.sidebar-foot .me-mail { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
+.sidebar-foot .me-mail { font-size: 11px; color: var(--ink-3); }
 /* 账户卡片上的上移/下移按钮：纵向叠放，占一列的宽度而不是两个按钮的宽度 */
 .ac-reorder { display: flex; flex-direction: column; gap: 1px; }
 .ac-reorder .icon-btn { width: 24px; height: 17px; border-radius: 4px; }
@@ -783,11 +788,11 @@ body.is-resizing * { cursor: col-resize !important; }
   to { transform: translateX(365%) }
 }
 .list-title {
-  font-family: var(--font-display); font-size: 20px; font-weight: 500;
+  font-family: var(--font-display); font-size: 20px; font-weight: var(--fw-semibold);
   letter-spacing: -0.01em;
 }
 .list-sub {
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   margin-top: 1px;
 }
 /* 标题占固定宽度：搜索框起始位置不随文件夹名长短左右抖动 */
@@ -892,13 +897,37 @@ mark.hl {
    撞名会把带文字的阅读器按钮压成方块。 */
 .list-toolbar {
   display: flex; align-items: center; gap: 6px;
-  padding: 0 14px; height: 44px; flex: 0 0 44px;
+  padding: 0 14px 0 var(--select-col-x); height: 44px; flex: 0 0 44px;
   border-bottom: 1px solid var(--rule);
   overflow-x: auto; scrollbar-width: none;
 }
 .list-toolbar::-webkit-scrollbar { display: none; }
 .list-toolbar > * { flex: 0 0 auto; }
 .lt-chips { display: flex; align-items: center; gap: 6px; }
+
+/* 全选框 + 按条件选择下拉：两者共用 --select-col-x，与行复选框同一竖列 */
+.lt-select { display: inline-flex; align-items: center; gap: 0; width: 38px; }
+.lt-select .lt-all { width: 20px; justify-content: center; padding: 0; }
+.lt-select .lt-select-by { width: 18px; height: 24px; color: var(--ink-3); }
+@media (hover: hover) and (pointer: fine) {
+  .lt-select .lt-select-by:hover { color: var(--ink); background: var(--bg-hover); }
+}
+/* ⚠ 特异性必须压过 .lt-btn 的 display: grid——同等特异性下它在文件后面声明 */
+.lt-btn.lt-select-touch { display: none; }
+.list-toolbar .spacer { flex: 1 1 auto; }
+
+/* 悬停复选框：覆盖在头像上，只在「无选择态」的被指行出现。
+   选择态改用独立列（.mi-select），头像不再被遮挡。 */
+.mi-select-hover {
+  display: none; position: absolute; inset: 0;
+  align-items: center; justify-content: center;
+  background: var(--surface); border-radius: 6px;
+  cursor: pointer;
+}
+.mi-select-hover input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .mail-list:not(.selecting) .mail-item:hover .mi-select-hover { display: flex; }
+}
 .lt-sep { width: 1px; height: 20px; background: var(--rule); margin: 0 4px; flex: 0 0 auto; }
 .lt-all { display: inline-flex; align-items: center; cursor: pointer; padding: 0 2px; }
 .lt-all input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
@@ -1015,10 +1044,10 @@ mark.hl {
 /* 选择模式下在最前面插入复选框列，其余列宽保持不变 */
 .mail-list.selecting .mail-item { grid-template-columns: 20px 32px 1fr; }
 
-.mail-item.unread .mi-sender,
-.mail-item.unread .mi-subject {
-  color: var(--ink); font-weight: 600;
-}
+.mail-item.unread .mi-sender { color: var(--ink); font-weight: var(--fw-bold); }
+.mail-item.unread .mi-subject { color: var(--ink); font-weight: var(--fw-semibold); }
+.mail-item.unread .mi-preview { color: var(--ink-2); }
+.mail-item.unread .mi-time, .mail-item.unread .mi-time-col { color: var(--accent-ink); font-weight: var(--fw-semibold); }
 .mail-item .mi-unread-dot {
   position: absolute; left: 8px; top: 22px;
   width: 6px; height: 6px; border-radius: 50%;
@@ -1055,10 +1084,10 @@ mark.hl {
   display: flex; align-items: baseline; gap: 8px;
   height: 18px;
 }
-.mail-item .mi-sender { font-size: 13.5px; color: var(--ink-2); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mail-item .mi-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); flex: 0 0 auto; }
+.mail-item .mi-sender { font-size: 13.5px; color: var(--ink); font-weight: var(--fw-medium); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-item .mi-time { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 .mail-item .mi-subject {
-  font-size: 13.5px; color: var(--ink-2);
+  font-size: 13.5px; color: var(--ink); font-weight: var(--fw-regular);
   margin-top: 2px; line-height: 19px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1075,42 +1104,37 @@ mark.hl {
 }
 .mi-tag {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 10.5px; color: var(--ink-3);
-  font-family: var(--font-mono);
+  font-size: 11px; color: var(--ink-3);
   padding: 1px 6px 1px 5px; border-radius: 3px;
   background: var(--bg-alt);
 }
 .mi-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
-/* hover 显隐的两个按钮（星标 / 删除）必须锁在细指针设备上。
-   opacity:0 的元素照常接收点击，而触摸设备 :hover 永不触发——
-   不加守卫的话，行右侧 14~54px 就躺着两个看不见的按钮，点下去是删除。
-   粗指针下改为常驻显示，让它们至少是可见的。 */
-.mi-star {
-  position: absolute; right: 14px; top: 14px;
-  color: var(--ink-4);
-  transition: opacity 0.1s;
+/* 行悬停动作组：占据时间位（卡片行右上角 / 紧凑行右端），绝对定位不占网格列，
+   悬停不引起任何重排。细指针下与时间交叉淡入；粗指针下 display:none（见文件末尾总块）。 */
+.mi-hover-actions {
+  position: absolute; right: 12px; top: 10px;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding-left: 8px;
+  /* 遮住下面的时间/附件标签：用行当前底色而不是透明 */
+  background: inherit;
 }
+.mail-item.mail-item-row .mi-hover-actions { top: 50%; transform: translateY(-50%); right: 14px; }
+.mi-hover-actions .icon-btn { width: 26px; height: 26px; color: var(--ink-3); }
+.mi-hover-actions .icon-btn.starred { color: #e0b04a; }
+.mail-item .mi-time, .mail-item .mi-time-col { transition: opacity 0.1s; }
+.mi-star-pin { position: absolute; right: 14px; bottom: 12px; color: #e0b04a; display: inline-flex; }
+.mail-item.mail-item-row .mi-star-pin { position: static; }
 @media (hover: hover) and (pointer: fine) {
-  .mi-star { opacity: 0; }
-  .mail-item:hover .mi-star { opacity: 1; }
+  .mi-hover-actions { opacity: 0; pointer-events: none; transition: opacity 0.1s; }
+  .mail-item:hover .mi-hover-actions { opacity: 1; pointer-events: auto; }
+  .mail-item:hover .mi-time, .mail-item:hover .mi-time-col { opacity: 0; }
+  .mi-hover-actions .icon-btn:hover { color: var(--ink); background: var(--bg-active); }
+  .mi-hover-actions .icon-btn.mha-danger:hover { color: var(--destructive); }
 }
-.mi-star.starred { opacity: 1; }
-.mi-star.starred { color: #e0b04a; }
+@media (prefers-reduced-motion: reduce) {
+  .mi-hover-actions, .mail-item .mi-time, .mail-item .mi-time-col { transition: none; }
+}
 .mi-attach { color: var(--ink-3); }
-
-/* 列表行 hover 快捷删除按钮（卡片模式绝对定位于星标左侧；紧凑模式由行内改为静态） */
-.mi-del {
-  position: absolute; right: 40px; top: 14px;
-  color: var(--ink-4);
-  transition: opacity 0.1s;
-}
-@media (hover: hover) and (pointer: fine) {
-  .mi-del { opacity: 0; }
-  .mail-item:hover .mi-del { opacity: 1; }
-}
-@media (hover: hover) and (pointer: fine) {
-  .mi-del:hover { color: var(--destructive); }
-}
 
 /* 宽布局（滑入预览）模式：单行紧凑行 */
 /* 发件人列宽走 --sender-col-w（AppLayout 从 layout-prefs 注入，设置里可调并记忆）。
@@ -1164,13 +1188,13 @@ mark.hl {
   margin: 0; flex: 0 0 auto;
 }
 .mail-item.mail-item-row .mi-time-col {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   flex: 0 0 auto; min-width: 42px; text-align: right;
 }
 .mail-item.mail-item-row .mi-unread-dot { top: 50%; transform: translateY(-50%); }
 
 .mi-thread-count {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   padding: 0 5px; border-radius: 3px; background: var(--bg-alt);
 }
 
@@ -1191,7 +1215,7 @@ mark.hl {
   margin-top: 28px; display: inline-grid;
   grid-template-columns: auto auto; gap: 6px 18px;
   text-align: left;
-  font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3);
+  font-size: 12px; color: var(--ink-3);
 }
 .reader-empty .shortcuts kbd {
   padding: 1px 6px; border-radius: 3px; border: 1px solid var(--rule);
@@ -1286,7 +1310,7 @@ mark.hl {
   font-size: 12px; color: var(--ink-3); margin-top: 2px;
 }
 .thread-head .th-time {
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   text-align: right; white-space: nowrap;
 }
 
@@ -1325,7 +1349,7 @@ mark.hl {
 /* 卡片是 flex 行，中间这块要能被压缩——min-width 默认是 auto，
    不置 0 的话上面那条 ellipsis 永远不会触发（子项按内容撑开）。 */
 .attach-card .ac-text { min-width: 0; }
-.attach-card .ac-meta { font-size: 11px; color: var(--ink-3); font-family: var(--font-mono); }
+.attach-card .ac-meta { font-size: 11px; color: var(--ink-3); }
 /* 附件折叠开关。与引用折叠（.quote-toggle）同一套外观——同一封邮件里
    两个「还有更多，点开看」的入口，没有理由长得不一样。 */
 .attach-more {
@@ -1439,7 +1463,7 @@ mark.hl {
 /* 未读封数用加粗表达，与列表行保持同一套视觉语言 */
 .thread-item.unread .ti-from { font-weight: 600; color: var(--ink); }
 .thread-item .ti-addr {
-  margin-left: 6px; font-family: var(--font-mono); font-size: 11.5px;
+  margin-left: 6px; font-size: 11.5px;
   font-weight: 400; color: var(--ink-3);
 }
 .thread-item .ti-to,
@@ -1458,7 +1482,8 @@ mark.hl {
   font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
 }
 .thread-item .ti-time {
-  font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap;
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* 展开项的单封工具栏：整条会话的操作在顶部，这里只管「这一封」 */
@@ -1922,7 +1947,7 @@ mark.hl {
   border-bottom: 1px solid var(--rule); padding: 8px 0;
 }
 .compose-row label {
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .compose-row input {
@@ -2019,7 +2044,7 @@ mark.hl {
 }
 .slider-row input { flex: 1; accent-color: var(--accent); }
 .slider-row .slider-val {
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   min-width: 36px; text-align: right;
 }
 
@@ -2183,7 +2208,7 @@ mark.hl {
 }
 .notif-tab.active { color: var(--ink); border-color: var(--accent); }
 .notif-tab .badge {
-  font-family: var(--font-mono); font-size: 10.5px;
+  font-size: 11px; font-variant-numeric: tabular-nums;
   padding: 1px 6px; border-radius: 999px;
   background: var(--bg-alt); color: var(--ink-3);
 }
@@ -2217,11 +2242,11 @@ mark.hl {
   font-size: 13px; color: var(--ink-3); line-height: 1.5;
 }
 .notif-card .nf-time {
-  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .notif-day-label {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+  font-size: 11px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--ink-3);
   padding: 22px 0 6px;
 }
@@ -2240,7 +2265,7 @@ mark.hl {
 .settings-block:last-child { border-bottom: 0; }
 .settings-block h3 {
   font-family: var(--font-display); font-size: 18px;
-  font-weight: 500; margin-bottom: 4px;
+  font-weight: var(--fw-semibold); margin-bottom: 4px;
 }
 .settings-block p.help {
   font-size: 13px; color: var(--ink-3); margin: 0 0 16px;
@@ -2306,8 +2331,7 @@ mark.hl {
 /* 每步末尾另起一行的控制台直达地址 */
 .settings-guide .sg-link {
   display: block; margin-top: 2px;
-  font-family: var(--font-mono); font-size: 11.5px;
-  color: var(--accent); word-break: break-all;
+  font-size: 12px; color: var(--accent); word-break: break-all;
 }
 .settings-guide .sg-note {
   margin: 10px 0 0; font-size: 12.5px; color: var(--ink-3);
@@ -2381,7 +2405,7 @@ mark.hl {
   font-size: 12.5px;
 }
 .theme-card .tc-name { color: var(--ink); font-weight: 500; }
-.theme-card .tc-mode { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.theme-card .tc-mode { font-size: 11px; color: var(--ink-3); }
 
 /* 开关 toggle */
 .toggle {
@@ -2444,7 +2468,7 @@ mark.hl {
   flex-shrink: 0;
 }
 .sd-body .ac-name { font-size: 14px; color: var(--ink); font-weight: 500; }
-.sd-body .ac-mail { font-size: 12px; color: var(--ink-3); font-family: var(--font-mono); margin-top: 2px; }
+.sd-body .ac-mail { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
 
 /* 「我的资料」顶部的大号身份行。尺寸此前写在 TSX 的内联样式里，
    而内联样式盖不住也补不上缺失的 border-radius / place-items——
@@ -2454,7 +2478,7 @@ mark.hl {
 .settings-identity .ac-name { font-size: 15px; }
 .settings-identity .ac-text { min-width: 0; }
 .account-card .ac-status {
-  font-size: 11px; color: var(--ink-3); font-family: var(--font-mono);
+  font-size: 11px; color: var(--ink-3);
   padding: 2px 8px; border-radius: 999px;
   background: var(--bg-alt);
 }
@@ -2607,7 +2631,7 @@ mark.hl {
   min-width: 20px; padding: 2px 7px; border-radius: 5px;
   border: 1px solid var(--rule); border-bottom-width: 2px;
   background: var(--bg-alt); color: var(--ink);
-  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+  font-size: 11.5px; line-height: 1.5;
   text-align: center;
 }
 .sc-desc { color: var(--ink-2); font-size: 13px; }
@@ -2687,7 +2711,7 @@ mark.hl {
 }
 .rich-toolbar .rt-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
 .rich-toolbar .rt-btn:disabled { opacity: 0.45; cursor: default; }
-.rich-toolbar .rt-text { font-family: var(--font-mono); font-size: 11px; }
+.rich-toolbar .rt-text { font-size: 11px; }
 .rich-toolbar .rt-sep {
   width: 1px; height: 16px; margin: 0 4px;
   background: var(--rule); flex-shrink: 0;
@@ -2789,8 +2813,8 @@ mark.hl {
 /* ── 设置页：签名 / 别名分区用到的表单件 ─────────────────────────────── */
 .settings-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
 .settings-field > label {
-  font-size: 12px; color: var(--ink-3);
-  font-family: var(--font-mono); letter-spacing: 0.04em;
+  font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 .settings-field > input,
 .settings-field > select {
@@ -3083,11 +3107,10 @@ mark.hl {
 .body-prefetch-note {
   padding: 2px 12px 6px 34px;
   font-size: 10.5px; color: var(--ink-3);
-  font-family: var(--font-mono);
 }
 
 .sync-progress-text {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  font-size: 11px; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -3130,9 +3153,8 @@ mark.hl {
      所以这里必须把尺寸和 right 一起定，而不是指望"没写进去就不受影响"。
      （粗指针下这两个按钮是常驻显示的——第一轮修的是"看不见却能点"——
       所以用户真的会去点它们。） */
-  .mi-star, .mi-del { width: 32px; height: 32px; }
+  .mi-star { width: 32px; height: 32px; }
   .mail-item:not(.mail-item-row) .mi-star { right: 12px; }
-  .mail-item:not(.mail-item-row) .mi-del { right: 48px; }
 
   /* 行内复选框与"全选"：手指点 16px 的方框基本靠运气 */
   .mi-select input, .lt-all input { width: 20px; height: 20px; }
@@ -3147,6 +3169,9 @@ mark.hl {
      排除 .chip-clear——它的 class 是 `chip chip-clear`，已有显式的 30px 方形尺寸，
      再加 12px 内边距会把里面的图标挤没（border-box 下 padding 吃的是内容区）。 */
   .chip:not(.chip-clear) { padding: 7px 12px; }
+  .mi-hover-actions { display: none; }
+  .lt-btn.lt-select-touch { display: inline-flex; }
+  .mi-select-hover { display: none !important; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -3161,6 +3186,21 @@ mark.hl {
   background: rgba(20,18,14,0.38);
   backdrop-filter: blur(3px);
   animation: fadeIn 0.15s;
+}
+
+/* 阅读页正文预览框 */
+.body-preview {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0 0 12px;
+}
+.body-preview iframe {
+  display: block;
+  width: 100%;
+  height: 170px;
+  border: 0;
+  background: #fff;
 }
 [data-mode="dark"] .confirm-backdrop { background: rgba(0,0,0,0.55); }
 .confirm-dialog {
@@ -3226,7 +3266,7 @@ mark.hl {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .portable-row-sub {
-  font-size: 11.5px; color: var(--ink-3); font-family: var(--font-mono);
+  font-size: 12px; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .portable-tag {
@@ -3273,7 +3313,6 @@ mark.hl {
 .portable-result-sum {
   padding: 10px 12px; font-size: 12.5px; color: var(--ink);
   background: var(--bg-alt); border-bottom: 1px solid var(--rule);
-  font-family: var(--font-mono);
 }
 .portable-outcome {
   display: flex; justify-content: space-between; gap: 12px;
@@ -3283,7 +3322,6 @@ mark.hl {
 .portable-outcome:last-child { border-bottom: 0; }
 .portable-outcome.failed { color: var(--danger-ink); }
 .portable-outcome span:first-child {
-  font-family: var(--font-mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -3400,3 +3438,48 @@ mark.hl {
   border-color: var(--destructive);
   background: color-mix(in srgb, var(--destructive) 12%, transparent);
 }
+
+/* 文字对比增强（外观偏好 textContrast = high）。
+   一条规则覆盖全部色调：把次级文字向 --ink 收拢，用 srgb 混色。
+   选择器带 [data-theme][data-mode] 为了权重高过色调块（两个属性选择器）。 */
+[data-contrast="high"][data-theme][data-mode] {
+  --ink-2: color-mix(in srgb, var(--ink) 88%, var(--bg));
+  --ink-3: color-mix(in srgb, var(--ink) 72%, var(--bg));
+}
+
+/* 动效：与 prefers-reduced-motion 走同一套规则，只在外观设置里手动选了 reduce 时
+   也生效。每块复制规则体，选择器前缀化，不改原块。 */
+[data-motion="reduce"],
+[data-motion="reduce"] * {
+  transition: none !important;
+  animation: none !important;
+  animation-duration: 0s !important;
+  transition-duration: 0s !important;
+}
+
+/* 外观页顶部预览条：sticky 停在滚动区顶部。内容区只有 ~640px 宽，放不下左右两栏。 */
+.appearance-preview {
+  position: sticky; top: 0; z-index: 2;
+  height: 150px; margin: 0 0 8px;
+  border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--bg); overflow: hidden;
+  box-shadow: 0 6px 12px -10px rgba(0,0,0,0.25);
+}
+.appearance-preview .ap-canvas {
+  display: grid; grid-template-columns: 110px 220px 1fr;
+  height: 100%; font-size: 12px; pointer-events: none;
+}
+.appearance-preview[data-layout="two-slide"] .ap-canvas { grid-template-columns: 110px 1fr 160px; }
+.appearance-preview .ap-side { background: var(--bg-alt); border-right: 1px solid var(--rule); padding: 8px 6px; }
+.appearance-preview .ap-side .folder-row { padding: 3px 8px; font-size: 11px; }
+.appearance-preview .ap-list { border-right: 1px solid var(--rule); overflow: hidden; }
+.appearance-preview .mail-item { height: auto; padding: 7px 10px; grid-template-columns: 22px 1fr; gap: 8px; }
+.appearance-preview .avatar-sq { width: 22px; height: 22px; font-size: 10px; }
+.appearance-preview .mi-sender, .appearance-preview .mi-subject { font-size: 11.5px; }
+.appearance-preview .mi-top { height: auto; }
+.appearance-preview .ap-reader { background: var(--surface); padding: 12px; }
+.appearance-preview .ap-title { font-weight: var(--fw-semibold); font-size: 13px; color: var(--ink); margin-bottom: 8px; }
+.appearance-preview .ap-line { height: 6px; border-radius: 3px; background: var(--ink-4); opacity: .45; margin: 6px 0; width: 100%; }
+.settings-block .sb-head { display: flex; align-items: baseline; justify-content: space-between; }
+.link-btn { color: var(--accent-ink); font-size: 12.5px; }
+@media (hover: hover) and (pointer: fine) { .link-btn:hover { text-decoration: underline; } }

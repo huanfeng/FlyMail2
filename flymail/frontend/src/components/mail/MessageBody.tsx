@@ -19,14 +19,17 @@ import { useConfirm } from '@/components/ui/Confirm'
 import { apiErrorMessage } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
 import { openExternal } from '@/lib/platform'
+import { getAppearance, subscribeAppearance } from '@/lib/appearance-prefs'
 import {
   MAIL_FRAME_SANDBOX,
   MIN_BODY_HEIGHT,
   buildFrameDocument,
+  bodyStyleFrom,
   isFrameEvent,
   parseFrameMessage,
   secureRandomHex,
 } from '@/lib/mail-frame'
+import type { BodyStyle } from '@/lib/mail-frame'
 import { getDarkBody, subscribePrivacyPrefs } from '@/lib/privacy-prefs'
 import { getThemeMode, subscribeThemeMode } from '@/lib/theme'
 import { QUOTE_HIDE_CSS, markHtmlQuotes, splitTextQuote } from '@/lib/quote-fold'
@@ -63,6 +66,8 @@ interface MailBodyFrameProps {
   allowRemote: boolean
   /** 折叠引用：注入一条把 [data-fm-quote] 藏起来的样式 */
   foldQuote: boolean
+  /** 正文排版偏好：null/缺省 = 不注入（输出与没有这个参数时逐字节相同） */
+  bodyStyle?: BodyStyle | null
   /** 正文里点到 mailto: 链接时的回调（打开应用自己的撰写器） */
   onMailto?: (href: string) => void
 }
@@ -81,7 +86,7 @@ interface MailBodyFrameProps {
  * 父窗口拿不到 contentDocument，高度与链接改由文档内的注入脚本 postMessage 上报。
  * 这里只剩「收消息 → 校验 → 设高度 / 开链接」三件事。
  */
-export function MailBodyFrame({ html, title, allowRemote, foldQuote, onMailto }: MailBodyFrameProps) {
+export function MailBodyFrame({ html, title, allowRemote, foldQuote, bodyStyle, onMailto }: MailBodyFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   // 首次测量完成前先藏起来（仍占位，不引起外层跳动），
   // 免得看到"小框闪一下再弹到正确高度"。
@@ -168,6 +173,7 @@ export function MailBodyFrame({ html, title, allowRemote, foldQuote, onMailto }:
         nonce: frameIds.nonce,
         token: frameIds.token,
         darkBody,
+        bodyStyle,
       })}
       // ⚠⚠ 绝不允许在这里加回 allow-same-origin：它与 allow-scripts 同时出现
       // 就等于把沙箱拆掉（邮件脚本可读 parent.document 与 localStorage 里的 token）。
@@ -266,6 +272,11 @@ export function MessageBody({
   // 语言清单只为把 source_lang 显示成人看得懂的名字；staleTime 是 Infinity，
   // 每个正文实例都调它不会产生额外请求。
   const { data: languages } = useTranslateLanguages()
+
+  // 正文排版偏好：同样随 srcDoc 一次性注入，必须订阅。设置页里拨动滑块，
+  // 已打开的那封要立即跟着变。
+  const appearance = useSyncExternalStore(subscribeAppearance, getAppearance, () => getAppearance())
+  const bodyStyle = useMemo(() => bodyStyleFrom(appearance), [appearance])
 
   // 点了「显示图片」之后带 remote=1 再取一份：净化在服务端，
   // 「放行远程引用」这件事只有服务端说了算，前端没有一份保留了远程地址的正文可用。
@@ -489,6 +500,7 @@ export function MessageBody({
           allowRemote={view.remote_allowed}
           foldQuote={hasQuote && !showQuote}
           title={view.subject}
+          bodyStyle={bodyStyle}
           onMailto={onMailto}
         />
       ) : textBody ? (

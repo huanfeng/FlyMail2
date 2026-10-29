@@ -6,11 +6,13 @@ import { router } from './router'
 import './index.css'
 import '@/lib/i18n'
 import { initTheme } from '@/lib/theme'
+import { initAppearance } from '@/lib/appearance-prefs'
 import { ToastProvider } from '@/components/ui/Toast'
 import { ConfirmProvider } from '@/components/ui/Confirm'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 
 initTheme()
+initAppearance()
 
 const queryClient = new QueryClient({
   defaultOptions: {
